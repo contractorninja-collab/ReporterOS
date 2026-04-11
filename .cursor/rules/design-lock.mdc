@@ -1,0 +1,8 @@
+---
+description: Design lock — do not alter existing styles in working components
+alwaysApply: true
+---
+
+# DESIGN LOCK
+
+Do not change any style, `className`, or inline style value that already exists in a working component. Only add styles for new elements being introduced. If unsure whether a style change is needed, do not make it.

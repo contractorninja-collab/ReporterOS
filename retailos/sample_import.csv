@@ -1,0 +1,6 @@
+barcode,sku,product_name,size,price_sold,quantity,sold_quantity,import_date,gender,season,category,brand
+5901234567890,FIL-TRN-SHOE-M-42,Training Runner M,42,89.99,20,5,2026-02-15,M,SS26,Footwear,Fila
+5901234567891,FIL-TRN-SHOE-M-43,Training Runner M,43,89.99,15,3,2026-02-15,M,SS26,Footwear,Fila
+5901234567892,DIA-CHL-M-44-RED,Challenge M Red,44,129.99,10,2,2026-03-01,M,SS26,Footwear,Diadora
+5901234567893,GRS-TRL-K-28-GRN,Trail Kids Green,28,59.99,25,8,2026-01-20,K,SS26,Footwear,Grisport
+5901234567894,FIL-URB-JKT-F-M,Urban Jacket F,M,149.99,12,4,2026-02-28,F,SS26,Apparel,Fila

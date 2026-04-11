@@ -1,0 +1,773 @@
+import { useMemo, useState } from 'react'
+import { getSellThrough, getDaysInStore, STATUS_COLORS } from '../utils/lifecycle'
+import useStore from '../store/useStore'
+import { isExecutive } from '../utils/roles.js'
+import {
+  IconFootwear,
+  IconApparel,
+  IconAccessories,
+  IconPackage,
+  IconHot,
+  IconClose,
+} from '../utils/icons.js'
+
+const ACTION_BTN = {
+  padding: '8px 14px',
+  borderRadius: 10,
+  fontSize: 12,
+  fontWeight: 600,
+  cursor: 'pointer',
+  border: 'none',
+  fontFamily: '"DM Sans"',
+}
+
+const ASSIGN_TYPES = {
+  markdown: { label: 'Apply Markdown', type: 'markdown' },
+  reorder: { label: 'Place Reorder', type: 'reorder' },
+  display_move: { label: 'Move to Display', type: 'display_move' },
+  sale: { label: 'Assign Sale', type: 'sale' },
+  store_transfer: { label: 'Transfer to Shop', type: 'store_transfer' },
+}
+
+const SHOPS = ['Ring Mall', 'Village']
+
+function suggestMarkdownTier(days) {
+  if (days <= 120) return 20
+  if (days <= 150) return 30
+  if (days <= 170) return 50
+  return 70
+}
+
+function genderSymbol(g) {
+  const x = (g || 'M').toUpperCase().slice(0, 1)
+  if (x === 'M') return 'M'
+  if (x === 'F') return 'F'
+  return 'K'
+}
+
+export default function ProductDetailModal({ sku, status, statusData, onClose }) {
+  const photoUrl = useStore((s) => s.photoMap[sku.sku]) || null
+  const rawSkus = useStore((s) => s.skus)
+  const users = useStore((s) => s.users)
+  const activeUser = useStore((s) => s.activeUser)
+  const showSalesMetrics = isExecutive(activeUser)
+  const addAssignment = useStore((s) => s.addAssignment)
+  const addItemToTodayTransfer = useStore((s) => s.addItemToTodayTransfer)
+  const addItemToStoreTransfer = useStore((s) => s.addItemToStoreTransfer)
+  const activeShifts = useStore((s) => s.activeShifts)
+
+  const [assignPanel, setAssignPanel] = useState(null)
+  const [assignTo, setAssignTo] = useState('')
+  const [assignNote, setAssignNote] = useState('')
+  const [assignDone, setAssignDone] = useState(null)
+  const [markdownTier, setMarkdownTier] = useState(null)
+  const [customMarkdown, setCustomMarkdown] = useState('')
+  const [transferShop, setTransferShop] = useState('')
+
+  const openAssignPanel = (actionType) => {
+    setAssignPanel(actionType)
+    setAssignTo(users[0]?.id || '')
+    setAssignNote('')
+    setAssignDone(null)
+    setMarkdownTier(null)
+    setCustomMarkdown('')
+    const otherShops = SHOPS.filter((s) => s !== (activeUser?.shop || ''))
+    setTransferShop(otherShops[0] || SHOPS[0])
+  }
+
+  const handleAssign = () => {
+    if (!assignTo || !assignPanel) return
+    if (assignPanel === 'markdown' && !markdownTier) return
+    const target = users.find((u) => u.id === assignTo)
+    let note = assignNote
+    if (assignPanel === 'markdown') {
+      const pct = markdownTier === 'custom' ? customMarkdown : markdownTier
+      note = `Markdown: -${pct}%${assignNote ? ' — ' + assignNote : ''}`
+    }
+    addAssignment({
+      type: ASSIGN_TYPES[assignPanel]?.type || assignPanel,
+      skuCode: sku.sku,
+      productName: sku.product_name,
+      assignedTo: assignTo,
+      assignedBy: activeUser?.id || '',
+      shop: target?.shop || '',
+      status: 'pending',
+      note,
+    })
+    setAssignDone(ASSIGN_TYPES[assignPanel]?.label || assignPanel)
+    setTimeout(() => { setAssignPanel(null); setAssignDone(null) }, 1400)
+  }
+
+  const handleStoreTransfer = () => {
+    if (!transferShop) return
+    const remaining = Math.max(0, sku.quantity - sku.sold_quantity)
+    addItemToStoreTransfer(
+      { skuCode: sku.sku, productName: sku.product_name, quantity: remaining, sizes: (sku.sizes || []).join(', ') },
+      activeUser?.shop || 'Ring Mall',
+      transferShop,
+      activeUser?.id || '',
+    )
+    const targetMgr = users.find((u) => u.role === 'manager' && u.shop === transferShop)
+    if (targetMgr) {
+      addAssignment({
+        type: 'store_transfer',
+        skuCode: sku.sku,
+        productName: sku.product_name,
+        assignedTo: targetMgr.id,
+        assignedBy: activeUser?.id || '',
+        shop: transferShop,
+        status: 'pending',
+        note: `Incoming transfer from ${activeUser?.shop || 'Ring Mall'}`,
+      })
+    }
+    setAssignDone(`Transferred to ${transferShop}`)
+    setTimeout(() => setAssignDone(null), 1800)
+  }
+
+  const handleOutletMove = () => {
+    addItemToTodayTransfer(
+      {
+        skuCode: sku.sku,
+        productName: sku.product_name,
+        quantity: Math.max(0, sku.quantity - sku.sold_quantity),
+        sizes: (sku.sizes || []).join(', '),
+      },
+      activeUser?.id || '',
+    )
+    const onShiftIds = new Set((activeShifts || []).map((s) => s.user_id))
+    const outletManagers = users.filter(
+      (u) =>
+        u.role === 'manager' &&
+        (u.shop === 'Ring Mall' || u.shop === 'Village') &&
+        onShiftIds.has(u.id),
+    )
+    for (const m of outletManagers) {
+      addAssignment({
+        type: 'outlet_move',
+        skuCode: sku.sku,
+        productName: sku.product_name,
+        assignedTo: m.id,
+        assignedBy: activeUser?.id || '',
+        shop: 'Outlet',
+        status: 'pending',
+        note: 'Moved to outlet transfer batch',
+      })
+    }
+    setAssignDone('Moved to Outlet')
+    setTimeout(() => setAssignDone(null), 1800)
+  }
+
+  const sizeBreakdown = useMemo(() => {
+    const rows = rawSkus.filter((r) => r.sku === sku.sku)
+    if (!rows.length) return []
+    const map = new Map()
+    for (const r of rows) {
+      const key = (r.size || '—').toString().trim()
+      const prev = map.get(key)
+      const qty = Number(r.quantity) || 0
+      const sold = Number(r.sold_quantity) || 0
+      if (prev) {
+        prev.qty += qty
+        prev.sold += sold
+        prev.remaining = Math.max(0, prev.qty - prev.sold)
+      } else {
+        map.set(key, { size: key, qty, sold, remaining: Math.max(0, qty - sold) })
+      }
+    }
+    return [...map.values()]
+  }, [rawSkus, sku.sku])
+  const pct = getSellThrough(sku.sold_quantity, sku.quantity)
+  const days = getDaysInStore(sku.import_date)
+  const remaining = sku.quantity - sku.sold_quantity
+  const stockColor =
+    remaining <= 3 && remaining > 0 ? '#ff8800' : remaining === 0 ? '#ff3333' : '#00e676'
+  const isFire = pct >= 60
+
+  const STATUS_ORDER = ['New Arrival', 'Active', 'Aging', 'Risk', 'Clearance', 'Outlet']
+
+  const categoryGrad = {
+    Footwear: 'linear-gradient(135deg,#0a1a0a,#1a3a1a)',
+    Apparel: 'linear-gradient(135deg,#1a0a2e,#2d1357)',
+    Accessories: 'linear-gradient(135deg,#0a1a1a,#0d3333)',
+  }
+  const categoryIcon = {
+    Footwear: <IconFootwear size={56} strokeWidth={1} />,
+    Apparel: <IconApparel size={56} strokeWidth={1} />,
+    Accessories: <IconAccessories size={56} strokeWidth={1} />,
+  }
+
+  const thumbBg = categoryGrad[sku.category] || 'linear-gradient(135deg,#111117,#17171f)'
+  const icon = categoryIcon[sku.category] || <IconPackage size={56} strokeWidth={1} />
+
+  const activeIdx = STATUS_ORDER.indexOf(status)
+  const accentColor = statusData.color ?? STATUS_COLORS[status] ?? '#9090aa'
+
+  const showMarkdown = status === 'Clearance' || status === 'Outlet'
+  const showReorder = status === 'Active' && pct >= 60
+  const showDisplay = status === 'Aging' || status === 'Risk'
+
+  return (
+    <div
+      role="presentation"
+      onClick={onClose}
+      style={{
+        position: 'fixed',
+        inset: 0,
+        background: 'rgba(0,0,0,0.82)',
+        zIndex: 999,
+        backdropFilter: 'blur(10px)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: '16px',
+      }}
+    >
+      <div
+        className="fade-up"
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          width: '480px',
+          maxWidth: '92vw',
+          maxHeight: '88vh',
+          overflowY: 'auto',
+          background: '#111117',
+          border: '1px solid rgba(255,255,255,0.09)',
+          borderRadius: '18px',
+        }}
+      >
+        {/* 1. Hero */}
+        <div
+          style={{
+            aspectRatio: '1',
+            position: 'relative',
+            overflow: 'hidden',
+            background: photoUrl ? '#000' : thumbBg,
+          }}
+        >
+          {photoUrl ? (
+            <img
+              src={photoUrl}
+              alt={sku.product_name}
+              style={{
+                width: '100%',
+                height: '100%',
+                objectFit: 'cover',
+                objectPosition: 'center',
+                display: 'block',
+              }}
+            />
+          ) : (
+            <div
+              style={{
+                width: '100%',
+                height: '100%',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: '56px',
+              }}
+            >
+              {icon}
+            </div>
+          )}
+          <div
+            style={{
+              position: 'absolute',
+              inset: 0,
+              background: 'linear-gradient(180deg,transparent 40%,rgba(0,0,0,0.5) 100%)',
+              pointerEvents: 'none',
+            }}
+          />
+
+          <div
+            style={{
+              position: 'absolute',
+              top: 10,
+              left: 10,
+              zIndex: 2,
+              fontSize: 9,
+              fontWeight: 700,
+              textTransform: 'uppercase',
+              letterSpacing: '0.5px',
+              padding: '3px 8px',
+              borderRadius: 4,
+              background: statusData.colorBg,
+              color: statusData.color,
+            }}
+          >
+            {statusData.icon} {statusData.label}
+          </div>
+
+          {isFire && (
+            <div style={{ position: 'absolute', top: 10, right: 48, zIndex: 2, fontSize: 18 }}>
+              <IconHot size={18} strokeWidth={1.5} />
+            </div>
+          )}
+
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            style={{
+              position: 'absolute',
+              top: 8,
+              right: 8,
+              zIndex: 3,
+              width: 32,
+              height: 32,
+              borderRadius: 8,
+              border: '1px solid rgba(255,255,255,0.12)',
+              background: 'rgba(0,0,0,0.45)',
+              color: '#e4e4f0',
+              fontSize: 16,
+              lineHeight: 1,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <IconClose size={16} strokeWidth={1.5} />
+          </button>
+
+          <div
+            style={{
+              position: 'absolute',
+              bottom: 10,
+              right: 12,
+              zIndex: 2,
+              fontFamily: '"DM Sans"',
+              fontSize: 11,
+              color: 'rgba(255,255,255,0.75)',
+            }}
+          >
+            Day {days} in store
+          </div>
+        </div>
+
+        {/* 2. Body */}
+        <div style={{ padding: '20px 22px 22px' }}>
+          <div
+            style={{
+              fontFamily: '"DM Sans"',
+              fontSize: 22,
+              letterSpacing: '0.5px',
+              color: '#fff',
+              lineHeight: 1.15,
+              marginBottom: 6,
+            }}
+          >
+            {sku.product_name}
+          </div>
+          <div
+            style={{
+              fontFamily: '"DM Sans"',
+              fontSize: 11,
+              color: '#4a4a62',
+              marginBottom: 18,
+            }}
+          >
+            {sku.sku}
+          </div>
+
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: showSalesMetrics ? 'repeat(3, 1fr)' : '1fr',
+              gap: 8,
+              marginBottom: 18,
+            }}
+          >
+            {(showSalesMetrics
+              ? [
+                  { label: 'Price', value: `€${sku.price_sold}`, color: '#fff' },
+                  { label: 'Stock', value: String(remaining), color: stockColor },
+                  { label: 'Sold', value: `${Math.round(pct)}%`, color: statusData.color },
+                ]
+              : [{ label: 'Available', value: String(remaining), color: stockColor }]
+            ).map((c) => (
+              <div
+                key={c.label}
+                style={{
+                  background: '#17171f',
+                  border: '1px solid rgba(255,255,255,0.055)',
+                  borderRadius: 10,
+                  padding: 12,
+                  textAlign: 'center',
+                }}
+              >
+                <div style={{ fontSize: 9, fontWeight: 700, color: '#4a4a62', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.6px' }}>
+                  {c.label}
+                </div>
+                <div style={{ fontFamily: '"DM Sans"', fontSize: 26, lineHeight: 1, color: c.color, letterSpacing: '0.5px' }}>
+                  {c.value}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {showSalesMetrics ? (
+            <div style={{ marginBottom: 18 }}>
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  marginBottom: 8,
+                }}
+              >
+                <span style={{ fontSize: 11, fontWeight: 600, color: '#9090aa' }}>Sell-through progress</span>
+                <span style={{ fontSize: 11, fontWeight: 600, color: accentColor, fontFamily: '"DM Sans"' }}>
+                  {sku.sold_quantity} of {sku.quantity} units
+                </span>
+              </div>
+              <div style={{ height: 6, background: 'rgba(255,255,255,0.06)', borderRadius: 3, overflow: 'hidden' }}>
+                <div
+                  style={{
+                    height: '100%',
+                    width: `${pct}%`,
+                    borderRadius: 3,
+                    background: accentColor,
+                    transition: 'width 0.4s ease',
+                  }}
+                />
+              </div>
+            </div>
+          ) : null}
+
+          <div
+            style={{
+              background: '#17171f',
+              border: '1px solid rgba(255,255,255,0.055)',
+              borderRadius: 10,
+              overflow: 'hidden',
+              marginBottom: 18,
+            }}
+          >
+            {[
+              ['Brand', sku.brand ?? '—'],
+              ['Category', sku.category ?? '—'],
+              ['Gender', genderSymbol(sku.gender)],
+              ['Arrival Date', sku.import_date ? new Date(sku.import_date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'],
+              ['Days in store', String(days)],
+              ['Season', sku.season ?? '—'],
+            ].map(([key, val], idx, arr) => (
+              <div
+                key={key}
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  gap: 12,
+                  padding: '9px 14px',
+                  borderBottom: idx < arr.length - 1 ? '1px solid rgba(255,255,255,0.045)' : 'none',
+                }}
+              >
+                <span style={{ fontSize: 11, color: '#4a4a62', flexShrink: 0 }}>{key}</span>
+                <span style={{ fontSize: 12, fontWeight: 700, color: '#e4e4f0', textAlign: 'right' }}>{val}</span>
+              </div>
+            ))}
+          </div>
+
+          {sizeBreakdown.length > 0 && (
+            <div style={{ marginBottom: 18 }}>
+              <div style={{ fontSize: 9, fontWeight: 700, color: '#4a4a62', textTransform: 'uppercase', letterSpacing: '0.8px', marginBottom: 8 }}>
+                Size stock
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                {sizeBreakdown.map((s) => {
+                  const soldOut = s.remaining === 0
+                  const low = !soldOut && s.remaining <= 2
+                  return (
+                    <div
+                      key={s.size}
+                      style={{
+                        minWidth: 52,
+                        padding: '8px 6px',
+                        borderRadius: 8,
+                        textAlign: 'center',
+                        background: soldOut ? 'rgba(255,255,255,0.03)' : '#17171f',
+                        border: `1px solid ${soldOut ? 'rgba(255,255,255,0.04)' : low ? 'rgba(255,136,0,0.25)' : 'rgba(255,255,255,0.055)'}`,
+                        opacity: soldOut ? 0.4 : 1,
+                      }}
+                    >
+                      <div style={{
+                        fontSize: 12,
+                        fontWeight: 700,
+                        color: soldOut ? '#4a4a62' : '#e4e4f0',
+                        textDecoration: soldOut ? 'line-through' : 'none',
+                        marginBottom: 3,
+                      }}>
+                        {s.size}
+                      </div>
+                      <div style={{
+                        fontSize: 10,
+                        fontFamily: '"DM Sans"',
+                        fontWeight: 600,
+                        color: soldOut ? '#4a4a62' : low ? '#ff8800' : '#00e676',
+                      }}>
+                        {soldOut ? '—' : s.remaining}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
+          <div style={{ marginBottom: 18 }}>
+            <div style={{ display: 'flex', gap: 4, marginBottom: 6 }}>
+              {STATUS_ORDER.map((st, i) => {
+                const isActive = i === activeIdx
+                return (
+                  <div
+                    key={st}
+                    style={{
+                      flex: 1,
+                      height: 5,
+                      borderRadius: 3,
+                      background: isActive ? accentColor : 'rgba(255,255,255,0.06)',
+                      boxShadow: isActive ? `0 0 10px ${accentColor}66` : 'none',
+                      transition: 'background 0.2s',
+                    }}
+                  />
+                )
+              })}
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <span style={{ fontSize: 8, color: '#4a4a62', textTransform: 'uppercase', letterSpacing: '0.5px' }}>New</span>
+              <span style={{ fontSize: 8, color: '#4a4a62', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Outlet</span>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            {showMarkdown && (
+              <button type="button" onClick={() => openAssignPanel('markdown')} style={{ ...ACTION_BTN, background: '#ff3333', color: '#fff' }}>
+                Apply Markdown
+              </button>
+            )}
+            {showReorder && (
+              <button type="button" onClick={() => openAssignPanel('reorder')} style={{ ...ACTION_BTN, background: '#00e676', color: '#09090e' }}>
+                Place Reorder
+              </button>
+            )}
+            {showDisplay && (
+              <button type="button" onClick={() => openAssignPanel('display_move')} style={{ ...ACTION_BTN, background: '#ff8800', color: '#09090e' }}>
+                Move to Display
+              </button>
+            )}
+            {(status === 'Aging' || status === 'Risk') && (
+              <button type="button" onClick={() => openAssignPanel('sale')} style={{ ...ACTION_BTN, background: '#c084fc', color: '#09090e' }}>
+                Assign Sale
+              </button>
+            )}
+            {(status === 'Aging' || status === 'Risk' || status === 'Clearance') && (
+              <button type="button" onClick={() => openAssignPanel('store_transfer')} style={{ ...ACTION_BTN, background: '#38bdf8', color: '#09090e' }}>
+                Transfer to Shop
+              </button>
+            )}
+            {(status === 'Clearance' || status === 'Outlet') && (
+              <button type="button" onClick={handleOutletMove} style={{ ...ACTION_BTN, background: '#fbbf24', color: '#09090e' }}>
+                Move to Outlet
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={onClose}
+              style={{ ...ACTION_BTN, background: 'transparent', color: '#9090aa', border: '1px solid rgba(255,255,255,0.055)' }}
+            >
+              Close
+            </button>
+          </div>
+
+          {assignDone && !assignPanel && (
+            <div style={{ marginTop: 10, padding: '8px 14px', borderRadius: 10, background: 'rgba(0,230,118,0.1)', border: '1px solid rgba(0,230,118,0.2)', fontSize: 12, color: '#00e676', fontWeight: 600 }}>
+              {assignDone}
+            </div>
+          )}
+
+          {assignPanel && assignPanel === 'store_transfer' && !assignDone && (
+            <div style={{ marginTop: 10, background: '#17171f', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12, padding: 14 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: '#9090aa', textTransform: 'uppercase', letterSpacing: '0.8px', marginBottom: 10 }}>
+                Transfer to Shop
+              </div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
+                {SHOPS.filter((s) => s !== (activeUser?.shop || '')).map((s) => (
+                  <button
+                    key={s}
+                    type="button"
+                    onClick={() => setTransferShop(s)}
+                    style={{
+                      ...ACTION_BTN,
+                      padding: '6px 14px',
+                      background: transferShop === s ? 'rgba(56,189,248,0.15)' : 'rgba(255,255,255,0.04)',
+                      color: transferShop === s ? '#38bdf8' : '#9090aa',
+                      border: `1px solid ${transferShop === s ? 'rgba(56,189,248,0.3)' : 'rgba(255,255,255,0.06)'}`,
+                    }}
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button type="button" onClick={handleStoreTransfer} style={{ ...ACTION_BTN, background: '#38bdf8', color: '#09090e', padding: '7px 16px' }}>
+                  Transfer
+                </button>
+                <button type="button" onClick={() => setAssignPanel(null)} style={{ ...ACTION_BTN, background: 'none', color: '#4a4a62', border: '1px solid rgba(255,255,255,0.06)', padding: '7px 16px' }}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+
+          {assignPanel && assignPanel !== 'store_transfer' && (
+            <div style={{ marginTop: 10, background: '#17171f', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12, padding: 14 }}>
+              {assignDone ? (
+                <div style={{ fontSize: 13, color: '#00e676', fontWeight: 600 }}>Assigned: {assignDone}</div>
+              ) : (
+                <>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: '#9090aa', textTransform: 'uppercase', letterSpacing: '0.8px', marginBottom: 10 }}>
+                    Assign &quot;{ASSIGN_TYPES[assignPanel]?.label || assignPanel}&quot;
+                  </div>
+
+                  {assignPanel === 'markdown' && (
+                    <div style={{ marginBottom: 10 }}>
+                      <div style={{ fontSize: 10, color: '#4a4a62', marginBottom: 6 }}>Select discount tier:</div>
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                        {[20, 30, 50, 70].map((pct) => {
+                          const suggested = suggestMarkdownTier(days)
+                          const isSelected = markdownTier === pct
+                          const isSuggested = pct === suggested
+                          return (
+                            <button
+                              key={pct}
+                              type="button"
+                              onClick={() => { setMarkdownTier(pct); setCustomMarkdown('') }}
+                              style={{
+                                ...ACTION_BTN,
+                                padding: '5px 12px',
+                                fontSize: 11,
+                                background: isSelected ? 'rgba(255,51,51,0.15)' : 'rgba(255,255,255,0.04)',
+                                color: isSelected ? '#ff3333' : '#9090aa',
+                                border: `1px solid ${isSelected ? 'rgba(255,51,51,0.3)' : isSuggested ? 'rgba(255,51,51,0.15)' : 'rgba(255,255,255,0.06)'}`,
+                                position: 'relative',
+                              }}
+                            >
+                              -{pct}%
+                              {isSuggested && (
+                                <span style={{ position: 'absolute', top: -7, right: -4, fontSize: 7, background: '#ff3333', color: '#fff', padding: '1px 4px', borderRadius: 3, fontWeight: 700 }}>
+                                  REC
+                                </span>
+                              )}
+                            </button>
+                          )
+                        })}
+                        <button
+                          type="button"
+                          onClick={() => setMarkdownTier('custom')}
+                          style={{
+                            ...ACTION_BTN,
+                            padding: '5px 12px',
+                            fontSize: 11,
+                            background: markdownTier === 'custom' ? 'rgba(255,51,51,0.15)' : 'rgba(255,255,255,0.04)',
+                            color: markdownTier === 'custom' ? '#ff3333' : '#9090aa',
+                            border: `1px solid ${markdownTier === 'custom' ? 'rgba(255,51,51,0.3)' : 'rgba(255,255,255,0.06)'}`,
+                          }}
+                        >
+                          Custom
+                        </button>
+                      </div>
+                      {markdownTier === 'custom' && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 8 }}>
+                          <span style={{ fontSize: 12, color: '#9090aa' }}>-</span>
+                          <input
+                            type="number"
+                            min="1"
+                            max="99"
+                            value={customMarkdown}
+                            onChange={(e) => setCustomMarkdown(e.target.value)}
+                            placeholder="e.g. 15"
+                            style={{
+                              width: 64,
+                              background: '#111117',
+                              border: '1px solid rgba(255,255,255,0.08)',
+                              borderRadius: 8,
+                              padding: '5px 8px',
+                              color: '#e4e4f0',
+                              fontSize: 12,
+                              fontFamily: '"DM Sans"',
+                              outline: 'none',
+                            }}
+                          />
+                          <span style={{ fontSize: 12, color: '#9090aa' }}>%</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
+                    <select
+                      value={assignTo}
+                      onChange={(e) => setAssignTo(e.target.value)}
+                      style={{
+                        flex: '1 1 160px',
+                        background: '#111117',
+                        border: '1px solid rgba(255,255,255,0.08)',
+                        borderRadius: 8,
+                        padding: '7px 10px',
+                        color: '#e4e4f0',
+                        fontSize: 12,
+                        fontFamily: '"DM Sans"',
+                        outline: 'none',
+                      }}
+                    >
+                      {users.map((u) => (
+                        <option key={u.id} value={u.id}>
+                          {u.name}{u.shop ? ` (${u.shop})` : ''}
+                        </option>
+                      ))}
+                    </select>
+                    <input
+                      type="text"
+                      placeholder="Note (optional)"
+                      value={assignNote}
+                      onChange={(e) => setAssignNote(e.target.value)}
+                      style={{
+                        flex: '1 1 120px',
+                        background: '#111117',
+                        border: '1px solid rgba(255,255,255,0.08)',
+                        borderRadius: 8,
+                        padding: '7px 10px',
+                        color: '#e4e4f0',
+                        fontSize: 12,
+                        fontFamily: '"DM Sans"',
+                        outline: 'none',
+                      }}
+                    />
+                  </div>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button
+                      type="button"
+                      onClick={handleAssign}
+                      disabled={assignPanel === 'markdown' && !markdownTier}
+                      style={{ ...ACTION_BTN, background: '#ff3333', color: '#fff', padding: '7px 16px', opacity: assignPanel === 'markdown' && !markdownTier ? 0.4 : 1 }}
+                    >
+                      Assign
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setAssignPanel(null)}
+                      style={{ ...ACTION_BTN, background: 'none', color: '#4a4a62', border: '1px solid rgba(255,255,255,0.06)', padding: '7px 16px' }}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
