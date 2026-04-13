@@ -29,14 +29,14 @@ const TH = {
   padding: '8px 10px',
   fontSize: 9,
   fontWeight: 700,
-  color: '#4a4a62',
+  color: 'var(--ro-text-muted)',
   textTransform: 'uppercase',
   letterSpacing: '0.8px',
-  borderBottom: '1px solid rgba(255,255,255,0.06)',
+  borderBottom: '1px solid var(--ro-border)',
   cursor: 'pointer',
   userSelect: 'none',
 }
-const TD = { padding: '8px 10px', fontSize: 12, color: '#e4e4f0', borderBottom: '1px solid rgba(255,255,255,0.04)' }
+const TD = { padding: '8px 10px', fontSize: 12, color: 'var(--ro-text)', borderBottom: '1px solid var(--ro-border)' }
 
 const TILES = [
   { status: 'New Arrival', color: '#38bdf8', colorBg: 'rgba(56,189,248,0.1)', icon: '•' },
@@ -246,8 +246,8 @@ export function ProductLookup() {
     return (
       <div style={{ maxWidth: 480, margin: '60px auto', textAlign: 'center' }}>
         <div style={{ fontSize: 48, marginBottom: 16 }}><IconLock size={48} strokeWidth={1.5} /></div>
-        <h2 style={{ fontFamily: '"DM Sans"', fontSize: 22, letterSpacing: '2px', color: '#fff', margin: '0 0 8px' }}>EXECUTIVE ACCESS ONLY</h2>
-        <p style={{ fontSize: 13, color: '#4a4a62' }}>Product Lookup & AI Insights are only available to Executive users.</p>
+        <h2 style={{ fontFamily: '"DM Sans"', fontSize: 22, letterSpacing: '2px', color: 'var(--ro-heading)', margin: '0 0 8px' }}>EXECUTIVE ACCESS ONLY</h2>
+        <p style={{ fontSize: 13, color: 'var(--ro-text-muted)' }}>Product Lookup & AI Insights are only available to Executive users.</p>
       </div>
     )
   }
@@ -255,7 +255,7 @@ export function ProductLookup() {
   return (
     <div style={{ maxWidth: 1280 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
-        <div style={{ fontFamily: DM, fontSize: 16, letterSpacing: '2px', color: '#fff' }}>PRODUCT LOOKUP</div>
+        <div style={{ fontFamily: DM, fontSize: 16, letterSpacing: '2px', color: 'var(--ro-heading)' }}>PRODUCT LOOKUP</div>
         <Link to="/" style={{ fontSize: 12, color: '#38bdf8', fontFamily: DM }}>
           Dashboard
         </Link>
@@ -279,9 +279,9 @@ export function ProductLookup() {
               fontSize: 12,
               fontWeight: 600,
               cursor: 'pointer',
-              border: tab === t.key ? '1px solid rgba(192,132,252,0.4)' : '1px solid rgba(255,255,255,0.06)',
+              border: tab === t.key ? '1px solid rgba(192,132,252,0.4)' : '1px solid var(--ro-border)',
               background: tab === t.key ? 'rgba(192,132,252,0.12)' : 'transparent',
-              color: tab === t.key ? '#c084fc' : '#4a4a62',
+              color: tab === t.key ? '#c084fc' : 'var(--ro-text-muted)',
               fontFamily: DM,
             }}
           >
@@ -301,11 +301,11 @@ export function ProductLookup() {
             style={{
               flex: '1 1 220px',
               maxWidth: 360,
-              background: '#111117',
-              border: '1px solid rgba(255,255,255,0.08)',
+              background: 'var(--ro-surface)',
+              border: '1px solid var(--ro-border-hover)',
               borderRadius: 8,
               padding: '10px 12px',
-              color: '#e4e4f0',
+              color: 'var(--ro-text)',
               fontSize: 13,
               fontFamily: DM,
               outline: 'none',
@@ -338,13 +338,13 @@ export function ProductLookup() {
       )}
 
       {report && report._clientOnly && !loadError && (
-        <div style={{ fontSize: 11, color: '#4a4a62', marginBottom: 12, fontFamily: DM }}>
+        <div style={{ fontSize: 11, color: 'var(--ro-text-muted)', marginBottom: 12, fontFamily: DM }}>
           Using catalog from this device; start the server for full import history and shared totals.
         </div>
       )}
 
       <div style={{ display: 'flex', gap: 6, marginBottom: 16, flexWrap: 'wrap' }}>
-        <span style={{ fontSize: 10, color: '#4a4a62', alignSelf: 'center', marginRight: 4, fontFamily: DM }}>Gender</span>
+        <span style={{ fontSize: 10, color: 'var(--ro-text-muted)', alignSelf: 'center', marginRight: 4, fontFamily: DM }}>Gender</span>
         {GENDER_FILTERS.map((g) => (
           <button
             key={g.key}
@@ -356,9 +356,9 @@ export function ProductLookup() {
               fontSize: 11,
               fontWeight: 600,
               cursor: 'pointer',
-              border: gender === g.key ? '1px solid rgba(56,189,248,0.35)' : '1px solid rgba(255,255,255,0.06)',
+              border: gender === g.key ? '1px solid rgba(56,189,248,0.35)' : '1px solid var(--ro-border)',
               background: gender === g.key ? 'rgba(56,189,248,0.1)' : 'transparent',
-              color: gender === g.key ? '#38bdf8' : '#4a4a62',
+              color: gender === g.key ? '#38bdf8' : 'var(--ro-text-muted)',
               fontFamily: DM,
             }}
           >
@@ -390,22 +390,22 @@ export function ProductLookup() {
               <div
                 key={label}
                 style={{
-                  background: '#111117',
-                  border: '1px solid rgba(255,255,255,0.055)',
+                  background: 'var(--ro-surface)',
+                  border: '1px solid var(--ro-border)',
                   borderRadius: 11,
                   padding: '12px 14px',
                 }}
               >
-                <div style={{ fontSize: 9, color: '#4a4a62', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6, fontFamily: DM }}>
+                <div style={{ fontSize: 9, color: 'var(--ro-text-muted)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6, fontFamily: DM }}>
                   {label}
                 </div>
-                <div style={{ fontFamily: DM, fontSize: 20, color: accentColor || '#fff' }}>{val}</div>
+                <div style={{ fontFamily: DM, fontSize: 20, color: accentColor || 'var(--ro-heading)' }}>{val}</div>
               </div>
             ))}
           </div>
 
           {gender === 'all' && report.byGender && (
-            <div style={{ marginBottom: 16, fontSize: 11, color: '#9090aa', fontFamily: DM }}>
+            <div style={{ marginBottom: 16, fontSize: 11, color: 'var(--ro-text-dim)', fontFamily: DM }}>
               Men: import {report.byGender.Men?.stock ?? 0}, on hand {report.byGender.Men?.remaining ?? 0}, sold{' '}
               {report.byGender.Men?.sold ?? 0} · Women: import {report.byGender.Women?.stock ?? 0}, on hand{' '}
               {report.byGender.Women?.remaining ?? 0}, sold {report.byGender.Women?.sold ?? 0} · Kids: import{' '}
@@ -414,7 +414,7 @@ export function ProductLookup() {
             </div>
           )}
 
-          <div style={{ overflowX: 'auto', background: '#111117', border: '1px solid rgba(255,255,255,0.055)', borderRadius: 12, marginBottom: 20 }}>
+          <div style={{ overflowX: 'auto', background: 'var(--ro-surface)', border: '1px solid var(--ro-border)', borderRadius: 12, marginBottom: 20 }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1200 }}>
               <thead>
                 <tr>
@@ -444,7 +444,7 @@ export function ProductLookup() {
               <tbody>
                 {sortedRows.length === 0 ? (
                   <tr>
-                    <td colSpan={13} style={{ ...TD, textAlign: 'center', color: '#4a4a62', padding: 28 }}>
+                    <td colSpan={13} style={{ ...TD, textAlign: 'center', color: 'var(--ro-text-muted)', padding: 28 }}>
                       {tab === 'search' && !qParam
                         ? 'Enter a product name and press Search, or open All inventory for the full catalog.'
                         : `No products match${tab === 'search' && qForApi ? ` “${qForApi}”` : ''}.`}
@@ -460,10 +460,10 @@ export function ProductLookup() {
                           {skuPhoto[row.sku] ? (
                             <img src={skuPhoto[row.sku]} alt="" style={{ width: 28, height: 28, borderRadius: 5, objectFit: 'cover', display: 'block' }} />
                           ) : (
-                            <div style={{ width: 28, height: 28, borderRadius: 5, background: '#17171f', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, color: '#4a4a62' }}>—</div>
+                            <div style={{ width: 28, height: 28, borderRadius: 5, background: 'var(--ro-surface-elevated)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, color: 'var(--ro-text-muted)' }}>—</div>
                           )}
                         </td>
-                        <td style={{ ...TD, color: '#9090aa', fontFamily: DM, fontSize: 11 }}>{row.sku}</td>
+                        <td style={{ ...TD, color: 'var(--ro-text-dim)', fontFamily: DM, fontSize: 11 }}>{row.sku}</td>
                         <td style={TD}>{row.genderBucket}</td>
                         <td style={TD}>{row.stock}</td>
                         <td style={TD}>{row.sold}</td>
@@ -489,7 +489,7 @@ export function ProductLookup() {
                           >
                             {verdict.recommendation}
                           </span>
-                          <div style={{ fontSize: 9, color: '#4a4a62', marginTop: 2, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          <div style={{ fontSize: 9, color: 'var(--ro-text-muted)', marginTop: 2, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                             {verdict.reason}
                           </div>
                         </td>
@@ -503,9 +503,9 @@ export function ProductLookup() {
                               fontSize: 10,
                               fontWeight: 600,
                               cursor: 'pointer',
-                              border: '1px solid rgba(255,255,255,0.08)',
-                              background: '#17171f',
-                              color: '#9090aa',
+                              border: '1px solid var(--ro-border-hover)',
+                              background: 'var(--ro-surface-elevated)',
+                              color: 'var(--ro-text-dim)',
                               fontFamily: DM,
                             }}
                           >
@@ -521,8 +521,8 @@ export function ProductLookup() {
           </div>
 
           {report.timeline?.length > 0 && (
-            <div style={{ background: '#111117', border: '1px solid rgba(255,255,255,0.055)', borderRadius: 12, padding: '16px 18px' }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: '#9090aa', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 12, fontFamily: DM }}>
+            <div style={{ background: 'var(--ro-surface)', border: '1px solid var(--ro-border)', borderRadius: 12, padding: '16px 18px' }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--ro-text-dim)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 12, fontFamily: DM }}>
                 Import history (this selection)
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -534,14 +534,14 @@ export function ProductLookup() {
                       justifyContent: 'space-between',
                       alignItems: 'center',
                       fontSize: 12,
-                      color: '#e4e4f0',
+                      color: 'var(--ro-text)',
                       fontFamily: DM,
-                      borderBottom: '1px solid rgba(255,255,255,0.04)',
+                      borderBottom: '1px solid var(--ro-border)',
                       paddingBottom: 8,
                     }}
                   >
                     <span>
-                      {t.filename} <span style={{ color: '#4a4a62' }}>· {new Date(t.importedAt).toLocaleString()}</span>
+                      {t.filename} <span style={{ color: 'var(--ro-text-muted)' }}>· {new Date(t.importedAt).toLocaleString()}</span>
                     </span>
                     <span style={{ color: '#38bdf8', fontWeight: 600 }}>+{t.unitsAdded} units</span>
                   </div>

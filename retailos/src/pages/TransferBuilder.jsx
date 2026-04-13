@@ -7,12 +7,12 @@ import { IconSearch, IconClose } from '../utils/icons.js'
 const DM = '"DM Sans", sans-serif'
 const SHOPS = ['Ring Mall', 'Village']
 const S = {
-  surface: '#111117',
-  surface2: '#17171f',
-  border: 'rgba(255,255,255,0.055)',
-  text: '#e4e4f0',
-  text2: '#9090aa',
-  muted: '#4a4a62',
+  surface: 'var(--ro-surface)',
+  surface2: 'var(--ro-surface-elevated)',
+  border: 'var(--ro-border)',
+  text: 'var(--ro-text)',
+  text2: 'var(--ro-text-dim)',
+  muted: 'var(--ro-text-muted)',
   accent: '#ff3333',
   green: '#00e676',
   blue: '#38bdf8',
@@ -283,7 +283,7 @@ export function TransferBuilder() {
   return (
     <div style={{ maxWidth: 1100 }}>
       <div style={{ marginBottom: 20 }}>
-        <h2 style={{ fontFamily: DM, fontSize: 22, letterSpacing: '2px', color: '#fff', margin: 0 }}>
+        <h2 style={{ fontFamily: DM, fontSize: 22, letterSpacing: '2px', color: 'var(--ro-heading)', margin: 0 }}>
           NEW TRANSFER
         </h2>
         <p style={{ fontSize: 12, color: S.muted, margin: '4px 0 0' }}>
@@ -561,7 +561,7 @@ export function TransferBuilder() {
                           key={sz}
                           style={{
                             fontSize: 9, padding: '2px 6px', borderRadius: 4,
-                            background: 'rgba(255,255,255,0.05)', color: S.text2,
+                            background: 'var(--ro-fill-soft)', color: S.text2,
                             fontFamily: DM, fontWeight: 600,
                           }}
                         >
@@ -705,7 +705,7 @@ export function TransferBuilder() {
                       key={b.size}
                       style={{
                         fontSize: 10, padding: '2px 7px', borderRadius: 4,
-                        background: 'rgba(255,255,255,0.06)', color: S.text,
+                        background: 'var(--ro-fill-muted)', color: S.text,
                         fontFamily: DM, fontWeight: 600,
                       }}
                     >

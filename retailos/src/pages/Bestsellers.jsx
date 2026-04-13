@@ -118,9 +118,9 @@ const PILL = {
   cursor: 'pointer', transition: 'all 0.13s', fontFamily: '"DM Sans"',
 }
 const PILL_ON = { background: 'rgba(255,51,51,0.1)', border: '1px solid rgba(255,51,51,0.25)', color: '#ff3333' }
-const PILL_OFF = { background: '#17171f', border: '1px solid rgba(255,255,255,0.055)', color: '#4a4a62' }
+const PILL_OFF = { background: 'var(--ro-surface-elevated)', border: '1px solid var(--ro-border)', color: 'var(--ro-text-muted)' }
 const TOGGLE_ON = { background: 'rgba(56,189,248,0.1)', border: '1px solid rgba(56,189,248,0.25)', color: '#38bdf8' }
-const TOGGLE_OFF = { background: '#17171f', border: '1px solid rgba(255,255,255,0.055)', color: '#4a4a62' }
+const TOGGLE_OFF = { background: 'var(--ro-surface-elevated)', border: '1px solid var(--ro-border)', color: 'var(--ro-text-muted)' }
 const GREEN_ON = { background: 'rgba(0,230,118,0.1)', border: '1px solid rgba(0,230,118,0.25)', color: '#00e676' }
 
 function fmt(n) {
@@ -140,13 +140,13 @@ function HorizontalBarChart({ items, maxValue }) {
         const pct = maxValue > 0 ? (item.value / maxValue) * 100 : 0
         return (
           <div key={item.label} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <div style={{ width: 70, fontSize: 10, color: '#9090aa', fontFamily: '"DM Sans"', textAlign: 'right', flexShrink: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            <div style={{ width: 70, fontSize: 10, color: 'var(--ro-text-dim)', fontFamily: '"DM Sans"', textAlign: 'right', flexShrink: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {item.label}
             </div>
-            <div style={{ flex: 1, height: 14, background: 'rgba(255,255,255,0.03)', borderRadius: 3, overflow: 'hidden', position: 'relative' }}>
+            <div style={{ flex: 1, height: 14, background: 'var(--ro-fill-faint)', borderRadius: 3, overflow: 'hidden', position: 'relative' }}>
               <div style={{ width: `${Math.max(pct, 2)}%`, height: '100%', background: item.color || '#38bdf8', borderRadius: 3, transition: 'width 0.4s ease' }} />
             </div>
-            <div style={{ width: 40, fontSize: 10, color: '#e4e4f0', fontFamily: '"DM Sans"', textAlign: 'right', flexShrink: 0 }}>
+            <div style={{ width: 40, fontSize: 10, color: 'var(--ro-text)', fontFamily: '"DM Sans"', textAlign: 'right', flexShrink: 0 }}>
               {item.value}
             </div>
           </div>
@@ -181,14 +181,14 @@ function DonutChart({ segments, size = 80, label }) {
           offset += dash
           return el
         })}
-        <text x={cx} y={cy + 1} textAnchor="middle" dominantBaseline="middle" fill="#e4e4f0" fontSize={13} fontFamily="DM Sans" fontWeight={700}>
+        <text x={cx} y={cy + 1} textAnchor="middle" dominantBaseline="middle" fill="var(--ro-text)" fontSize={13} fontFamily="DM Sans" fontWeight={700}>
           {total}
         </text>
       </svg>
-      {label && <div style={{ fontSize: 9, color: '#4a4a62', textTransform: 'uppercase', letterSpacing: 1, fontFamily: '"DM Sans"' }}>{label}</div>}
+      {label && <div style={{ fontSize: 9, color: 'var(--ro-text-muted)', textTransform: 'uppercase', letterSpacing: 1, fontFamily: '"DM Sans"' }}>{label}</div>}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, justifyContent: 'center' }}>
         {segments.filter((s) => s.value > 0).map((seg) => (
-          <div key={seg.label} style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 9, color: '#9090aa' }}>
+          <div key={seg.label} style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 9, color: 'var(--ro-text-dim)' }}>
             <div style={{ width: 8, height: 8, borderRadius: 2, background: seg.color }} />
             {seg.label} ({Math.round((seg.value / total) * 100)}%)
           </div>
@@ -201,9 +201,9 @@ function DonutChart({ segments, size = 80, label }) {
 // ── Delta Arrow ──────────────────────────────────────────────────────────────
 
 function DeltaBadge({ prevRank, currentRank }) {
-  if (prevRank == null) return <span style={{ fontSize: 9, color: '#4a4a62', fontFamily: '"DM Sans"' }}>NEW</span>
+  if (prevRank == null) return <span style={{ fontSize: 9, color: 'var(--ro-text-muted)', fontFamily: '"DM Sans"' }}>NEW</span>
   const diff = prevRank - currentRank
-  if (diff === 0) return <span style={{ fontSize: 9, color: '#4a4a62', fontFamily: '"DM Sans"' }}>=</span>
+  if (diff === 0) return <span style={{ fontSize: 9, color: 'var(--ro-text-muted)', fontFamily: '"DM Sans"' }}>=</span>
   const up = diff > 0
   return (
     <span style={{ fontSize: 9, fontWeight: 700, fontFamily: '"DM Sans"', color: up ? '#00e676' : '#ff3333', display: 'inline-flex', alignItems: 'center', gap: 2 }}>
@@ -406,7 +406,7 @@ export function Bestsellers() {
       { label: 'Men', value: counts.M, color: '#38bdf8' },
       { label: 'Women', value: counts.F, color: '#f472b6' },
       { label: 'Kids', value: counts.K, color: '#fbbf24' },
-      { label: 'Other', value: counts.Other, color: '#9090aa' },
+      { label: 'Other', value: counts.Other, color: 'var(--ro-text-dim)' },
     ]
   }, [rankedSkus])
 
@@ -482,7 +482,7 @@ export function Bestsellers() {
     <div>
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, flexWrap: 'wrap', gap: 8 }} className="fade-up delay-1">
-        <div style={{ fontFamily: '"DM Sans"', fontSize: 16, letterSpacing: '2px', color: '#fff', display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ fontFamily: '"DM Sans"', fontSize: 16, letterSpacing: '2px', color: 'var(--ro-heading)', display: 'flex', alignItems: 'center', gap: 8 }}>
           <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#ff8800', animation: 'blink 2s infinite' }} />
           {headerLabel}
         </div>
@@ -504,20 +504,20 @@ export function Bestsellers() {
           ))}
         </div>
       ) : (
-        <div style={{ fontSize: 11, color: '#4a4a62', marginBottom: 10, lineHeight: 1.45 }} className="fade-up delay-1">
-          Rankings use <strong style={{ color: '#9090aa' }}>sell-through %</strong> on your full inventory history (no revenue or period sales).
+        <div style={{ fontSize: 11, color: 'var(--ro-text-muted)', marginBottom: 10, lineHeight: 1.45 }} className="fade-up delay-1">
+          Rankings use <strong style={{ color: 'var(--ro-text-dim)' }}>sell-through %</strong> on your full inventory history (no revenue or period sales).
         </div>
       )}
 
       {/* Custom date picker */}
       {exec && timeRange === 'custom' && (
         <div style={{ display: 'flex', gap: 8, marginBottom: 10, alignItems: 'center', flexWrap: 'wrap' }} className="fade-up delay-1">
-          <label style={{ fontSize: 11, color: '#9090aa' }}>From</label>
+          <label style={{ fontSize: 11, color: 'var(--ro-text-dim)' }}>From</label>
           <input type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)}
-            style={{ background: '#17171f', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 6, color: '#e4e4f0', padding: '4px 8px', fontSize: 11, fontFamily: '"DM Sans"', outline: 'none' }} />
-          <label style={{ fontSize: 11, color: '#9090aa' }}>To</label>
+            style={{ background: 'var(--ro-surface-elevated)', border: '1px solid var(--ro-border-hover)', borderRadius: 6, color: 'var(--ro-text)', padding: '4px 8px', fontSize: 11, fontFamily: '"DM Sans"', outline: 'none' }} />
+          <label style={{ fontSize: 11, color: 'var(--ro-text-dim)' }}>To</label>
           <input type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)}
-            style={{ background: '#17171f', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 6, color: '#e4e4f0', padding: '4px 8px', fontSize: 11, fontFamily: '"DM Sans"', outline: 'none' }} />
+            style={{ background: 'var(--ro-surface-elevated)', border: '1px solid var(--ro-border-hover)', borderRadius: 6, color: 'var(--ro-text)', padding: '4px 8px', fontSize: 11, fontFamily: '"DM Sans"', outline: 'none' }} />
         </div>
       )}
 
@@ -529,7 +529,7 @@ export function Bestsellers() {
           </div>
         ))}
 
-        <div style={{ width: 1, height: 22, background: 'rgba(255,255,255,0.06)', margin: '0 6px' }} />
+        <div style={{ width: 1, height: 22, background: 'var(--ro-fill-muted)', margin: '0 6px' }} />
 
         {(exec ? RANK_MODES : RANK_MODES.filter((m) => m.key === 'sell_through')).map((m) => (
           <div key={m.key} onClick={() => exec && setRankMode(m.key)} style={{ ...PILL, ...(rankMode === m.key ? TOGGLE_ON : TOGGLE_OFF) }}>
@@ -537,7 +537,7 @@ export function Bestsellers() {
           </div>
         ))}
 
-        <div style={{ width: 1, height: 22, background: 'rgba(255,255,255,0.06)', margin: '0 6px' }} />
+        <div style={{ width: 1, height: 22, background: 'var(--ro-fill-muted)', margin: '0 6px' }} />
 
         <div onClick={() => setLimit(limit === 10 ? 20 : 10)} style={{ ...PILL, ...(limit === 20 ? TOGGLE_ON : TOGGLE_OFF) }}>
           Top {limit}
@@ -545,7 +545,7 @@ export function Bestsellers() {
 
         {exec && needsFetch && (
           <>
-            <div style={{ width: 1, height: 22, background: 'rgba(255,255,255,0.06)', margin: '0 6px' }} />
+            <div style={{ width: 1, height: 22, background: 'var(--ro-fill-muted)', margin: '0 6px' }} />
             <div onClick={() => setShowCompare(!showCompare)} style={{ ...PILL, ...(showCompare ? GREEN_ON : TOGGLE_OFF), display: 'inline-flex', alignItems: 'center', gap: 4 }}>
               <IconTrendUp size={12} strokeWidth={1.5} /> vs Prev
             </div>
@@ -554,19 +554,19 @@ export function Bestsellers() {
       </div>
 
       {/* Info banner */}
-      <div style={{ background: '#17171f', border: '1px solid rgba(255,255,255,0.055)', borderRadius: 10, padding: '10px 14px', marginBottom: 16, fontSize: 11, color: '#9090aa', lineHeight: 1.6 }} className="fade-up delay-1">
+      <div style={{ background: 'var(--ro-surface-elevated)', border: '1px solid var(--ro-border)', borderRadius: 10, padding: '10px 14px', marginBottom: 16, fontSize: 11, color: 'var(--ro-text-dim)', lineHeight: 1.6 }} className="fade-up delay-1">
         {!exec ? (
-          <><strong style={{ color: '#e4e4f0' }}>Shop view:</strong> Top products are ranked by sell-through % only. Revenue, units sold, and time filters are available to executives.</>
+          <><strong style={{ color: 'var(--ro-text)' }}>Shop view:</strong> Top products are ranked by sell-through % only. Revenue, units sold, and time filters are available to executives.</>
         ) : (
           <>
             {rankMode === 'sell_through' && (
-              <><strong style={{ color: '#e4e4f0' }}>Bestseller Logic:</strong> Rank uses % sell-through — not raw quantity. A 3-unit apparel item at 67% ranks above a 40-pair shoe at 20%.</>
+              <><strong style={{ color: 'var(--ro-text)' }}>Bestseller Logic:</strong> Rank uses % sell-through — not raw quantity. A 3-unit apparel item at 67% ranks above a 40-pair shoe at 20%.</>
             )}
             {rankMode === 'revenue' && (
-              <><strong style={{ color: '#e4e4f0' }}>Revenue Ranked:</strong> Products are sorted by total revenue generated{isTimeLimited ? ' in the selected period' : ''}. Best earners appear first.</>
+              <><strong style={{ color: 'var(--ro-text)' }}>Revenue Ranked:</strong> Products are sorted by total revenue generated{isTimeLimited ? ' in the selected period' : ''}. Best earners appear first.</>
             )}
             {rankMode === 'qty_sold' && (
-              <><strong style={{ color: '#e4e4f0' }}>Qty Sold Ranked:</strong> Products are sorted by total units sold{isTimeLimited ? ' in the selected period' : ''}. Highest volume movers appear first.</>
+              <><strong style={{ color: 'var(--ro-text)' }}>Qty Sold Ranked:</strong> Products are sorted by total units sold{isTimeLimited ? ' in the selected period' : ''}. Highest volume movers appear first.</>
             )}
           </>
         )}
@@ -595,7 +595,7 @@ export function Bestsellers() {
           )
         })}
         {rankedSkus.length === 0 && (
-          <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: 40, color: '#4a4a62', fontSize: 13 }}>
+          <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: 40, color: 'var(--ro-text-muted)', fontSize: 13 }}>
             No products match the current filters.
           </div>
         )}
@@ -604,42 +604,42 @@ export function Bestsellers() {
       {/* Analytics Row — Brand Breakdown + Gender + Season */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 22 }} className="fade-up delay-2">
         {/* Brand breakdown */}
-        <div style={{ background: '#111117', border: '1px solid rgba(255,255,255,0.055)', borderRadius: 13, padding: 16 }}>
-          <div style={{ fontFamily: '"DM Sans"', fontSize: 11, letterSpacing: '1.5px', color: '#4a4a62', textTransform: 'uppercase', marginBottom: 10 }}>
+        <div style={{ background: 'var(--ro-surface)', border: '1px solid var(--ro-border)', borderRadius: 13, padding: 16 }}>
+          <div style={{ fontFamily: '"DM Sans"', fontSize: 11, letterSpacing: '1.5px', color: 'var(--ro-text-muted)', textTransform: 'uppercase', marginBottom: 10 }}>
             Brand Distribution (Top {limit})
           </div>
           <HorizontalBarChart items={brandBreakdown} maxValue={Math.max(...brandBreakdown.map((b) => b.value), 1)} />
-          {brandBreakdown.length === 0 && <div style={{ fontSize: 11, color: '#4a4a62' }}>No brand data</div>}
+          {brandBreakdown.length === 0 && <div style={{ fontSize: 11, color: 'var(--ro-text-muted)' }}>No brand data</div>}
         </div>
 
         {/* Gender drill-down */}
-        <div style={{ background: '#111117', border: '1px solid rgba(255,255,255,0.055)', borderRadius: 13, padding: 16, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+        <div style={{ background: 'var(--ro-surface)', border: '1px solid var(--ro-border)', borderRadius: 13, padding: 16, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
           <DonutChart segments={genderSegments} size={90} label="Gender Split" />
         </div>
 
         {/* Season drill-down */}
-        <div style={{ background: '#111117', border: '1px solid rgba(255,255,255,0.055)', borderRadius: 13, padding: 16, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+        <div style={{ background: 'var(--ro-surface)', border: '1px solid var(--ro-border)', borderRadius: 13, padding: 16, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
           <DonutChart segments={seasonSegments} size={90} label="Season Split" />
         </div>
       </div>
 
       {/* Slowest Movers */}
-      <div style={{ fontFamily: '"DM Sans"', fontSize: 14, letterSpacing: '2px', color: '#fff', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+      <div style={{ fontFamily: '"DM Sans"', fontSize: 14, letterSpacing: '2px', color: 'var(--ro-heading)', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
         <IconSlowMover size={16} strokeWidth={1.5} color="#ff3333" />
         SLOWEST MOVERS — Needs Attention
       </div>
 
-      <div style={{ background: '#111117', border: '1px solid rgba(255,255,255,0.055)', borderRadius: 13, overflow: 'hidden', marginBottom: 22 }} className="fade-up delay-3">
+      <div style={{ background: 'var(--ro-surface)', border: '1px solid var(--ro-border)', borderRadius: 13, overflow: 'hidden', marginBottom: 22 }} className="fade-up delay-3">
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
-            <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.055)' }}>
+            <tr style={{ borderBottom: '1px solid var(--ro-border)' }}>
               {[
                 'Rank', 'Photo', 'Product', 'SKU',
                 exec ? (rankMode === 'revenue' ? 'Revenue' : rankMode === 'qty_sold' ? 'Qty Sold' : 'Sell-through') : 'Sell-through',
                 ...(exec ? ['Velocity'] : []),
                 'Remaining', 'Days in store', 'Status', 'Action',
               ].map((h) => (
-                <th key={h} style={{ padding: '9px 14px', textAlign: 'left', fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '1.5px', color: '#4a4a62', whiteSpace: 'nowrap' }}>
+                <th key={h} style={{ padding: '9px 14px', textAlign: 'left', fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '1.5px', color: 'var(--ro-text-muted)', whiteSpace: 'nowrap' }}>
                   {h}
                 </th>
               ))}
@@ -662,40 +662,40 @@ export function Bestsellers() {
               const lowStock = remaining > 0 && remaining < LOW_STOCK_THRESHOLD
 
               let metricCell
-              if (exec && rankMode === 'revenue') metricCell = <span style={{ fontWeight: 700, color: '#9090aa' }}>€{fmt(sku._periodRevenue)}</span>
-              else if (exec && rankMode === 'qty_sold') metricCell = <span style={{ fontWeight: 700, color: '#9090aa' }}>{sku._periodSold}</span>
+              if (exec && rankMode === 'revenue') metricCell = <span style={{ fontWeight: 700, color: 'var(--ro-text-dim)' }}>€{fmt(sku._periodRevenue)}</span>
+              else if (exec && rankMode === 'qty_sold') metricCell = <span style={{ fontWeight: 700, color: 'var(--ro-text-dim)' }}>{sku._periodSold}</span>
               else metricCell = <span style={{ fontWeight: 700, color: pct < 15 ? '#ff3333' : '#ff8800' }}>{pct}%</span>
 
               return (
-                <tr key={sku.id ?? sku.sku} style={{ borderBottom: '1px solid rgba(255,255,255,0.055)', transition: 'background 0.1s', cursor: 'pointer' }}
-                  onMouseEnter={(e) => { e.currentTarget.style.background = '#17171f' }}
+                <tr key={sku.id ?? sku.sku} style={{ borderBottom: '1px solid var(--ro-border)', transition: 'background 0.1s', cursor: 'pointer' }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--ro-surface-elevated)' }}
                   onMouseLeave={(e) => { e.currentTarget.style.background = '' }}
                 >
-                  <td style={{ padding: '9px 14px', fontFamily: '"DM Sans"', fontSize: 11, color: rankColors[i] || '#9090aa' }}>{rankLabels[i]}</td>
+                  <td style={{ padding: '9px 14px', fontFamily: '"DM Sans"', fontSize: 11, color: rankColors[i] || 'var(--ro-text-dim)' }}>{rankLabels[i]}</td>
                   <td style={{ padding: '9px 14px', verticalAlign: 'middle' }} onClick={() => setSelectedSku(sku)}>
                     {thumbUrl ? (
                       <img src={thumbUrl} alt="" style={{ width: 32, height: 32, borderRadius: 6, objectFit: 'cover', display: 'block' }} />
                     ) : (
-                      <div style={{ width: 32, height: 32, borderRadius: 6, background: '#17171f', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                        <CategoryIcon size={16} strokeWidth={1.5} color="#9090aa" />
+                      <div style={{ width: 32, height: 32, borderRadius: 6, background: 'var(--ro-surface-elevated)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <CategoryIcon size={16} strokeWidth={1.5} color="var(--ro-text-dim)" />
                       </div>
                     )}
                   </td>
-                  <td style={{ padding: '9px 14px', fontSize: 12, fontWeight: 600, color: '#e4e4f0' }} onClick={() => setSelectedSku(sku)}>{sku.product_name}</td>
-                  <td style={{ padding: '9px 14px', fontFamily: '"DM Sans"', fontSize: 11, color: '#9090aa' }}>{sku.sku}</td>
+                  <td style={{ padding: '9px 14px', fontSize: 12, fontWeight: 600, color: 'var(--ro-text)' }} onClick={() => setSelectedSku(sku)}>{sku.product_name}</td>
+                  <td style={{ padding: '9px 14px', fontFamily: '"DM Sans"', fontSize: 11, color: 'var(--ro-text-dim)' }}>{sku.sku}</td>
                   <td style={{ padding: '9px 14px' }}>{metricCell}</td>
                   {exec ? (
-                    <td style={{ padding: '9px 14px', fontFamily: '"DM Sans"', fontSize: 11, color: vel != null && vel > 0 ? '#e4e4f0' : '#4a4a62' }}>
+                    <td style={{ padding: '9px 14px', fontFamily: '"DM Sans"', fontSize: 11, color: vel != null && vel > 0 ? 'var(--ro-text)' : 'var(--ro-text-muted)' }}>
                       {vel != null ? `${vel}/wk` : '—'}
                     </td>
                   ) : null}
                   <td style={{ padding: '9px 14px' }}>
-                    <span style={{ fontFamily: '"DM Sans"', fontSize: 11, fontWeight: lowStock ? 700 : 400, color: lowStock ? '#ff3333' : '#9090aa', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                    <span style={{ fontFamily: '"DM Sans"', fontSize: 11, fontWeight: lowStock ? 700 : 400, color: lowStock ? '#ff3333' : 'var(--ro-text-dim)', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
                       {lowStock && <IconWarning size={11} strokeWidth={2} color="#ff3333" />}
                       {remaining}
                     </span>
                   </td>
-                  <td style={{ padding: '9px 14px', fontFamily: '"DM Sans"', fontSize: 11, color: days > 150 ? '#ff3333' : days > 90 ? '#ff8800' : '#9090aa' }}>{days}d</td>
+                  <td style={{ padding: '9px 14px', fontFamily: '"DM Sans"', fontSize: 11, color: days > 150 ? '#ff3333' : days > 90 ? '#ff8800' : 'var(--ro-text-dim)' }}>{days}d</td>
                   <td style={{ padding: '9px 14px' }}><StatusChip status={status} /></td>
                   <td style={{ padding: '9px 14px' }}>
                     {(status === 'Clearance' || status === 'Outlet') ? (
@@ -705,7 +705,7 @@ export function Bestsellers() {
                       </button>
                     ) : (
                       <button type="button" onClick={(e) => { e.stopPropagation(); handleFrontDisplay(sku) }}
-                        style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 9px', borderRadius: 8, fontSize: 10, fontWeight: 600, cursor: 'pointer', background: '#17171f', color: '#9090aa', border: '1px solid rgba(255,255,255,0.055)', fontFamily: '"DM Sans"' }}>
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 9px', borderRadius: 8, fontSize: 10, fontWeight: 600, cursor: 'pointer', background: 'var(--ro-surface-elevated)', color: 'var(--ro-text-dim)', border: '1px solid var(--ro-border)', fontFamily: '"DM Sans"' }}>
                         <IconDisplay size={10} strokeWidth={2} /> Front display
                       </button>
                     )}
@@ -730,7 +730,7 @@ export function Bestsellers() {
           <ProductDetailModal
             sku={selectedSku}
             status={st}
-            statusData={{ color: STATUS_COLORS[st] || '#9090aa', colorBg: `${STATUS_COLORS[st] || '#9090aa'}18` }}
+            statusData={{ color: STATUS_COLORS[st] || 'var(--ro-text-dim)', colorBg: `${STATUS_COLORS[st] || '#64748b'}18` }}
             onClose={() => setSelectedSku(null)}
           />
         )

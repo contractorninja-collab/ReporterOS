@@ -152,7 +152,7 @@ export function Accessories() {
             fontFamily: '"DM Sans"',
             fontSize: '16px',
             letterSpacing: '2px',
-            color: '#fff',
+            color: 'var(--ro-heading)',
             display: 'flex',
             alignItems: 'center',
             gap: '8px',
@@ -223,8 +223,8 @@ export function Accessories() {
           <div
             key={sc.name}
             style={{
-              background: '#111117',
-              border: '1px solid rgba(255,255,255,0.055)',
+              background: 'var(--ro-surface)',
+              border: '1px solid var(--ro-border)',
               borderRadius: '13px',
               overflow: 'hidden',
               cursor: 'pointer',
@@ -232,12 +232,12 @@ export function Accessories() {
             }}
             onMouseEnter={(e) => {
               e.currentTarget.style.transform = 'translateY(-3px)'
-              e.currentTarget.style.borderColor = 'rgba(255,255,255,0.09)'
+              e.currentTarget.style.borderColor = 'var(--ro-border-hover)'
               e.currentTarget.style.boxShadow = '0 12px 30px rgba(0,0,0,0.3)'
             }}
             onMouseLeave={(e) => {
               e.currentTarget.style.transform = ''
-              e.currentTarget.style.borderColor = 'rgba(255,255,255,0.055)'
+              e.currentTarget.style.borderColor = 'var(--ro-border)'
               e.currentTarget.style.boxShadow = ''
             }}
           >
@@ -251,7 +251,7 @@ export function Accessories() {
                 background: sc.gradient,
               }}
             >
-              <IconAccessories size={40} strokeWidth={1.5} color="rgba(255,255,255,0.95)" />
+              <IconAccessories size={40} strokeWidth={1.5} color="var(--ro-heading)" />
             </div>
 
             <div style={{ padding: '13px' }}>
@@ -260,18 +260,18 @@ export function Accessories() {
                   fontFamily: '"DM Sans"',
                   fontSize: '17px',
                   letterSpacing: '1.5px',
-                  color: '#fff',
+                  color: 'var(--ro-heading)',
                   marginBottom: '2px',
                 }}
               >
                 {sc.name}
               </div>
-              <div style={{ fontSize: '11px', color: '#4a4a62', marginBottom: '8px' }}>
+              <div style={{ fontSize: '11px', color: 'var(--ro-text-muted)', marginBottom: '8px' }}>
                 {count} SKUs · Accessories
               </div>
               {exec ? (
                 <>
-                  <div style={{ height: '4px', background: '#17171f', borderRadius: '2px', overflow: 'hidden' }}>
+                  <div style={{ height: '4px', background: 'var(--ro-surface-elevated)', borderRadius: '2px', overflow: 'hidden' }}>
                     <div
                       style={{
                         height: '100%',
@@ -288,7 +288,7 @@ export function Accessories() {
                       alignItems: 'center',
                       marginTop: '8px',
                       fontSize: '10px',
-                      color: '#4a4a62',
+                      color: 'var(--ro-text-muted)',
                     }}
                   >
                     <span>{avg}% avg sell-through</span>
@@ -309,7 +309,7 @@ export function Accessories() {
                     gap: '8px',
                     marginTop: '8px',
                     fontSize: '10px',
-                    color: '#4a4a62',
+                    color: 'var(--ro-text-muted)',
                   }}
                 >
                   {atRisk > 0 && (

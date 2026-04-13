@@ -13,18 +13,18 @@ import {
 
 const COLORS = ['#38bdf8', '#f472b6', '#fbbf24', '#00e676', '#c084fc', '#ff3333', '#ff8800', '#6366f1', '#34d399', '#f97316']
 const CHART_CARD = {
-  background: '#111117',
-  border: '1px solid rgba(255,255,255,0.055)',
+  background: 'var(--ro-surface)',
+  border: '1px solid var(--ro-border)',
   borderRadius: 14,
   padding: '18px 20px',
 }
 const TABLE_HEADER = {
   textAlign: 'left', padding: '6px 10px', fontSize: 9, fontWeight: 700,
-  color: '#4a4a62', textTransform: 'uppercase', letterSpacing: '0.8px',
-  borderBottom: '1px solid rgba(255,255,255,0.04)',
+  color: 'var(--ro-text-muted)', textTransform: 'uppercase', letterSpacing: '0.8px',
+  borderBottom: '1px solid var(--ro-border)',
 }
-const TABLE_CELL = { padding: '6px 10px', fontSize: 12, color: '#e4e4f0' }
-const TABLE_CELL_DIM = { ...TABLE_CELL, color: '#9090aa', fontSize: 11 }
+const TABLE_CELL = { padding: '6px 10px', fontSize: 12, color: 'var(--ro-text)' }
+const TABLE_CELL_DIM = { ...TABLE_CELL, color: 'var(--ro-text-dim)', fontSize: 11 }
 const PILL_ACTIVE = (color) => ({
   padding: '6px 14px', borderRadius: 8, fontSize: 12, fontWeight: 600,
   cursor: 'pointer', border: 'none', fontFamily: '"DM Sans"',
@@ -32,16 +32,16 @@ const PILL_ACTIVE = (color) => ({
 })
 const PILL_INACTIVE = {
   padding: '6px 14px', borderRadius: 8, fontSize: 12, fontWeight: 600,
-  cursor: 'pointer', border: '1px solid rgba(255,255,255,0.06)',
-  background: 'transparent', color: '#4a4a62', fontFamily: '"DM Sans"',
+  cursor: 'pointer', border: '1px solid var(--ro-border)',
+  background: 'transparent', color: 'var(--ro-text-muted)', fontFamily: '"DM Sans"',
 }
 const SECTION_TITLE = {
-  fontSize: 11, fontWeight: 700, color: '#9090aa', textTransform: 'uppercase',
+  fontSize: 11, fontWeight: 700, color: 'var(--ro-text-dim)', textTransform: 'uppercase',
   letterSpacing: '1.2px', marginBottom: 14,
 }
 const CUSTOM_TOOLTIP = {
-  background: '#1a1a24', border: '1px solid rgba(255,255,255,0.08)',
-  borderRadius: 8, padding: '8px 12px', fontSize: 12, color: '#e4e4f0',
+  background: 'var(--ro-surface-deep)', border: '1px solid var(--ro-border-hover)',
+  borderRadius: 8, padding: '8px 12px', fontSize: 12, color: 'var(--ro-text)',
 }
 
 function fmt(n) { return n >= 1000 ? `€${(n / 1000).toFixed(1)}K` : `€${Math.round(n)}` }
@@ -61,8 +61,8 @@ function ExportBtn({ onClick, label = 'CSV' }) {
   return (
     <button type="button" onClick={onClick} style={{
       padding: '5px 10px', borderRadius: 6, fontSize: 10, fontWeight: 600,
-      cursor: 'pointer', border: '1px solid rgba(255,255,255,0.06)',
-      background: 'transparent', color: '#4a4a62', fontFamily: '"DM Sans"',
+      cursor: 'pointer', border: '1px solid var(--ro-border)',
+      background: 'transparent', color: 'var(--ro-text-muted)', fontFamily: '"DM Sans"',
     }}>{label}</button>
   )
 }
@@ -73,7 +73,7 @@ function ChartTooltip({ active, payload, label }) {
     <div style={CUSTOM_TOOLTIP}>
       <div style={{ fontWeight: 600, marginBottom: 4 }}>{label}</div>
       {payload.map((p, i) => (
-        <div key={i} style={{ color: p.color || '#9090aa', fontSize: 11 }}>
+        <div key={i} style={{ color: p.color || 'var(--ro-text-dim)', fontSize: 11 }}>
           {p.name}: {typeof p.value === 'number' && p.name?.includes('Revenue') ? fmt(p.value) : p.value}
         </div>
       ))}
@@ -313,8 +313,8 @@ export function Reports() {
     return (
       <div style={{ maxWidth: 480, margin: '60px auto', textAlign: 'center' }}>
         <div style={{ fontSize: 48, marginBottom: 16 }}><IconLock size={48} strokeWidth={1.5} /></div>
-        <h2 style={{ fontFamily: '"DM Sans"', fontSize: 22, letterSpacing: '2px', color: '#fff', margin: '0 0 8px' }}>EXECUTIVE ACCESS ONLY</h2>
-        <p style={{ fontSize: 13, color: '#4a4a62' }}>Reports are only available to Executive users.</p>
+        <h2 style={{ fontFamily: '"DM Sans"', fontSize: 22, letterSpacing: '2px', color: 'var(--ro-heading)', margin: '0 0 8px' }}>EXECUTIVE ACCESS ONLY</h2>
+        <p style={{ fontSize: 13, color: 'var(--ro-text-muted)' }}>Reports are only available to Executive users.</p>
       </div>
     )
   }
@@ -323,15 +323,15 @@ export function Reports() {
     <div style={{ maxWidth: 900 }}>
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-        <div style={{ fontFamily: '"DM Sans"', fontSize: 16, letterSpacing: '2px', color: '#fff', display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ fontFamily: '"DM Sans"', fontSize: 16, letterSpacing: '2px', color: 'var(--ro-heading)', display: 'flex', alignItems: 'center', gap: 8 }}>
           <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#c084fc', animation: 'blink 2s infinite' }} />
           REPORTS & ANALYTICS
         </div>
         <button type="button" onClick={handlePrint} style={{
           display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px',
           borderRadius: 8, fontSize: 11, fontWeight: 600, cursor: 'pointer',
-          border: '1px solid rgba(255,255,255,0.055)', background: '#17171f',
-          color: '#9090aa', fontFamily: '"DM Sans"',
+          border: '1px solid var(--ro-border)', background: 'var(--ro-surface-elevated)',
+          color: 'var(--ro-text-dim)', fontFamily: '"DM Sans"',
         }}>
           <IconPrint size={12} strokeWidth={1.5} style={{ verticalAlign: 'middle', marginRight: 4 }} />
           Print Report
@@ -355,10 +355,10 @@ export function Reports() {
         {rangeKey === 'custom' && (
           <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginLeft: 4 }}>
             <input type="date" value={customStart} onChange={(e) => setCustomStart(e.target.value)}
-              style={{ background: '#111117', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8, padding: '5px 8px', color: '#e4e4f0', fontSize: 12, fontFamily: '"DM Sans"', outline: 'none' }} />
-            <span style={{ color: '#4a4a62', fontSize: 12 }}>to</span>
+              style={{ background: 'var(--ro-surface)', border: '1px solid var(--ro-border-hover)', borderRadius: 8, padding: '5px 8px', color: 'var(--ro-text)', fontSize: 12, fontFamily: '"DM Sans"', outline: 'none' }} />
+            <span style={{ color: 'var(--ro-text-muted)', fontSize: 12 }}>to</span>
             <input type="date" value={customEnd} onChange={(e) => setCustomEnd(e.target.value)}
-              style={{ background: '#111117', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8, padding: '5px 8px', color: '#e4e4f0', fontSize: 12, fontFamily: '"DM Sans"', outline: 'none' }} />
+              style={{ background: 'var(--ro-surface)', border: '1px solid var(--ro-border-hover)', borderRadius: 8, padding: '5px 8px', color: 'var(--ro-text)', fontSize: 12, fontFamily: '"DM Sans"', outline: 'none' }} />
           </div>
         )}
       </div>
@@ -397,15 +397,15 @@ export function Reports() {
           {trendData.length > 0 ? (
             <ResponsiveContainer width="100%" height={220}>
               <BarChart data={trendData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
-                <XAxis dataKey="label" tick={{ fill: '#4a4a62', fontSize: 10 }} tickLine={false} axisLine={false} />
-                <YAxis tick={{ fill: '#4a4a62', fontSize: 10 }} tickLine={false} axisLine={false} />
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--ro-chart-grid)" />
+                <XAxis dataKey="label" tick={{ fill: 'var(--ro-text-muted)', fontSize: 10 }} tickLine={false} axisLine={false} />
+                <YAxis tick={{ fill: 'var(--ro-text-muted)', fontSize: 10 }} tickLine={false} axisLine={false} />
                 <Tooltip content={<ChartTooltip />} />
                 <Bar dataKey="units" name="Units" fill="#38bdf8" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           ) : (
-            <div style={{ height: 220, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#4a4a62', fontSize: 13 }}>
+            <div style={{ height: 220, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--ro-text-muted)', fontSize: 13 }}>
               {hasSnapshots ? 'No data in selected range' : 'Import data multiple times to see trends'}
             </div>
           )}
@@ -439,7 +439,7 @@ export function Reports() {
               </PieChart>
             </ResponsiveContainer>
           ) : (
-            <div style={{ height: 220, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#4a4a62', fontSize: 13 }}>No data</div>
+            <div style={{ height: 220, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--ro-text-muted)', fontSize: 13 }}>No data</div>
           )}
           {genderData.length > 0 && (
             <div style={{ overflowX: 'auto', marginTop: 10 }}>
@@ -485,15 +485,15 @@ export function Reports() {
           {categoryData.length > 0 ? (
             <ResponsiveContainer width="100%" height={220}>
               <BarChart data={categoryData} layout="vertical">
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
-                <XAxis type="number" tick={{ fill: '#4a4a62', fontSize: 10 }} tickLine={false} axisLine={false} />
-                <YAxis dataKey="name" type="category" tick={{ fill: '#9090aa', fontSize: 11 }} tickLine={false} axisLine={false} width={90} />
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--ro-chart-grid)" />
+                <XAxis type="number" tick={{ fill: 'var(--ro-text-muted)', fontSize: 10 }} tickLine={false} axisLine={false} />
+                <YAxis dataKey="name" type="category" tick={{ fill: 'var(--ro-text-dim)', fontSize: 11 }} tickLine={false} axisLine={false} width={90} />
                 <Tooltip content={<ChartTooltip />} />
                 <Bar dataKey="units" name="Units" fill="#00e676" radius={[0, 4, 4, 0]} />
               </BarChart>
             </ResponsiveContainer>
           ) : (
-            <div style={{ height: 220, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#4a4a62', fontSize: 13 }}>No data</div>
+            <div style={{ height: 220, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--ro-text-muted)', fontSize: 13 }}>No data</div>
           )}
           {categoryData.length > 0 && (
             <div style={{ overflowX: 'auto', marginTop: 10 }}>
@@ -528,9 +528,9 @@ export function Reports() {
           {productTypeData.length > 0 ? (
             <ResponsiveContainer width="100%" height={220}>
               <BarChart data={productTypeData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
-                <XAxis dataKey="name" tick={{ fill: '#4a4a62', fontSize: 9 }} tickLine={false} axisLine={false} interval={0} angle={-30} textAnchor="end" height={50} />
-                <YAxis tick={{ fill: '#4a4a62', fontSize: 10 }} tickLine={false} axisLine={false} />
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--ro-chart-grid)" />
+                <XAxis dataKey="name" tick={{ fill: 'var(--ro-text-muted)', fontSize: 9 }} tickLine={false} axisLine={false} interval={0} angle={-30} textAnchor="end" height={50} />
+                <YAxis tick={{ fill: 'var(--ro-text-muted)', fontSize: 10 }} tickLine={false} axisLine={false} />
                 <Tooltip content={<ChartTooltip />} />
                 <Bar dataKey="units" name="Units" radius={[4, 4, 0, 0]}>
                   {productTypeData.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
@@ -538,7 +538,7 @@ export function Reports() {
               </BarChart>
             </ResponsiveContainer>
           ) : (
-            <div style={{ height: 220, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#4a4a62', fontSize: 13 }}>No data</div>
+            <div style={{ height: 220, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--ro-text-muted)', fontSize: 13 }}>No data</div>
           )}
           {productTypeData.length > 0 && (
             <div style={{ overflowX: 'auto', marginTop: 10 }}>
@@ -586,9 +586,9 @@ export function Reports() {
                 return (
                   <div key={tier} style={{ flex: 1, background: `${color}0a`, border: `1px solid ${color}22`, borderRadius: 10, padding: '10px 14px' }}>
                     <div style={{ fontSize: 20, fontWeight: 700, color, fontFamily: '"DM Sans"' }}>
-                      {tier} <span style={{ fontSize: 11, fontWeight: 500, color: '#9090aa' }}>({items.length} SKUs)</span>
+                      {tier} <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--ro-text-dim)' }}>({items.length} SKUs)</span>
                     </div>
-                    <div style={{ fontSize: 11, color: '#9090aa', marginTop: 2 }}>
+                    <div style={{ fontSize: 11, color: 'var(--ro-text-dim)', marginTop: 2 }}>
                       {fmt(rev)} — {totalRevenue > 0 ? ((rev / totalRevenue) * 100).toFixed(1) : 0}% of revenue
                     </div>
                   </div>
@@ -598,7 +598,7 @@ export function Reports() {
             <div style={{ overflowX: 'auto', maxHeight: 260, overflowY: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead><tr>
-                  {['Tier', 'SKU', 'Product', 'Revenue', '%', 'Cum %'].map((h) => <th key={h} style={{ ...TABLE_HEADER, position: 'sticky', top: 0, background: '#111117' }}>{h}</th>)}
+                  {['Tier', 'SKU', 'Product', 'Revenue', '%', 'Cum %'].map((h) => <th key={h} style={{ ...TABLE_HEADER, position: 'sticky', top: 0, background: 'var(--ro-surface)' }}>{h}</th>)}
                 </tr></thead>
                 <tbody>
                   {abcData.slice(0, 30).map((d) => {
@@ -619,7 +619,7 @@ export function Reports() {
             </div>
           </>
         ) : (
-          <div style={{ padding: 32, textAlign: 'center', color: '#4a4a62', fontSize: 13 }}>No sales data to analyze</div>
+          <div style={{ padding: 32, textAlign: 'center', color: 'var(--ro-text-muted)', fontSize: 13 }}>No sales data to analyze</div>
         )}
       </div>
 
@@ -639,9 +639,9 @@ export function Reports() {
           <>
             <ResponsiveContainer width="100%" height={200}>
               <BarChart data={velocityData.slice(0, 15)}>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
-                <XAxis dataKey="sku" tick={{ fill: '#4a4a62', fontSize: 8 }} tickLine={false} axisLine={false} interval={0} angle={-30} textAnchor="end" height={50} />
-                <YAxis tick={{ fill: '#4a4a62', fontSize: 10 }} tickLine={false} axisLine={false} />
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--ro-chart-grid)" />
+                <XAxis dataKey="sku" tick={{ fill: 'var(--ro-text-muted)', fontSize: 8 }} tickLine={false} axisLine={false} interval={0} angle={-30} textAnchor="end" height={50} />
+                <YAxis tick={{ fill: 'var(--ro-text-muted)', fontSize: 10 }} tickLine={false} axisLine={false} />
                 <Tooltip content={<ChartTooltip />} />
                 <Bar dataKey="velocity" name="Units/Day" fill="#c084fc" radius={[4, 4, 0, 0]} />
               </BarChart>
@@ -650,7 +650,7 @@ export function Reports() {
               <div style={{ flex: 1, background: 'rgba(0,230,118,0.06)', border: '1px solid rgba(0,230,118,0.15)', borderRadius: 10, padding: '10px 14px' }}>
                 <div style={{ fontSize: 10, fontWeight: 700, color: '#00e676', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: 4 }}>Fast Movers</div>
                 {velocityData.slice(0, 3).map((d) => (
-                  <div key={d.sku} style={{ fontSize: 11, color: '#e4e4f0', marginBottom: 2 }}>
+                  <div key={d.sku} style={{ fontSize: 11, color: 'var(--ro-text)', marginBottom: 2 }}>
                     {d.name} — <span style={{ color: '#00e676' }}>{d.velocity} u/day</span>
                   </div>
                 ))}
@@ -658,7 +658,7 @@ export function Reports() {
               <div style={{ flex: 1, background: 'rgba(255,51,51,0.06)', border: '1px solid rgba(255,51,51,0.15)', borderRadius: 10, padding: '10px 14px' }}>
                 <div style={{ fontSize: 10, fontWeight: 700, color: '#ff3333', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: 4 }}>Slow Movers</div>
                 {velocityData.slice(-3).reverse().map((d) => (
-                  <div key={d.sku} style={{ fontSize: 11, color: '#e4e4f0', marginBottom: 2 }}>
+                  <div key={d.sku} style={{ fontSize: 11, color: 'var(--ro-text)', marginBottom: 2 }}>
                     {d.name} — <span style={{ color: '#ff3333' }}>{d.velocity} u/day</span>
                   </div>
                 ))}
@@ -666,7 +666,7 @@ export function Reports() {
             </div>
           </>
         ) : (
-          <div style={{ padding: 32, textAlign: 'center', color: '#4a4a62', fontSize: 13 }}>No products to analyze</div>
+          <div style={{ padding: 32, textAlign: 'center', color: 'var(--ro-text-muted)', fontSize: 13 }}>No products to analyze</div>
         )}
       </div>
 
@@ -695,9 +695,9 @@ export function Reports() {
               <>
                 <ResponsiveContainer width="100%" height={200}>
                   <BarChart data={visibleSizeCurve.sizes}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
-                    <XAxis dataKey="size" tick={{ fill: '#9090aa', fontSize: 11 }} tickLine={false} axisLine={false} />
-                    <YAxis tick={{ fill: '#4a4a62', fontSize: 10 }} tickLine={false} axisLine={false} />
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--ro-chart-grid)" />
+                    <XAxis dataKey="size" tick={{ fill: 'var(--ro-text-dim)', fontSize: 11 }} tickLine={false} axisLine={false} />
+                    <YAxis tick={{ fill: 'var(--ro-text-muted)', fontSize: 10 }} tickLine={false} axisLine={false} />
                     <Tooltip content={<ChartTooltip />} />
                     <Bar dataKey="stocked" name="Stocked" fill="rgba(56,189,248,0.3)" radius={[4, 4, 0, 0]} />
                     <Bar dataKey="sold" name="Sold" fill="#38bdf8" radius={[4, 4, 0, 0]} />
@@ -728,7 +728,7 @@ export function Reports() {
             )}
           </>
         ) : (
-          <div style={{ padding: 32, textAlign: 'center', color: '#4a4a62', fontSize: 13 }}>No size data available</div>
+          <div style={{ padding: 32, textAlign: 'center', color: 'var(--ro-text-muted)', fontSize: 13 }}>No size data available</div>
         )}
       </div>
     </div>

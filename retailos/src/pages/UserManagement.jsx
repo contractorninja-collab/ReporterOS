@@ -20,11 +20,11 @@ function generateUserCode(existingUsers) {
 }
 
 const inputStyle = {
-  background: '#17171f',
-  border: '1px solid rgba(255,255,255,0.08)',
+  background: 'var(--ro-surface-elevated)',
+  border: '1px solid var(--ro-border-hover)',
   borderRadius: 8,
   padding: '8px 12px',
-  color: '#e4e4f0',
+  color: 'var(--ro-text)',
   fontSize: 13,
   fontFamily: '"DM Sans"',
   outline: 'none',
@@ -100,11 +100,11 @@ export function UserManagement() {
         <div style={{ fontSize: 48, marginBottom: 16 }}>
           <IconLock size={48} strokeWidth={1.5} />
         </div>
-        <h2 style={{ fontFamily: '"DM Sans"', fontSize: 22, letterSpacing: '2px', color: '#fff', margin: '0 0 8px' }}>
+        <h2 style={{ fontFamily: '"DM Sans"', fontSize: 22, letterSpacing: '2px', color: 'var(--ro-heading)', margin: '0 0 8px' }}>
           EXECUTIVE ACCESS ONLY
         </h2>
-        <p style={{ fontSize: 13, color: '#4a4a62' }}>
-          Only users with the Executive role can manage users. You are signed in as <strong style={{ color: '#e4e4f0' }}>{activeUser?.name}</strong>.
+        <p style={{ fontSize: 13, color: 'var(--ro-text-muted)' }}>
+          Only users with the Executive role can manage users. You are signed in as <strong style={{ color: 'var(--ro-text)' }}>{activeUser?.name}</strong>.
         </p>
       </div>
     )
@@ -113,29 +113,29 @@ export function UserManagement() {
   return (
     <div style={{ maxWidth: 640 }}>
       <div style={{ marginBottom: 24 }}>
-        <h2 style={{ fontFamily: '"DM Sans"', fontSize: 22, letterSpacing: '2px', color: '#fff', margin: 0 }}>
+        <h2 style={{ fontFamily: '"DM Sans"', fontSize: 22, letterSpacing: '2px', color: 'var(--ro-heading)', margin: 0 }}>
           USER MANAGEMENT
         </h2>
-        <p style={{ fontSize: 12, color: '#4a4a62', margin: '4px 0 0' }}>
+        <p style={{ fontSize: 12, color: 'var(--ro-text-muted)', margin: '4px 0 0' }}>
           Add, edit, or remove system users.
         </p>
       </div>
 
       <div
         style={{
-          background: '#111117',
-          border: '1px solid rgba(255,255,255,0.055)',
+          background: 'var(--ro-surface)',
+          border: '1px solid var(--ro-border)',
           borderRadius: 14,
           padding: 20,
           marginBottom: 20,
         }}
       >
-        <div style={{ fontSize: 11, fontWeight: 700, color: '#9090aa', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: 12 }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--ro-text-dim)', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: 12 }}>
           Add New User
         </div>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
           <div style={{ flex: '1 1 160px' }}>
-            <label style={{ fontSize: 10, color: '#4a4a62', display: 'block', marginBottom: 4 }}>Name</label>
+            <label style={{ fontSize: 10, color: 'var(--ro-text-muted)', display: 'block', marginBottom: 4 }}>Name</label>
             <input
               type="text"
               value={name}
@@ -146,7 +146,7 @@ export function UserManagement() {
             />
           </div>
           <div style={{ flex: '0 0 140px' }}>
-            <label style={{ fontSize: 10, color: '#4a4a62', display: 'block', marginBottom: 4 }}>Role</label>
+            <label style={{ fontSize: 10, color: 'var(--ro-text-muted)', display: 'block', marginBottom: 4 }}>Role</label>
             <select value={role} onChange={(e) => setRole(e.target.value)} style={inputStyle}>
               {ROLE_OPTIONS.map((r) => (
                 <option key={r.value} value={r.value}>{r.label}</option>
@@ -155,7 +155,7 @@ export function UserManagement() {
           </div>
           {role !== 'executive' && (
             <div style={{ flex: '0 0 120px' }}>
-              <label style={{ fontSize: 10, color: '#4a4a62', display: 'block', marginBottom: 4 }}>Shop</label>
+              <label style={{ fontSize: 10, color: 'var(--ro-text-muted)', display: 'block', marginBottom: 4 }}>Shop</label>
               <select value={shop} onChange={(e) => setShop(e.target.value)} style={inputStyle}>
                 {SHOP_OPTIONS.map((s) => (
                   <option key={s} value={s}>{s}</option>
@@ -164,7 +164,7 @@ export function UserManagement() {
             </div>
           )}
           <div style={{ flex: '0 0 90px' }}>
-            <label style={{ fontSize: 10, color: '#4a4a62', display: 'block', marginBottom: 4 }}>PIN</label>
+            <label style={{ fontSize: 10, color: 'var(--ro-text-muted)', display: 'block', marginBottom: 4 }}>PIN</label>
             <input
               type="password"
               inputMode="numeric"
@@ -176,7 +176,7 @@ export function UserManagement() {
             />
           </div>
           <div style={{ flex: '0 0 130px' }}>
-            <label style={{ fontSize: 10, color: '#4a4a62', display: 'block', marginBottom: 4 }}>Login Code</label>
+            <label style={{ fontSize: 10, color: 'var(--ro-text-muted)', display: 'block', marginBottom: 4 }}>Login Code</label>
             <div style={{ display: 'flex', gap: 4 }}>
               <input
                 type="text"
@@ -191,9 +191,9 @@ export function UserManagement() {
                 style={{
                   padding: '0 8px',
                   borderRadius: 8,
-                  border: '1px solid rgba(255,255,255,0.08)',
+                  border: '1px solid var(--ro-border-hover)',
                   background: 'none',
-                  color: '#9090aa',
+                  color: 'var(--ro-text-dim)',
                   cursor: 'pointer',
                   fontSize: 14,
                   flexShrink: 0,
@@ -227,19 +227,19 @@ export function UserManagement() {
 
       <div
         style={{
-          background: '#111117',
-          border: '1px solid rgba(255,255,255,0.055)',
+          background: 'var(--ro-surface)',
+          border: '1px solid var(--ro-border)',
           borderRadius: 14,
           overflow: 'hidden',
         }}
       >
-        <div style={{ padding: '14px 20px', borderBottom: '1px solid rgba(255,255,255,0.055)' }}>
-          <span style={{ fontSize: 11, fontWeight: 700, color: '#9090aa', textTransform: 'uppercase', letterSpacing: '1px' }}>
+        <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--ro-border)' }}>
+          <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--ro-text-dim)', textTransform: 'uppercase', letterSpacing: '1px' }}>
             Registered Users ({users.length})
           </span>
         </div>
         {users.map((u) => {
-          const accent = ROLE_COLORS[u.role] || '#9090aa'
+          const accent = ROLE_COLORS[u.role] || '#64748b'
           const isSelf = activeUser?.id === u.id
           const isEditing = editingId === u.id
 
@@ -249,13 +249,13 @@ export function UserManagement() {
                 key={u.id}
                 style={{
                   padding: '14px 20px',
-                  borderBottom: '1px solid rgba(255,255,255,0.03)',
-                  background: 'rgba(255,255,255,0.02)',
+                  borderBottom: '1px solid var(--ro-border)',
+                  background: 'var(--ro-table-row-hover)',
                 }}
               >
                 <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 10 }}>
                   <div style={{ flex: '1 1 160px' }}>
-                    <label style={{ fontSize: 10, color: '#4a4a62', display: 'block', marginBottom: 4 }}>Name</label>
+                    <label style={{ fontSize: 10, color: 'var(--ro-text-muted)', display: 'block', marginBottom: 4 }}>Name</label>
                     <input
                       type="text"
                       value={editName}
@@ -266,7 +266,7 @@ export function UserManagement() {
                     />
                   </div>
                   <div style={{ flex: '0 0 140px' }}>
-                    <label style={{ fontSize: 10, color: '#4a4a62', display: 'block', marginBottom: 4 }}>Role</label>
+                    <label style={{ fontSize: 10, color: 'var(--ro-text-muted)', display: 'block', marginBottom: 4 }}>Role</label>
                     <select value={editRole} onChange={(e) => setEditRole(e.target.value)} style={inputStyle}>
                       {ROLE_OPTIONS.map((r) => (
                         <option key={r.value} value={r.value}>{r.label}</option>
@@ -275,7 +275,7 @@ export function UserManagement() {
                   </div>
                   {editRole !== 'executive' && (
                     <div style={{ flex: '0 0 120px' }}>
-                      <label style={{ fontSize: 10, color: '#4a4a62', display: 'block', marginBottom: 4 }}>Shop</label>
+                      <label style={{ fontSize: 10, color: 'var(--ro-text-muted)', display: 'block', marginBottom: 4 }}>Shop</label>
                       <select value={editShop} onChange={(e) => setEditShop(e.target.value)} style={inputStyle}>
                         {SHOP_OPTIONS.map((s) => (
                           <option key={s} value={s}>{s}</option>
@@ -284,7 +284,7 @@ export function UserManagement() {
                     </div>
                   )}
                   <div style={{ flex: '0 0 120px' }}>
-                    <label style={{ fontSize: 10, color: '#4a4a62', display: 'block', marginBottom: 4 }}>New PIN</label>
+                    <label style={{ fontSize: 10, color: 'var(--ro-text-muted)', display: 'block', marginBottom: 4 }}>New PIN</label>
                     <input
                       type="password"
                       inputMode="numeric"
@@ -296,7 +296,7 @@ export function UserManagement() {
                     />
                   </div>
                   <div style={{ flex: '0 0 130px' }}>
-                    <label style={{ fontSize: 10, color: '#4a4a62', display: 'block', marginBottom: 4 }}>Login Code</label>
+                    <label style={{ fontSize: 10, color: 'var(--ro-text-muted)', display: 'block', marginBottom: 4 }}>Login Code</label>
                     <div style={{ display: 'flex', gap: 4 }}>
                       <input
                         type="text"
@@ -311,9 +311,9 @@ export function UserManagement() {
                         style={{
                           padding: '0 8px',
                           borderRadius: 8,
-                          border: '1px solid rgba(255,255,255,0.08)',
+                          border: '1px solid var(--ro-border-hover)',
                           background: 'none',
-                          color: '#9090aa',
+                          color: 'var(--ro-text-dim)',
                           cursor: 'pointer',
                           fontSize: 14,
                           flexShrink: 0,
@@ -350,9 +350,9 @@ export function UserManagement() {
                       fontSize: 11,
                       padding: '6px 14px',
                       borderRadius: 6,
-                      border: '1px solid rgba(255,255,255,0.08)',
+                      border: '1px solid var(--ro-border-hover)',
                       background: 'none',
-                      color: '#9090aa',
+                      color: 'var(--ro-text-dim)',
                       cursor: 'pointer',
                       fontFamily: '"DM Sans"',
                     }}
@@ -372,7 +372,7 @@ export function UserManagement() {
                 alignItems: 'center',
                 gap: 12,
                 padding: '12px 20px',
-                borderBottom: '1px solid rgba(255,255,255,0.03)',
+                borderBottom: '1px solid var(--ro-border)',
               }}
             >
               <div
@@ -397,7 +397,7 @@ export function UserManagement() {
                 )}
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: '#e4e4f0' }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ro-text)' }}>
                   {u.name}
                   {isSelf && (
                     <span style={{ fontSize: 9, color: '#00e676', marginLeft: 6 }}>YOU</span>
@@ -417,7 +417,7 @@ export function UserManagement() {
                   >
                     {ROLE_OPTIONS.find((r) => r.value === u.role)?.label || u.role}
                   </span>
-                  {u.shop && <span style={{ fontSize: 10, color: '#4a4a62' }}>{u.shop}</span>}
+                  {u.shop && <span style={{ fontSize: 10, color: 'var(--ro-text-muted)' }}>{u.shop}</span>}
                   {u.user_code && (
                     <span style={{ fontSize: 10, fontWeight: 700, color: '#38bdf8', letterSpacing: '1px', fontFamily: '"DM Sans"' }}>
                       #{u.user_code}
@@ -433,9 +433,9 @@ export function UserManagement() {
                     fontSize: 11,
                     padding: '4px 10px',
                     borderRadius: 6,
-                    border: '1px solid rgba(255,255,255,0.055)',
+                    border: '1px solid var(--ro-border)',
                     background: 'none',
-                    color: '#9090aa',
+                    color: 'var(--ro-text-dim)',
                     cursor: 'pointer',
                     fontFamily: '"DM Sans"',
                   }}
@@ -468,9 +468,9 @@ export function UserManagement() {
                         fontSize: 11,
                         padding: '4px 10px',
                         borderRadius: 6,
-                        border: '1px solid rgba(255,255,255,0.08)',
+                        border: '1px solid var(--ro-border-hover)',
                         background: 'none',
-                        color: '#9090aa',
+                        color: 'var(--ro-text-dim)',
                         cursor: 'pointer',
                         fontFamily: '"DM Sans"',
                       }}
@@ -486,9 +486,9 @@ export function UserManagement() {
                       fontSize: 11,
                       padding: '4px 10px',
                       borderRadius: 6,
-                      border: '1px solid rgba(255,255,255,0.055)',
+                      border: '1px solid var(--ro-border)',
                       background: 'none',
-                      color: '#4a4a62',
+                      color: 'var(--ro-text-muted)',
                       cursor: 'pointer',
                       fontFamily: '"DM Sans"',
                     }}
@@ -501,7 +501,7 @@ export function UserManagement() {
           )
         })}
         {users.length === 0 && (
-          <div style={{ padding: 32, textAlign: 'center', color: '#4a4a62', fontSize: 13 }}>
+          <div style={{ padding: 32, textAlign: 'center', color: 'var(--ro-text-muted)', fontSize: 13 }}>
             No users yet. Add one above.
           </div>
         )}

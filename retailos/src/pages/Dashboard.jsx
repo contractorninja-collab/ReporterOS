@@ -1,5 +1,6 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { Link } from 'react-router-dom'
+import { Eye, EyeOff } from 'lucide-react'
 import {
   BarChart,
   Bar,
@@ -26,6 +27,12 @@ import ProgressBar from '../components/ProgressBar'
 import { IconClose, IconSearchEmpty } from '../utils/icons.js'
 
 const DM_SANS = '"DM Sans", sans-serif'
+const DASH_PRIVACY_KEY = 'retailos_dashboard_privacy'
+
+function maskKpiDisplay(raw) {
+  if (raw === '—') return '—'
+  return '*******'
+}
 
 const STATUS_LABELS = {
   'New Arrival': 'New Arrivals',
@@ -112,8 +119,8 @@ function actionForRow(status, pct, hideSalesBasedActions) {
     return {
       label: 'View',
       bg: 'transparent',
-      color: '#9090aa',
-      border: '1px solid rgba(255,255,255,0.055)',
+      color: 'var(--ro-text-dim)',
+      border: '1px solid var(--ro-border)',
     }
   }
   if (pct >= 60) {
@@ -130,8 +137,8 @@ function actionForRow(status, pct, hideSalesBasedActions) {
   return {
     label: 'View',
     bg: 'transparent',
-    color: '#9090aa',
-    border: '1px solid rgba(255,255,255,0.055)',
+    color: 'var(--ro-text-dim)',
+    border: '1px solid var(--ro-border)',
   }
 }
 
@@ -141,16 +148,16 @@ function GenderInventoryTooltip({ active, payload }) {
   return (
     <div
       style={{
-        background: '#111117',
-        border: '1px solid rgba(255,255,255,0.1)',
+        background: 'var(--ro-tooltip-bg)',
+        border: '1px solid var(--ro-tooltip-border)',
         borderRadius: '8px',
         padding: '8px 12px',
         fontFamily: DM_SANS,
         fontSize: '12px',
       }}
     >
-      <div style={{ color: '#e4e4f0', fontWeight: 600 }}>{p.name}</div>
-      <div style={{ color: '#9090aa' }}>{p.value} SKUs</div>
+      <div style={{ color: 'var(--ro-tooltip-label)', fontWeight: 600 }}>{p.name}</div>
+      <div style={{ color: 'var(--ro-tooltip-muted)' }}>{p.value} SKUs</div>
     </div>
   )
 }
@@ -167,6 +174,21 @@ export function Dashboard() {
   const [genderFilter, setGenderFilter] = useState('All')
   const [categoryFilter, setCategoryFilter] = useState('All')
   const [selectedSkuForModal, setSelectedSku] = useState(null)
+  const [salesMasked, setSalesMasked] = useState(() => {
+    try {
+      return localStorage.getItem(DASH_PRIVACY_KEY) === '1'
+    } catch {
+      return false
+    }
+  })
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(DASH_PRIVACY_KEY, salesMasked ? '1' : '0')
+    } catch {
+      /* ignore */
+    }
+  }, [salesMasked])
 
   const filteredSkus = useMemo(
     () => (activeSeason === 'All' ? skus : skus.filter((s) => s.season === activeSeason)),
@@ -258,6 +280,11 @@ export function Dashboard() {
     return weeks
   }, [products])
 
+  const displaySellThroughChartData = useMemo(
+    () => (salesMasked ? sellThroughChartData.map((d) => ({ ...d, sellThrough: 0 })) : sellThroughChartData),
+    [sellThroughChartData, salesMasked],
+  )
+
   const genderData = useMemo(() => {
     const map = { M: 0, F: 0, K: 0 }
     for (const sku of products) {
@@ -270,7 +297,7 @@ export function Dashboard() {
       { name: 'Female', value: map.F, color: '#f472b6' },
       { name: 'Kids', value: map.K, color: '#2dd4bf' },
     ].filter((d) => d.value > 0)
-    return data.length ? data : [{ name: 'No data', value: 1, color: '#4a4a62' }]
+    return data.length ? data : [{ name: 'No data', value: 1, color: 'var(--ro-text-muted)' }]
   }, [products])
 
   const genderSkuTotal = useMemo(
@@ -303,6 +330,11 @@ export function Dashboard() {
       units: w.totalUnits ?? 0,
     }))
   }, [weeklySales])
+
+  const displayRevenueChartData = useMemo(
+    () => (salesMasked ? revenueChartData.map((d) => ({ ...d, revenue: 0, units: 0 })) : revenueChartData),
+    [revenueChartData, salesMasked],
+  )
 
   const avgSellingPrice = useMemo(() => {
     let totalRev = 0
@@ -347,13 +379,13 @@ export function Dashboard() {
               fontFamily: '"DM Sans"',
               fontSize: 16,
               letterSpacing: '2px',
-              color: '#fff',
+              color: 'var(--ro-heading)',
             }}
           >
             INVENTORY LIFECYCLE STATUS
           </div>
         </div>
-        <div style={{ fontSize: 11, color: '#4a4a62' }}>Click any tile to explore products</div>
+        <div style={{ fontSize: 11, color: 'var(--ro-text-muted)' }}>Click any tile to explore products</div>
         {execUser ? (
           <Link
             to="/lookup"
@@ -403,26 +435,70 @@ export function Dashboard() {
 
       {/* Executive — Weekly Sales KPIs (only when imports exist) */}
       {execUser && skus.length > 0 && (
-        <div className="fade-up delay-1 dash-kpi-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 10, marginBottom: 22 }}>
-          {[
-            { label: "This Week's Revenue", value: thisWeekSales.revenue > 0 ? `€${thisWeekSales.revenue.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : '—', color: '#00e676' },
-            { label: 'Units Sold This Week', value: thisWeekSales.units > 0 ? String(thisWeekSales.units) : '—', color: '#38bdf8' },
-            { label: 'Avg Weekly Revenue (8wk)', value: avgWeeklyRevenue > 0 ? `€${avgWeeklyRevenue.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : '—', color: '#c084fc' },
-            { label: 'Avg Selling Price', value: avgSellingPrice > 0 ? `€${avgSellingPrice.toFixed(2)}` : '—', color: '#fbbf24' },
-          ].map((t) => (
-            <div
-              key={t.label}
+        <div className="fade-up delay-1 dash-exec-sales-privacy-wrap" style={{ marginBottom: 22 }}>
+          <div
+            className="dash-sales-visibility-row"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'flex-end',
+              gap: 10,
+              marginBottom: 10,
+              flexWrap: 'wrap',
+            }}
+          >
+            <span
+              className="dash-sales-visibility-label"
+              style={{ fontSize: 10, fontWeight: 600, color: 'var(--ro-text-muted)', letterSpacing: '0.4px' }}
+            >
+              Sales visibility
+            </span>
+            <button
+              type="button"
+              className="dash-sales-privacy-toggle"
+              aria-pressed={salesMasked}
+              aria-label={salesMasked ? 'Show sales figures' : 'Hide sales figures'}
+              onClick={() => setSalesMasked((m) => !m)}
               style={{
-                background: '#111117',
-                border: '1px solid rgba(255,255,255,0.055)',
-                borderRadius: 13,
-                padding: '14px 16px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: 36,
+                height: 32,
+                padding: 0,
+                borderRadius: 8,
+                border: '1px solid var(--ro-border-hover)',
+                background: 'var(--ro-surface-elevated)',
+                color: salesMasked ? 'var(--ro-text-dim)' : 'var(--ro-text)',
+                cursor: 'pointer',
               }}
             >
-              <div style={{ fontSize: 9, fontWeight: 700, color: '#4a4a62', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: 6 }}>{t.label}</div>
-              <div style={{ fontFamily: DM_SANS, fontSize: 24, color: t.color, letterSpacing: '0.5px' }}>{t.value}</div>
-            </div>
-          ))}
+              {salesMasked ? <EyeOff size={18} strokeWidth={1.5} /> : <Eye size={18} strokeWidth={1.5} />}
+            </button>
+          </div>
+          <div className="fade-up delay-1 dash-kpi-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 10 }}>
+            {[
+              { label: "This Week's Revenue", value: thisWeekSales.revenue > 0 ? `€${thisWeekSales.revenue.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : '—', color: '#00e676' },
+              { label: 'Units Sold This Week', value: thisWeekSales.units > 0 ? String(thisWeekSales.units) : '—', color: '#38bdf8' },
+              { label: 'Avg Weekly Revenue (8wk)', value: avgWeeklyRevenue > 0 ? `€${avgWeeklyRevenue.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : '—', color: '#c084fc' },
+              { label: 'Avg Selling Price', value: avgSellingPrice > 0 ? `€${avgSellingPrice.toFixed(2)}` : '—', color: '#fbbf24' },
+            ].map((t) => (
+              <div
+                key={t.label}
+                style={{
+                  background: 'var(--ro-surface)',
+                  border: '1px solid var(--ro-border)',
+                  borderRadius: 13,
+                  padding: '14px 16px',
+                }}
+              >
+                <div style={{ fontSize: 9, fontWeight: 700, color: 'var(--ro-text-muted)', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: 6 }}>{t.label}</div>
+                <div style={{ fontFamily: DM_SANS, fontSize: 24, color: t.color, letterSpacing: '0.5px' }}>
+                  {salesMasked ? maskKpiDisplay(t.value) : t.value}
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
@@ -431,16 +507,16 @@ export function Dashboard() {
         <div key={selectedStatus} className="fade-up" style={{ marginBottom: 22 }}>
           <div
             style={{
-              background: '#111117',
-              border: '1px solid rgba(255,255,255,0.055)',
+              background: 'var(--ro-surface)',
+              border: '1px solid var(--ro-border)',
               borderRadius: 14,
               overflow: 'hidden',
             }}
           >
             <div
               style={{
-                background: '#17171f',
-                borderBottom: '1px solid rgba(255,255,255,0.055)',
+                background: 'var(--ro-surface-elevated)',
+                borderBottom: '1px solid var(--ro-border)',
                 padding: '16px 20px',
                 display: 'flex',
                 alignItems: 'center',
@@ -464,7 +540,7 @@ export function Dashboard() {
                     fontFamily: '"DM Sans"',
                     fontSize: 18,
                     letterSpacing: '1.5px',
-                    color: '#fff',
+                    color: 'var(--ro-heading)',
                   }}
                 >
                   {selectedStatus.toUpperCase()} — PRODUCT GRID
@@ -473,17 +549,17 @@ export function Dashboard() {
                   style={{
                     fontFamily: '"DM Sans"',
                     fontSize: 11,
-                    color: '#4a4a62',
+                    color: 'var(--ro-text-muted)',
                     padding: '2px 8px',
                     borderRadius: 6,
-                    border: '1px solid rgba(255,255,255,0.055)',
+                    border: '1px solid var(--ro-border)',
                   }}
                 >
                   {panelSkus.length} SKUs
                 </span>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                <span style={{ fontSize: 11, color: '#4a4a62' }}>Click a product for details</span>
+                <span style={{ fontSize: 11, color: 'var(--ro-text-muted)' }}>Click a product for details</span>
                 <button
                   type="button"
                   onClick={closePanel}
@@ -491,9 +567,9 @@ export function Dashboard() {
                     width: 28,
                     height: 28,
                     borderRadius: 8,
-                    border: '1px solid rgba(255,255,255,0.08)',
-                    background: 'rgba(0,0,0,0.2)',
-                    color: '#9090aa',
+                    border: '1px solid var(--ro-border-hover)',
+                    background: 'var(--ro-surface-elevated)',
+                    color: 'var(--ro-text-dim)',
                     cursor: 'pointer',
                     fontSize: 14,
                     lineHeight: 1,
@@ -507,7 +583,7 @@ export function Dashboard() {
             <div
               style={{
                 padding: '12px 20px',
-                borderBottom: '1px solid rgba(255,255,255,0.055)',
+                borderBottom: '1px solid var(--ro-border)',
                 display: 'flex',
                 flexWrap: 'wrap',
                 alignItems: 'center',
@@ -518,7 +594,7 @@ export function Dashboard() {
                 style={{
                   fontSize: 10,
                   fontWeight: 700,
-                  color: '#4a4a62',
+                  color: 'var(--ro-text-muted)',
                   textTransform: 'uppercase',
                   letterSpacing: '1px',
                 }}
@@ -539,9 +615,9 @@ export function Dashboard() {
                     border:
                       genderFilter === g
                         ? `1px solid ${selectedTileData.color}`
-                        : '1px solid rgba(255,255,255,0.055)',
-                    background: genderFilter === g ? selectedTileData.colorBg : '#17171f',
-                    color: genderFilter === g ? selectedTileData.color : '#4a4a62',
+                        : '1px solid var(--ro-border)',
+                    background: genderFilter === g ? selectedTileData.colorBg : 'var(--ro-surface-elevated)',
+                    color: genderFilter === g ? selectedTileData.color : 'var(--ro-text-muted)',
                     fontFamily: DM_SANS,
                   }}
                 >
@@ -552,7 +628,7 @@ export function Dashboard() {
                 style={{
                   width: 1,
                   height: 16,
-                  background: 'rgba(255,255,255,0.08)',
+                  background: 'var(--ro-border-hover)',
                   margin: '0 4px',
                 }}
               />
@@ -560,7 +636,7 @@ export function Dashboard() {
                 style={{
                   fontSize: 10,
                   fontWeight: 700,
-                  color: '#4a4a62',
+                  color: 'var(--ro-text-muted)',
                   textTransform: 'uppercase',
                   letterSpacing: '1px',
                 }}
@@ -581,9 +657,9 @@ export function Dashboard() {
                     border:
                       categoryFilter === c
                         ? `1px solid ${selectedTileData.color}`
-                        : '1px solid rgba(255,255,255,0.055)',
-                    background: categoryFilter === c ? selectedTileData.colorBg : '#17171f',
-                    color: categoryFilter === c ? selectedTileData.color : '#4a4a62',
+                        : '1px solid var(--ro-border)',
+                    background: categoryFilter === c ? selectedTileData.colorBg : 'var(--ro-surface-elevated)',
+                    color: categoryFilter === c ? selectedTileData.color : 'var(--ro-text-muted)',
                     fontFamily: DM_SANS,
                   }}
                 >
@@ -598,7 +674,7 @@ export function Dashboard() {
                   style={{
                     textAlign: 'center',
                     padding: '40px 16px',
-                    color: '#4a4a62',
+                    color: 'var(--ro-text-muted)',
                     fontSize: 13,
                   }}
                 >
@@ -625,7 +701,7 @@ export function Dashboard() {
                       statusLabel={STATUS_LABELS[selectedStatus] ?? selectedStatus}
                       statusIcon={selectedTileData.icon}
                       totalImported={skuImportTotals[sku.sku] ?? 0}
-                      salesVisible={execUser}
+                      salesVisible={execUser && !salesMasked}
                       onClick={() => setSelectedSku(sku)}
                     />
                   ))}
@@ -647,8 +723,8 @@ export function Dashboard() {
       >
         <div
           style={{
-            background: '#111117',
-            border: '1px solid rgba(255,255,255,0.055)',
+            background: 'var(--ro-surface)',
+            border: '1px solid var(--ro-border)',
             borderRadius: 13,
             padding: '14px 16px',
             display: 'flex',
@@ -661,7 +737,7 @@ export function Dashboard() {
               fontFamily: '"DM Sans"',
               fontSize: 14,
               letterSpacing: '2px',
-              color: '#fff',
+              color: 'var(--ro-heading)',
               marginBottom: 10,
             }}
           >
@@ -675,8 +751,8 @@ export function Dashboard() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14, minWidth: 0 }}>
           <div
             style={{
-              background: '#111117',
-              border: '1px solid rgba(255,255,255,0.055)',
+              background: 'var(--ro-surface)',
+              border: '1px solid var(--ro-border)',
               borderRadius: 13,
               padding: '12px 14px',
               flex: 1,
@@ -685,35 +761,39 @@ export function Dashboard() {
           >
             {execUser && skus.length > 0 && revenueChartData.length > 0 ? (
               <>
-                <div style={{ fontSize: 12, fontWeight: 600, color: '#e4e4f0', marginBottom: 8 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--ro-text)', marginBottom: 8 }}>
                   Weekly Revenue · Last 8 Weeks
                 </div>
                 <div style={{ height: 220 }}>
                   <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={revenueChartData} margin={{ top: 8, right: 8, left: 0, bottom: 4 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" vertical={false} />
+                    <BarChart data={displayRevenueChartData} margin={{ top: 8, right: 8, left: 0, bottom: 4 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="var(--ro-chart-grid)" vertical={false} />
                       <XAxis
                         dataKey="label"
-                        tick={{ fontSize: 10, fill: '#9090aa', fontFamily: DM_SANS }}
-                        axisLine={{ stroke: 'rgba(255,255,255,0.06)' }}
+                        tick={{ fontSize: 10, fill: 'var(--ro-text-dim)', fontFamily: DM_SANS }}
+                        axisLine={{ stroke: 'var(--ro-chart-axis)' }}
                         tickLine={false}
                       />
                       <YAxis
-                        tick={{ fontSize: 10, fill: '#9090aa', fontFamily: DM_SANS }}
+                        tick={{ fontSize: 10, fill: 'var(--ro-text-dim)', fontFamily: DM_SANS }}
                         axisLine={false}
                         tickLine={false}
-                        tickFormatter={(v) => `€${v}`}
+                        tickFormatter={(v) => (salesMasked ? '****' : `€${v}`)}
                       />
                       <Tooltip
                         contentStyle={{
-                          background: '#111117',
-                          border: '1px solid rgba(255,255,255,0.1)',
+                          background: 'var(--ro-tooltip-bg)',
+                          border: '1px solid var(--ro-tooltip-border)',
                           borderRadius: 8,
                           fontFamily: DM_SANS,
                           fontSize: 12,
                         }}
-                        labelStyle={{ color: '#e4e4f0' }}
-                        formatter={(v, name) => [name === 'revenue' ? `€${v.toLocaleString()}` : v, name === 'revenue' ? 'Revenue' : 'Units']}
+                        labelStyle={{ color: 'var(--ro-tooltip-label)' }}
+                        formatter={(v, name) =>
+                          salesMasked
+                            ? ['*******', name === 'revenue' ? 'Revenue' : 'Units']
+                            : [name === 'revenue' ? `€${v.toLocaleString()}` : v, name === 'revenue' ? 'Revenue' : 'Units']
+                        }
                       />
                       <Bar dataKey="revenue" fill="#00e676" radius={[4, 4, 0, 0]} />
                     </BarChart>
@@ -722,35 +802,35 @@ export function Dashboard() {
               </>
             ) : execUser ? (
               <>
-                <div style={{ fontSize: 12, fontWeight: 600, color: '#e4e4f0', marginBottom: 8 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--ro-text)', marginBottom: 8 }}>
                   Sell-Through · Last 8 Weeks
                 </div>
                 <div style={{ height: 220 }}>
                   <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={sellThroughChartData} margin={{ top: 8, right: 8, left: 0, bottom: 4 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" vertical={false} />
+                    <BarChart data={displaySellThroughChartData} margin={{ top: 8, right: 8, left: 0, bottom: 4 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="var(--ro-chart-grid)" vertical={false} />
                       <XAxis
                         dataKey="label"
-                        tick={{ fontSize: 10, fill: '#9090aa', fontFamily: DM_SANS }}
-                        axisLine={{ stroke: 'rgba(255,255,255,0.06)' }}
+                        tick={{ fontSize: 10, fill: 'var(--ro-text-dim)', fontFamily: DM_SANS }}
+                        axisLine={{ stroke: 'var(--ro-chart-axis)' }}
                         tickLine={false}
                       />
                       <YAxis
-                        tick={{ fontSize: 10, fill: '#9090aa', fontFamily: DM_SANS }}
+                        tick={{ fontSize: 10, fill: 'var(--ro-text-dim)', fontFamily: DM_SANS }}
                         axisLine={false}
                         tickLine={false}
-                        tickFormatter={(v) => `${v}%`}
+                        tickFormatter={(v) => (salesMasked ? '****' : `${v}%`)}
                       />
                       <Tooltip
                         contentStyle={{
-                          background: '#111117',
-                          border: '1px solid rgba(255,255,255,0.1)',
+                          background: 'var(--ro-tooltip-bg)',
+                          border: '1px solid var(--ro-tooltip-border)',
                           borderRadius: 8,
                           fontFamily: DM_SANS,
                           fontSize: 12,
                         }}
-                        labelStyle={{ color: '#e4e4f0' }}
-                        formatter={(v) => [`${v}%`, 'Sell-through']}
+                        labelStyle={{ color: 'var(--ro-tooltip-label)' }}
+                        formatter={(v) => (salesMasked ? ['*******', 'Sell-through'] : [`${v}%`, 'Sell-through'])}
                       />
                       <Bar dataKey="sellThrough" fill="#ff3333" radius={[4, 4, 0, 0]} />
                     </BarChart>
@@ -759,10 +839,10 @@ export function Dashboard() {
               </>
             ) : (
               <>
-                <div style={{ fontSize: 12, fontWeight: 600, color: '#e4e4f0', marginBottom: 8 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--ro-text)', marginBottom: 8 }}>
                   Store overview
                 </div>
-                <div style={{ fontSize: 11, color: '#4a4a62', lineHeight: 1.55, padding: '4px 0 12px' }}>
+                <div style={{ fontSize: 11, color: 'var(--ro-text-muted)', lineHeight: 1.55, padding: '4px 0 12px' }}>
                   Sales and revenue charts are available to executive accounts only. Use lifecycle tiles, Smart Alerts, and the inventory split below to plan your day.
                 </div>
               </>
@@ -771,15 +851,15 @@ export function Dashboard() {
 
           <div
             style={{
-              background: '#111117',
-              border: '1px solid rgba(255,255,255,0.055)',
+              background: 'var(--ro-surface)',
+              border: '1px solid var(--ro-border)',
               borderRadius: 13,
               padding: '12px 14px',
               flex: 1,
               minHeight: 0,
             }}
           >
-            <div style={{ fontSize: 12, fontWeight: 600, color: '#e4e4f0', marginBottom: 8 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--ro-text)', marginBottom: 8 }}>
               Inventory Split — {activeSeason}
             </div>
             <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'center', gap: 16 }}>
@@ -822,7 +902,7 @@ export function Dashboard() {
                     style={{
                       fontFamily: '"DM Sans", sans-serif',
                       fontSize: 32,
-                      color: '#fff',
+                      color: 'var(--ro-heading)',
                       letterSpacing: 1,
                       lineHeight: 1,
                     }}
@@ -833,7 +913,7 @@ export function Dashboard() {
                     style={{
                       fontSize: 9,
                       fontWeight: 700,
-                      color: '#4a4a62',
+                      color: 'var(--ro-text-muted)',
                       textTransform: 'uppercase',
                       letterSpacing: '1.2px',
                       marginTop: 4,
@@ -867,7 +947,7 @@ export function Dashboard() {
                       />
                       <span
                         style={{
-                          color: '#e4e4f0',
+                          color: 'var(--ro-text)',
                           fontWeight: 600,
                           overflow: 'hidden',
                           textOverflow: 'ellipsis',
@@ -877,7 +957,7 @@ export function Dashboard() {
                         {d.name}
                       </span>
                     </span>
-                    <span style={{ color: '#9090aa', fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>
+                    <span style={{ color: 'var(--ro-text-dim)', fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>
                       {d.name === 'No data' ? '—' : `${genderPercents[d.name] ?? 0}% · ${d.value}`}
                     </span>
                   </div>
@@ -897,12 +977,12 @@ export function Dashboard() {
               display: 'inline-block',
               fontSize: 11,
               fontWeight: 600,
-              color: '#9090aa',
+              color: 'var(--ro-text-dim)',
               textDecoration: 'none',
               padding: '6px 12px',
               borderRadius: 8,
-              border: '1px solid rgba(255,255,255,0.055)',
-              background: '#17171f',
+              border: '1px solid var(--ro-border)',
+              background: 'var(--ro-surface-elevated)',
             }}
           >
             View Full Lifecycle →
@@ -912,15 +992,15 @@ export function Dashboard() {
         <div
           className="dash-table-wrap"
           style={{
-            background: '#111117',
-            border: '1px solid rgba(255,255,255,0.055)',
+            background: 'var(--ro-surface)',
+            border: '1px solid var(--ro-border)',
             borderRadius: 13,
             overflow: 'hidden',
           }}
         >
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
-              <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.055)' }}>
+              <tr style={{ borderBottom: '1px solid var(--ro-border)' }}>
                 {recentTableHeaders.map((h) => (
                   <th
                     key={h}
@@ -929,7 +1009,7 @@ export function Dashboard() {
                       fontWeight: 700,
                       textTransform: 'uppercase',
                       letterSpacing: '0.8px',
-                      color: '#4a4a62',
+                      color: 'var(--ro-text-muted)',
                       textAlign: 'left',
                       padding: '10px 12px',
                     }}
@@ -942,7 +1022,7 @@ export function Dashboard() {
             <tbody>
               {recentSkus.length === 0 ? (
                 <tr>
-                  <td colSpan={recentTableColSpan} style={{ padding: '24px 12px', fontSize: 12, color: '#9090aa' }}>
+                  <td colSpan={recentTableColSpan} style={{ padding: '24px 12px', fontSize: 12, color: 'var(--ro-text-dim)' }}>
                     No SKUs yet — import a CSV.
                   </td>
                 </tr>
@@ -952,24 +1032,24 @@ export function Dashboard() {
                   const days = getDaysInStore(sku.import_date)
                   const pct = Math.round(getSellThrough(sku.sold_quantity, sku.quantity))
                   const color = STATUS_COLORS[status]
-                  const act = actionForRow(status, pct, !execUser)
+                  const act = actionForRow(status, pct, !execUser || salesMasked)
                   return (
-                    <tr key={sku.sku} style={{ borderBottom: '1px solid rgba(255,255,255,0.055)' }}>
+                    <tr key={sku.sku} style={{ borderBottom: '1px solid var(--ro-border)' }}>
                       <td
                         style={{
                           padding: '10px 12px',
                           fontFamily: '"DM Sans"',
                           fontSize: 11,
-                          color: '#e4e4f0',
+                          color: 'var(--ro-text)',
                         }}
                       >
                         {sku.sku}
                       </td>
-                      <td style={{ padding: '10px 12px', fontSize: 12, fontWeight: 600, color: '#e4e4f0' }}>
+                      <td style={{ padding: '10px 12px', fontSize: 12, fontWeight: 600, color: 'var(--ro-text)' }}>
                         {sku.product_name}
                       </td>
-                      <td style={{ padding: '10px 12px', fontSize: 12, color: '#e4e4f0' }}>{sku.brand}</td>
-                      <td style={{ padding: '10px 12px', fontSize: 12, color: '#e4e4f0' }}>
+                      <td style={{ padding: '10px 12px', fontSize: 12, color: 'var(--ro-text)' }}>{sku.brand}</td>
+                      <td style={{ padding: '10px 12px', fontSize: 12, color: 'var(--ro-text)' }}>
                         {genderLabel(sku.gender)}
                       </td>
                       <td
@@ -977,17 +1057,21 @@ export function Dashboard() {
                           padding: '10px 12px',
                           fontFamily: '"DM Sans"',
                           fontSize: 11,
-                          color: '#4a4a62',
+                          color: 'var(--ro-text-muted)',
                         }}
                       >
                         {days}
                       </td>
                       {execUser ? (
                         <td style={{ padding: '10px 12px' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                            <ProgressBar value={pct} color={color} width="60px" style={{ marginTop: 0 }} />
-                            <span style={{ fontSize: 11, color, fontWeight: 700 }}>{pct}%</span>
-                          </div>
+                          {salesMasked ? (
+                            <span style={{ fontSize: 11, color: 'var(--ro-text-dim)', fontWeight: 700 }}>*******</span>
+                          ) : (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                              <ProgressBar value={pct} color={color} width="60px" style={{ marginTop: 0 }} />
+                              <span style={{ fontSize: 11, color, fontWeight: 700 }}>{pct}%</span>
+                            </div>
+                          )}
                         </td>
                       ) : null}
                       <td style={{ padding: '10px 12px' }}>

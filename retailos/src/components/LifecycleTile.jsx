@@ -5,7 +5,7 @@ export default function LifecycleTile({ status, count, sub, tag, color, colorBg,
 
   const outerStyle = (() => {
     const base = {
-      background: '#111117',
+      background: 'var(--ro-surface)',
       borderRadius: '12px',
       padding: '16px',
       position: 'relative',
@@ -19,7 +19,7 @@ export default function LifecycleTile({ status, count, sub, tag, color, colorBg,
         ...base,
         border: `1px solid ${color}`,
         transform: 'translateY(-3px)',
-        boxShadow: `0 8px 24px rgba(0,0,0,0.3), 0 0 0 1px ${color}`,
+        boxShadow: `var(--ro-shadow-ambient-hover), 0 0 0 1px ${color}`,
       }
     }
     if (isSelected) {
@@ -27,12 +27,12 @@ export default function LifecycleTile({ status, count, sub, tag, color, colorBg,
         ...base,
         border: `1px solid ${color}`,
         transform: 'translateY(-2px)',
-        boxShadow: `0 0 0 2px ${color}, 0 12px 32px rgba(0,0,0,0.4)`,
+        boxShadow: `0 0 0 2px ${color}, var(--ro-shadow-ambient-selected)`,
       }
     }
     return {
       ...base,
-      border: '1px solid rgba(255,255,255,0.055)',
+      border: '1px solid var(--ro-border)',
       transform: '',
       boxShadow: '',
     }
@@ -72,7 +72,7 @@ export default function LifecycleTile({ status, count, sub, tag, color, colorBg,
         className="lc-tile-status"
         style={{
           fontSize: '9px',
-          color: '#4a4a62',
+          color: 'var(--ro-text-muted)',
           textTransform: 'uppercase',
           letterSpacing: '1.5px',
           marginBottom: '8px',
@@ -85,14 +85,14 @@ export default function LifecycleTile({ status, count, sub, tag, color, colorBg,
         style={{
           fontFamily: '"DM Sans"',
           fontSize: '36px',
-          color: '#fff',
+          color: 'var(--ro-heading)',
           letterSpacing: '1px',
           lineHeight: 1,
         }}
       >
         {count}
       </div>
-      <div className="lc-tile-sub" style={{ fontSize: '10px', color: '#4a4a62', marginTop: '4px' }}>{sub}</div>
+      <div className="lc-tile-sub" style={{ fontSize: '10px', color: 'var(--ro-text-muted)', marginTop: '4px' }}>{sub}</div>
       <div
         className="lc-tile-tag"
         style={{
@@ -116,7 +116,7 @@ export default function LifecycleTile({ status, count, sub, tag, color, colorBg,
           bottom: '12px',
           right: '12px',
           fontSize: '11px',
-          color: isSelected ? color : '#4a4a62',
+          color: isSelected ? color : 'var(--ro-text-muted)',
           transition: 'transform 0.18s',
           transform: hover ? 'translateX(3px)' : 'none',
         }}

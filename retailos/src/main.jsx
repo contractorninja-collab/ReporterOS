@@ -2,8 +2,12 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
 import './index.css'
+import './theme-light.css'
 import App from './App.jsx'
 import useStore from './store/useStore.js'
+import { applyThemeToDocument, readStoredTheme } from './themeStorage.js'
+
+applyThemeToDocument(readStoredTheme())
 
 async function setupServiceWorker() {
   if (!('serviceWorker' in navigator)) return

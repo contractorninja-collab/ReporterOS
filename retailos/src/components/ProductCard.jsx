@@ -17,7 +17,7 @@ function ProductCard({ sku, rank, onClick, metric, metricLabel, velocity, lowSto
     Apparel: 'linear-gradient(135deg,#1a0a2e,#2d1357)',
     Accessories: 'linear-gradient(135deg,#0a1a1a,#0d3333)',
   }
-  const thumbBg = thumbGradients[sku.category] || 'linear-gradient(135deg,#111117,#17171f)'
+  const thumbBg = thumbGradients[sku.category] || 'linear-gradient(135deg,var(--ro-surface),var(--ro-surface-elevated))'
 
   const categoryIcon = {
     Footwear: <IconFootwear size={44} strokeWidth={1} />,
@@ -32,8 +32,8 @@ function ProductCard({ sku, rank, onClick, metric, metricLabel, velocity, lowSto
     <div
       onClick={onClick}
       style={{
-        background: '#111117',
-        border: '1px solid rgba(255,255,255,0.055)',
+        background: 'var(--ro-surface)',
+        border: '1px solid var(--ro-border)',
         borderRadius: '13px',
         overflow: 'hidden',
         cursor: 'pointer',
@@ -42,12 +42,12 @@ function ProductCard({ sku, rank, onClick, metric, metricLabel, velocity, lowSto
       }}
       onMouseEnter={(e) => {
         e.currentTarget.style.transform = 'translateY(-4px)'
-        e.currentTarget.style.borderColor = 'rgba(255,255,255,0.09)'
-        e.currentTarget.style.boxShadow = '0 18px 40px rgba(0,0,0,0.4)'
+        e.currentTarget.style.borderColor = 'var(--ro-border-hover)'
+        e.currentTarget.style.boxShadow = 'var(--ro-shadow-card-hover)'
       }}
       onMouseLeave={(e) => {
         e.currentTarget.style.transform = ''
-        e.currentTarget.style.borderColor = 'rgba(255,255,255,0.055)'
+        e.currentTarget.style.borderColor = 'var(--ro-border)'
         e.currentTarget.style.boxShadow = ''
       }}
     >
@@ -127,14 +127,14 @@ function ProductCard({ sku, rank, onClick, metric, metricLabel, velocity, lowSto
       </div>
 
       <div style={{ padding: '11px 12px' }}>
-        <div style={{ fontSize: '12px', fontWeight: 700, color: '#e4e4f0', marginBottom: '1px' }}>
+        <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--ro-text)', marginBottom: '1px' }}>
           {sku.product_name}
         </div>
         <div
           style={{
             fontFamily: '"DM Sans"',
             fontSize: '9px',
-            color: '#4a4a62',
+            color: 'var(--ro-text-muted)',
             marginBottom: '7px',
           }}
         >
@@ -146,17 +146,17 @@ function ProductCard({ sku, rank, onClick, metric, metricLabel, velocity, lowSto
             <div style={{ fontFamily: '"DM Sans"', fontSize: '22px', color: sellColor, lineHeight: 1 }}>
               {metric || `${pctDisplay}%`}
             </div>
-            <div style={{ fontSize: '9px', color: '#4a4a62', textTransform: 'uppercase', letterSpacing: '1px' }}>
+            <div style={{ fontSize: '9px', color: 'var(--ro-text-muted)', textTransform: 'uppercase', letterSpacing: '1px' }}>
               {metricLabel || 'Sell-through'}
             </div>
           </div>
           {!hideSalesCounts ? (
             <div style={{ textAlign: 'right' }}>
-              <div style={{ fontFamily: '"DM Sans"', fontSize: '10px', color: '#4a4a62' }}>
+              <div style={{ fontFamily: '"DM Sans"', fontSize: '10px', color: 'var(--ro-text-muted)' }}>
                 {sku.sold_quantity} of {sku.quantity}
               </div>
               {velocity != null && (
-                <div style={{ fontFamily: '"DM Sans"', fontSize: '9px', color: '#9090aa', marginTop: 1 }}>
+                <div style={{ fontFamily: '"DM Sans"', fontSize: '9px', color: 'var(--ro-text-dim)', marginTop: 1 }}>
                   {velocity}/wk
                 </div>
               )}

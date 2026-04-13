@@ -1,0 +1,118 @@
+/* Light theme: semantic tokens + shell overrides (inline shell styles need !important) */
+
+[data-theme='light'] {
+  color-scheme: light;
+  --ro-page-bg: #eef0f4;
+  --ro-surface: #ffffff;
+  --ro-surface-elevated: #f1f3f7;
+  --ro-border: rgba(15, 23, 42, 0.08);
+  --ro-border-hover: rgba(15, 23, 42, 0.14);
+  --ro-text: #1e293b;
+  --ro-text-muted: #64748b;
+  --ro-text-dim: #64748b;
+  --ro-heading: #0f172a;
+  --ro-chart-grid: rgba(15, 23, 42, 0.08);
+  --ro-chart-axis: rgba(15, 23, 42, 0.12);
+  --ro-tooltip-bg: #ffffff;
+  --ro-tooltip-border: rgba(15, 23, 42, 0.12);
+  --ro-tooltip-label: #0f172a;
+  --ro-tooltip-muted: #64748b;
+  --ro-shadow-ambient-hover: 0 6px 20px rgba(15, 23, 42, 0.07);
+  --ro-shadow-ambient-selected: 0 8px 24px rgba(15, 23, 42, 0.1);
+  --ro-shadow-card-hover: 0 8px 24px rgba(15, 23, 42, 0.1), 0 0 0 1px rgba(15, 23, 42, 0.06);
+  --ro-scrollbar-thumb: #c4c4d4;
+  --ro-track-bg: rgba(15, 23, 42, 0.08);
+  --ro-dropdown-shadow: 0 12px 40px rgba(15, 23, 42, 0.12);
+  --ro-fill-soft: rgba(15, 23, 42, 0.05);
+  --ro-fill-muted: rgba(15, 23, 42, 0.08);
+  --ro-fill-faint: rgba(15, 23, 42, 0.04);
+  --ro-table-row-hover: rgba(15, 23, 42, 0.04);
+  --ro-surface-deep: #e8eaef;
+}
+
+[data-theme='light'] body {
+  background-color: var(--ro-page-bg) !important;
+  color: var(--ro-text) !important;
+}
+
+[data-theme='light'] ::-webkit-scrollbar-thumb {
+  background: var(--ro-scrollbar-thumb) !important;
+}
+
+[data-theme='light'] .app-root {
+  background: var(--ro-page-bg) !important;
+}
+
+[data-theme='light'] .app-sidebar {
+  background: #ffffff !important;
+  border-right-color: rgba(0, 0, 0, 0.08) !important;
+}
+
+[data-theme='light'] .app-sidebar a {
+  color: #4a4a62 !important;
+}
+
+[data-theme='light'] .app-topbar {
+  background: rgba(255, 255, 255, 0.92) !important;
+  border-bottom-color: rgba(0, 0, 0, 0.08) !important;
+}
+
+[data-theme='light'] .app-footer {
+  border-top-color: rgba(0, 0, 0, 0.08) !important;
+}
+
+[data-theme='light'] .bottom-nav a.bottom-nav-import {
+  color: #ff3333 !important;
+}
+
+[data-theme='light'] .bottom-nav a.bottom-nav-import.active {
+  color: #e62e2e !important;
+}
+
+[data-theme='light'] .bottom-nav {
+  background: #ffffff !important;
+  border-top-color: rgba(0, 0, 0, 0.08) !important;
+}
+
+[data-theme='light'] .bottom-nav a,
+[data-theme='light'] .bottom-nav button {
+  color: #8a8a9a !important;
+}
+
+[data-theme='light'] .bottom-nav a.active {
+  color: #ff3333 !important;
+}
+
+[data-theme='light'] .hamburger-btn {
+  background: #f4f4f8 !important;
+  border-color: rgba(0, 0, 0, 0.1) !important;
+  color: #5c5c72 !important;
+}
+
+[data-theme='light'] .sidebar-overlay {
+  background: rgba(0, 0, 0, 0.35) !important;
+}
+
+/* Topbar: titles and crumbs (inline colors beat inheritance) */
+[data-theme='light'] .app-topbar > div:nth-child(2) div {
+  color: #1a1a24 !important;
+}
+
+[data-theme='light'] .topbar-crumb {
+  color: #6b6b7a !important;
+}
+
+[data-theme='light'] .app-topbar .topbar-desktop-only {
+  background: #f4f4f8 !important;
+  border-color: rgba(0, 0, 0, 0.1) !important;
+}
+
+[data-theme='light'] .app-topbar input {
+  color: #1a1a24 !important;
+}
+
+[data-theme='light'] .topbar-theme-toggle {
+  border-color: rgba(0, 0, 0, 0.12) !important;
+  background: #ececf2 !important;
+  color: #5c5c72 !important;
+}

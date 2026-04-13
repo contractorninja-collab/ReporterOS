@@ -13,7 +13,7 @@ function SectionHeader({ title, dotColor, children }) {
           fontFamily: '"DM Sans"',
           fontSize: '16px',
           letterSpacing: '2px',
-          color: '#fff',
+          color: 'var(--ro-heading)',
           display: 'flex',
           alignItems: 'center',
           gap: '8px',

@@ -35,7 +35,7 @@ export default function ProductPanelCard({
     Apparel: 'linear-gradient(135deg,#1a0a2e,#2d1357)',
     Accessories: 'linear-gradient(135deg,#0a1a1a,#0d3333)',
   }
-  const thumbBg = categoryGrad[sku.category] || 'linear-gradient(135deg,#111117,#17171f)'
+  const thumbBg = categoryGrad[sku.category] || 'linear-gradient(135deg,var(--ro-surface),var(--ro-surface-elevated))'
   const icon = categoryIcon[sku.category] || <IconPackage size={42} strokeWidth={1} />
 
   const [barWidth, setBarWidth] = useState(0)
@@ -47,15 +47,15 @@ export default function ProductPanelCard({
   const [hover, setHover] = useState(false)
 
   const outerStyle = {
-    background: '#17171f',
-    border: hover ? '1px solid rgba(255,255,255,0.12)' : '1px solid rgba(255,255,255,0.055)',
+    background: 'var(--ro-surface-elevated)',
+    border: hover ? '1px solid var(--ro-border-hover)' : '1px solid var(--ro-border)',
     borderRadius: '11px',
     overflow: 'hidden',
     cursor: 'pointer',
     transition: 'all 0.18s',
     position: 'relative',
     transform: hover ? 'translateY(-3px)' : 'none',
-    boxShadow: hover ? '0 12px 28px rgba(0,0,0,0.35), 0 0 0 1px rgba(255,255,255,0.06)' : 'none',
+    boxShadow: hover ? 'var(--ro-shadow-card-hover)' : 'none',
   }
 
   return (
@@ -139,7 +139,7 @@ export default function ProductPanelCard({
             zIndex: 2,
             fontFamily: '"DM Sans"',
             fontSize: 9,
-            color: 'rgba(255,255,255,0.6)',
+            color: 'color-mix(in srgb, var(--ro-text) 62%, transparent)',
           }}
         >
           Day {days}
@@ -151,7 +151,7 @@ export default function ProductPanelCard({
           style={{
             fontSize: 12,
             fontWeight: 700,
-            color: '#e4e4f0',
+            color: 'var(--ro-text)',
             marginBottom: 3,
             whiteSpace: 'nowrap',
             overflow: 'hidden',
@@ -164,7 +164,7 @@ export default function ProductPanelCard({
           style={{
             fontFamily: '"DM Sans"',
             fontSize: 9,
-            color: '#4a4a62',
+            color: 'var(--ro-text-muted)',
             marginBottom: 8,
             whiteSpace: 'nowrap',
             overflow: 'hidden',
@@ -176,7 +176,7 @@ export default function ProductPanelCard({
         >
           <span>{sku.sku}</span>
           {salesVisible && sku.price_tag > 0 && (
-            <span style={{ color: '#9090aa', fontWeight: 600 }}>€{sku.price_tag}</span>
+            <span style={{ color: 'var(--ro-text-dim)', fontWeight: 600 }}>€{sku.price_tag}</span>
           )}
         </div>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 6 }}>
@@ -188,7 +188,7 @@ export default function ProductPanelCard({
                     fontFamily: '"DM Sans"',
                     fontSize: 18,
                     lineHeight: 1,
-                    color: '#fff',
+                    color: 'var(--ro-heading)',
                     letterSpacing: '0.5px',
                   }}
                 >
@@ -215,15 +215,15 @@ export default function ProductPanelCard({
             </div>
             {salesVisible ? (
               <>
-                <div style={{ fontSize: 9, color: '#4a4a62' }}>
+                <div style={{ fontSize: 9, color: 'var(--ro-text-muted)' }}>
                   {sku.sold_quantity}/{sku.quantity} sold
                 </div>
-                <div style={{ fontSize: 9, color: '#4a4a62', marginTop: 4, fontFamily: '"DM Sans"' }}>
+                <div style={{ fontSize: 9, color: 'var(--ro-text-muted)', marginTop: 4, fontFamily: '"DM Sans"' }}>
                   Imported (lifetime): {totalImported}
                 </div>
               </>
             ) : (
-              <div style={{ fontSize: 9, color: '#4a4a62', marginTop: 4, fontFamily: '"DM Sans"' }}>
+              <div style={{ fontSize: 9, color: 'var(--ro-text-muted)', marginTop: 4, fontFamily: '"DM Sans"' }}>
                 Imported (lifetime): {totalImported}
               </div>
             )}
@@ -234,7 +234,7 @@ export default function ProductPanelCard({
             <div
               style={{
                 height: 3,
-                background: 'rgba(255,255,255,0.06)',
+                background: 'var(--ro-track-bg)',
                 borderRadius: 2,
                 overflow: 'hidden',
                 marginTop: 8,
@@ -272,8 +272,8 @@ export default function ProductPanelCard({
               textTransform: 'uppercase',
               padding: '2px 6px',
               borderRadius: 4,
-              background: 'rgba(255,255,255,0.06)',
-              color: '#9090aa',
+              background: 'var(--ro-track-bg)',
+              color: 'var(--ro-text-dim)',
             }}
           >
             {sku.brand}
@@ -285,8 +285,8 @@ export default function ProductPanelCard({
               textTransform: 'uppercase',
               padding: '2px 6px',
               borderRadius: 4,
-              background: 'rgba(255,255,255,0.06)',
-              color: '#9090aa',
+              background: 'var(--ro-track-bg)',
+              color: 'var(--ro-text-dim)',
             }}
           >
             {sku.size}
@@ -329,8 +329,8 @@ export default function ProductPanelCard({
                 fontWeight: 700,
                 padding: '2px 6px',
                 borderRadius: 4,
-                background: 'rgba(255,255,255,0.06)',
-                color: '#9090aa',
+                background: 'var(--ro-track-bg)',
+                color: 'var(--ro-text-dim)',
               }}
             >
               {sku.brand}
@@ -342,8 +342,8 @@ export default function ProductPanelCard({
                 textTransform: 'uppercase',
                 padding: '2px 6px',
                 borderRadius: 4,
-                background: 'rgba(255,255,255,0.06)',
-                color: '#9090aa',
+                background: 'var(--ro-track-bg)',
+                color: 'var(--ro-text-dim)',
               }}
             >
               {sku.size}

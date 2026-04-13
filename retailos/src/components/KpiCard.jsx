@@ -12,8 +12,8 @@ function KpiCard({
     <div
       onClick={onClick}
       style={{
-        background: '#111117',
-        border: '1px solid rgba(255,255,255,0.055)',
+        background: 'var(--ro-surface)',
+        border: '1px solid var(--ro-border)',
         borderRadius: '11px',
         padding: '14px 16px',
         position: 'relative',
@@ -23,11 +23,11 @@ function KpiCard({
       }}
       onMouseEnter={(e) => {
         e.currentTarget.style.transform = 'translateY(-2px)'
-        e.currentTarget.style.borderColor = 'rgba(255,255,255,0.09)'
+        e.currentTarget.style.borderColor = 'var(--ro-border-hover)'
       }}
       onMouseLeave={(e) => {
         e.currentTarget.style.transform = ''
-        e.currentTarget.style.borderColor = 'rgba(255,255,255,0.055)'
+        e.currentTarget.style.borderColor = 'var(--ro-border)'
       }}
     >
       <div
@@ -44,7 +44,7 @@ function KpiCard({
       <div
         style={{
           fontSize: '9px',
-          color: '#4a4a62',
+          color: 'var(--ro-text-muted)',
           textTransform: 'uppercase',
           letterSpacing: '1.5px',
           marginBottom: '6px',
@@ -57,7 +57,7 @@ function KpiCard({
         style={{
           fontFamily: '"DM Sans"',
           fontSize: '30px',
-          color: '#fff',
+          color: 'var(--ro-heading)',
           letterSpacing: '1px',
           lineHeight: 1,
         }}
@@ -65,7 +65,7 @@ function KpiCard({
         {value}
       </div>
 
-      <div style={{ fontSize: '10px', color: '#4a4a62', marginTop: '3px' }}>{sub}</div>
+      <div style={{ fontSize: '10px', color: 'var(--ro-text-muted)', marginTop: '3px' }}>{sub}</div>
 
       {tag && (
         <div
@@ -76,8 +76,8 @@ function KpiCard({
             padding: '2px 7px',
             borderRadius: '20px',
             marginTop: '5px',
-            background: tagBg || 'rgba(255,255,255,0.06)',
-            color: tagColor || '#9090aa',
+            background: tagBg || 'var(--ro-fill-muted)',
+            color: tagColor || 'var(--ro-text-dim)',
           }}
         >
           {tag}

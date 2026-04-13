@@ -11,7 +11,7 @@ function ProgressBar({ value, color, width = '100%', style }) {
     <div
       style={{
         height: '3px',
-        background: 'rgba(255,255,255,0.05)',
+        background: 'var(--ro-track-bg)',
         borderRadius: '2px',
         overflow: 'hidden',
         marginTop: '6px',

@@ -51,12 +51,12 @@ export function SmartAlerts() {
             fontFamily: DM_SANS,
             fontSize: 16,
             letterSpacing: '2px',
-            color: '#fff',
+            color: 'var(--ro-heading)',
           }}
         >
           SMART ALERTS
         </div>
-        <div style={{ fontSize: 11, color: '#4a4a62' }}>Ranked by urgency · one row per SKU</div>
+        <div style={{ fontSize: 11, color: 'var(--ro-text-muted)' }}>Ranked by urgency · one row per SKU</div>
       </div>
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 14 }}>
@@ -74,9 +74,9 @@ export function SmartAlerts() {
                 fontSize: 11,
                 fontWeight: 600,
                 cursor: 'pointer',
-                border: active ? '1px solid #ff3333' : '1px solid rgba(255,255,255,0.055)',
-                background: active ? 'rgba(255,51,51,0.1)' : '#17171f',
-                color: active ? '#ff3333' : '#4a4a62',
+                border: active ? '1px solid #ff3333' : '1px solid var(--ro-border)',
+                background: active ? 'rgba(255,51,51,0.1)' : 'var(--ro-surface-elevated)',
+                color: active ? '#ff3333' : 'var(--ro-text-muted)',
                 fontFamily: DM_SANS,
               }}
             >
@@ -89,8 +89,8 @@ export function SmartAlerts() {
 
       <div
         style={{
-          background: '#111117',
-          border: '1px solid rgba(255,255,255,0.055)',
+          background: 'var(--ro-surface)',
+          border: '1px solid var(--ro-border)',
           borderRadius: 13,
           padding: '14px 16px',
           display: 'flex',
@@ -103,7 +103,7 @@ export function SmartAlerts() {
             fontFamily: DM_SANS,
             fontSize: 14,
             letterSpacing: '2px',
-            color: '#fff',
+            color: 'var(--ro-heading)',
             marginBottom: 10,
           }}
         >

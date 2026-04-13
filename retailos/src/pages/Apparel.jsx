@@ -169,7 +169,7 @@ export function Apparel() {
             fontFamily: '"DM Sans"',
             fontSize: '16px',
             letterSpacing: '2px',
-            color: '#fff',
+            color: 'var(--ro-heading)',
             display: 'flex',
             alignItems: 'center',
             gap: '8px',
@@ -202,9 +202,9 @@ export function Apparel() {
                   fontWeight: 600,
                   cursor: 'pointer',
                   fontFamily: '"DM Sans"',
-                  border: active ? '1px solid rgba(192,132,252,0.35)' : '1px solid rgba(255,255,255,0.055)',
-                  background: active ? 'rgba(192,132,252,0.12)' : '#17171f',
-                  color: active ? '#c084fc' : '#9090aa',
+                  border: active ? '1px solid rgba(192,132,252,0.35)' : '1px solid var(--ro-border)',
+                  background: active ? 'rgba(192,132,252,0.12)' : 'var(--ro-surface-elevated)',
+                  color: active ? '#c084fc' : 'var(--ro-text-dim)',
                   transition: 'all 0.18s',
                 }}
               >
@@ -278,10 +278,10 @@ export function Apparel() {
             <div
               key={c.name}
               style={{
-                background: '#111117',
+                background: 'var(--ro-surface)',
                 border: isTopPerformer
                   ? '1px solid rgba(192,132,252,0.45)'
-                  : '1px solid rgba(255,255,255,0.055)',
+                  : '1px solid var(--ro-border)',
                 borderRadius: '13px',
                 overflow: 'hidden',
                 cursor: 'pointer',
@@ -292,14 +292,14 @@ export function Apparel() {
                 e.currentTarget.style.transform = 'translateY(-3px)'
                 e.currentTarget.style.borderColor = isTopPerformer
                   ? 'rgba(192,132,252,0.55)'
-                  : 'rgba(255,255,255,0.09)'
+                  : 'var(--ro-border-hover)'
                 e.currentTarget.style.boxShadow = '0 12px 30px rgba(0,0,0,0.3)'
               }}
               onMouseLeave={(e) => {
                 e.currentTarget.style.transform = ''
                 e.currentTarget.style.borderColor = isTopPerformer
                   ? 'rgba(192,132,252,0.45)'
-                  : 'rgba(255,255,255,0.055)'
+                  : 'var(--ro-border)'
                 e.currentTarget.style.boxShadow = isTopPerformer ? '0 0 0 1px rgba(192,132,252,0.15)' : ''
               }}
             >
@@ -313,7 +313,7 @@ export function Apparel() {
                   background: c.gradient,
                 }}
               >
-                <IconApparel size={40} strokeWidth={1.5} color="rgba(255,255,255,0.95)" />
+                <IconApparel size={40} strokeWidth={1.5} color="var(--ro-heading)" />
               </div>
 
               <div style={{ padding: '13px' }}>
@@ -322,19 +322,19 @@ export function Apparel() {
                     fontFamily: '"DM Sans"',
                     fontSize: '17px',
                     letterSpacing: '1.5px',
-                    color: '#fff',
+                    color: 'var(--ro-heading)',
                     marginBottom: '2px',
                   }}
                 >
                   {c.name}
                 </div>
-                <div style={{ fontSize: '11px', color: '#4a4a62', marginBottom: '4px' }}>
+                <div style={{ fontSize: '11px', color: 'var(--ro-text-muted)', marginBottom: '4px' }}>
                   {count} SKUs · Apparel
                 </div>
-                <div style={{ fontSize: '10px', color: '#4a4a62', marginBottom: '8px' }}>{c.desc}</div>
+                <div style={{ fontSize: '10px', color: 'var(--ro-text-muted)', marginBottom: '8px' }}>{c.desc}</div>
                 {exec ? (
                   <>
-                    <div style={{ height: '4px', background: '#17171f', borderRadius: '2px', overflow: 'hidden' }}>
+                    <div style={{ height: '4px', background: 'var(--ro-surface-elevated)', borderRadius: '2px', overflow: 'hidden' }}>
                       <div
                         style={{
                           height: '100%',
@@ -350,7 +350,7 @@ export function Apparel() {
                         justifyContent: 'space-between',
                         marginTop: '8px',
                         fontSize: '10px',
-                        color: '#4a4a62',
+                        color: 'var(--ro-text-muted)',
                       }}
                     >
                       <span>{avg}% avg sell-through</span>
@@ -364,7 +364,7 @@ export function Apparel() {
                       justifyContent: 'flex-end',
                       marginTop: '8px',
                       fontSize: '10px',
-                      color: '#4a4a62',
+                      color: 'var(--ro-text-muted)',
                     }}
                   >
                     <span style={{ color: atRisk > 5 ? '#ff3333' : '#fbbf24' }}>{atRisk} at risk</span>

@@ -21,11 +21,11 @@ import {
 } from '../utils/icons.js'
 
 const S = {
-  surface: '#111117',
-  surface2: '#17171f',
-  border: 'rgba(255,255,255,0.055)',
-  text2: '#9090aa',
-  muted: '#4a4a62',
+  surface: 'var(--ro-surface)',
+  surface2: 'var(--ro-surface-elevated)',
+  border: 'var(--ro-border)',
+  text2: 'var(--ro-text-dim)',
+  muted: 'var(--ro-text-muted)',
   accent: '#ff3333',
   teal: '#2dd4bf',
 }
@@ -235,7 +235,7 @@ export function Photos() {
             fontFamily: '"DM Sans"',
             fontSize: '16px',
             letterSpacing: '2px',
-            color: '#fff',
+            color: 'var(--ro-heading)',
             display: 'flex',
             alignItems: 'center',
             gap: '8px',
@@ -280,8 +280,8 @@ export function Photos() {
               fontWeight: 600,
               cursor: 'pointer',
               background: 'transparent',
-              color: '#9090aa',
-              border: '1px solid rgba(255,255,255,0.055)',
+              color: 'var(--ro-text-dim)',
+              border: '1px solid var(--ro-border)',
               fontFamily: '"DM Sans"',
             }}
           >
@@ -320,19 +320,19 @@ export function Photos() {
       {/* SECTION 2 — Info banner */}
       <div
         style={{
-          background: '#17171f',
-          border: '1px solid rgba(255,255,255,0.055)',
+          background: 'var(--ro-surface-elevated)',
+          border: '1px solid var(--ro-border)',
           borderRadius: '10px',
           padding: '10px 14px',
           marginBottom: '14px',
           fontSize: '11px',
-          color: '#9090aa',
+          color: 'var(--ro-text-dim)',
           lineHeight: 1.6,
         }}
         className="fade-up delay-1"
       >
         <IconCamera size={28} strokeWidth={1.5} /> Name your photo files using the SKU code and drop them here — the system links them to product cards instantly.{' '}
-        <span style={{ color: '#e4e4f0', fontWeight: 600 }}>Accepted formats: JPG, PNG, WEBP.</span>{' '}
+        <span style={{ color: 'var(--ro-text)', fontWeight: 600 }}>Accepted formats: JPG, PNG, WEBP.</span>{' '}
         Example filename:{' '}
         <span
           style={{
@@ -385,7 +385,7 @@ export function Photos() {
           if (!isUploading && e.dataTransfer?.files?.length) handleFiles(e.dataTransfer.files)
         }}
         style={{
-          border: `2px dashed ${isDragging ? '#2dd4bf' : 'rgba(255,255,255,0.055)'}`,
+          border: `2px dashed ${isDragging ? '#2dd4bf' : 'var(--ro-border)'}`,
           borderRadius: '12px',
           padding: isUploading ? '20px' : '36px 20px',
           textAlign: 'center',
@@ -398,13 +398,13 @@ export function Photos() {
       >
         {isUploading ? (
           <div>
-            <div style={{ fontSize: '13px', fontWeight: 600, color: '#e4e4f0', marginBottom: '12px' }}>
+            <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--ro-text)', marginBottom: '12px' }}>
               Uploading photos… {uploadProgress}%
             </div>
             <div
               style={{
                 height: '4px',
-                background: 'rgba(255,255,255,0.05)',
+                background: 'var(--ro-track-bg)',
                 borderRadius: '2px',
                 overflow: 'hidden',
                 maxWidth: '300px',
@@ -427,10 +427,10 @@ export function Photos() {
             <div style={{ fontSize: '32px', marginBottom: '10px' }}>
               <IconFolder size={28} strokeWidth={1.5} />
             </div>
-            <div style={{ fontSize: '13px', fontWeight: 600, color: '#e4e4f0', marginBottom: '4px' }}>
+            <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--ro-text)', marginBottom: '4px' }}>
               Drop photos here or click to browse
             </div>
-            <div style={{ fontSize: '11px', color: '#4a4a62' }}>
+            <div style={{ fontSize: '11px', color: 'var(--ro-text-muted)' }}>
               Drop hundreds at once — bulk upload supported · JPG, PNG, WEBP
             </div>
           </div>
@@ -440,13 +440,13 @@ export function Photos() {
       {/* Empty state — no photos yet */}
       {photos.length === 0 && !isUploading && (
         <div
-          style={{ textAlign: 'center', padding: '48px 20px', color: '#4a4a62' }}
+          style={{ textAlign: 'center', padding: '48px 20px', color: 'var(--ro-text-muted)' }}
           className="fade-up delay-2"
         >
           <div style={{ fontSize: '48px', marginBottom: '14px', opacity: 0.4 }}>
             <IconImageOff size={36} strokeWidth={1.5} />
           </div>
-          <div style={{ fontSize: '15px', fontWeight: 600, color: '#9090aa', marginBottom: '6px' }}>
+          <div style={{ fontSize: '15px', fontWeight: 600, color: 'var(--ro-text-dim)', marginBottom: '6px' }}>
             No photos uploaded yet
           </div>
           <div style={{ fontSize: '12px', marginBottom: '20px', lineHeight: 1.6 }}>
@@ -456,8 +456,8 @@ export function Photos() {
           </div>
           <div
             style={{
-              background: '#17171f',
-              border: '1px solid rgba(255,255,255,0.055)',
+              background: 'var(--ro-surface-elevated)',
+              border: '1px solid var(--ro-border)',
               borderRadius: '10px',
               padding: '12px 16px',
               display: 'inline-block',
@@ -467,7 +467,7 @@ export function Photos() {
             <div
               style={{
                 fontSize: '10px',
-                color: '#4a4a62',
+                color: 'var(--ro-text-muted)',
                 marginBottom: '6px',
                 textTransform: 'uppercase',
                 letterSpacing: '1px',
@@ -506,7 +506,7 @@ export function Photos() {
           >
             <span>
               <strong style={{ color: '#00e676' }}>{uploadStats.saved}</strong>
-              <span style={{ color: '#9090aa' }}> photos saved</span>
+              <span style={{ color: 'var(--ro-text-dim)' }}> photos saved</span>
             </span>
           </div>
 
@@ -527,14 +527,14 @@ export function Photos() {
               <div>
                 <span>
                   <strong style={{ color: '#ff8800' }}>{uploadStats.unmatched}</strong>
-                  <span style={{ color: '#9090aa' }}> files didn&apos;t match any SKU</span>
+                  <span style={{ color: 'var(--ro-text-dim)' }}> files didn&apos;t match any SKU</span>
                 </span>
                 {uploadStats.unmatchedNames?.length > 0 && (
                   <div
                     style={{
                       fontFamily: '"DM Sans"',
                       fontSize: '9px',
-                      color: '#4a4a62',
+                      color: 'var(--ro-text-muted)',
                       marginTop: '4px',
                       lineHeight: 1.6,
                     }}
@@ -556,8 +556,8 @@ export function Photos() {
               fontSize: '11px',
               cursor: 'pointer',
               background: 'transparent',
-              color: '#4a4a62',
-              border: '1px solid rgba(255,255,255,0.055)',
+              color: 'var(--ro-text-muted)',
+              border: '1px solid var(--ro-border)',
               fontFamily: '"DM Sans"',
             }}
           >
@@ -582,14 +582,14 @@ export function Photos() {
             display: 'flex',
             alignItems: 'center',
             gap: '7px',
-            background: '#17171f',
-            border: '1px solid rgba(255,255,255,0.055)',
+            background: 'var(--ro-surface-elevated)',
+            border: '1px solid var(--ro-border)',
             borderRadius: '8px',
             padding: '6px 11px',
             width: '220px',
           }}
         >
-          <span style={{ color: '#4a4a62', fontSize: '13px' }}>
+          <span style={{ color: 'var(--ro-text-muted)', fontSize: '13px' }}>
             <IconSearch size={13} strokeWidth={1.5} />
           </span>
           <input
@@ -601,7 +601,7 @@ export function Photos() {
               background: 'none',
               border: 'none',
               outline: 'none',
-              color: '#e4e4f0',
+              color: 'var(--ro-text)',
               fontSize: '12px',
               fontFamily: '"DM Sans"',
               width: '100%',
@@ -618,7 +618,7 @@ export function Photos() {
                   setSearchQuery('')
                 }
               }}
-              style={{ color: '#4a4a62', cursor: 'pointer', fontSize: '12px' }}
+              style={{ color: 'var(--ro-text-muted)', cursor: 'pointer', fontSize: '12px' }}
             >
               <IconClose size={14} strokeWidth={1.5} />
             </span>
@@ -654,12 +654,12 @@ export function Photos() {
               fontWeight: 600,
               cursor: 'pointer',
               transition: 'all 0.13s',
-              background: filterStatus === f.filterKey ? 'rgba(255,51,51,0.1)' : '#17171f',
+              background: filterStatus === f.filterKey ? 'rgba(255,51,51,0.1)' : 'var(--ro-surface-elevated)',
               border:
                 filterStatus === f.filterKey
                   ? '1px solid rgba(255,51,51,0.25)'
-                  : '1px solid rgba(255,255,255,0.055)',
-              color: filterStatus === f.filterKey ? '#ff3333' : '#4a4a62',
+                  : '1px solid var(--ro-border)',
+              color: filterStatus === f.filterKey ? '#ff3333' : 'var(--ro-text-muted)',
             }}
           >
             {f.label}
@@ -668,15 +668,15 @@ export function Photos() {
 
         <div style={{ flex: 1 }} />
 
-        <div style={{ fontSize: '11px', color: '#4a4a62', fontFamily: '"DM Sans"' }}>
+        <div style={{ fontSize: '11px', color: 'var(--ro-text-muted)', fontFamily: '"DM Sans"' }}>
           {filteredPhotos.length} photos
         </div>
 
         <div
           style={{
             display: 'flex',
-            background: '#17171f',
-            border: '1px solid rgba(255,255,255,0.055)',
+            background: 'var(--ro-surface-elevated)',
+            border: '1px solid var(--ro-border)',
             borderRadius: '8px',
             overflow: 'hidden',
           }}
@@ -703,8 +703,8 @@ export function Photos() {
                 padding: '6px 10px',
                 cursor: 'pointer',
                 fontSize: '14px',
-                background: viewMode === v.mode ? 'rgba(255,255,255,0.08)' : 'transparent',
-                color: viewMode === v.mode ? '#e4e4f0' : '#4a4a62',
+                background: viewMode === v.mode ? 'var(--ro-border-hover)' : 'transparent',
+                color: viewMode === v.mode ? 'var(--ro-text)' : 'var(--ro-text-muted)',
                 transition: 'all 0.13s',
               }}
             >
@@ -733,8 +733,8 @@ export function Photos() {
               <div
                 key={photo.sku}
                 style={{
-                  background: '#111117',
-                  border: `1px solid ${isMatched ? 'rgba(255,255,255,0.055)' : 'rgba(255,136,0,0.2)'}`,
+                  background: 'var(--ro-surface)',
+                  border: `1px solid ${isMatched ? 'var(--ro-border)' : 'rgba(255,136,0,0.2)'}`,
                   borderRadius: '11px',
                   overflow: 'hidden',
                   cursor: 'pointer',
@@ -742,11 +742,11 @@ export function Photos() {
                   position: 'relative',
                 }}
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.borderColor = isMatched ? 'rgba(255,255,255,0.09)' : 'rgba(255,136,0,0.4)'
+                  e.currentTarget.style.borderColor = isMatched ? 'var(--ro-border-hover)' : 'rgba(255,136,0,0.4)'
                   e.currentTarget.style.transform = 'scale(1.02)'
                 }}
                 onMouseLeave={(e) => {
-                  e.currentTarget.style.borderColor = isMatched ? 'rgba(255,255,255,0.055)' : 'rgba(255,136,0,0.2)'
+                  e.currentTarget.style.borderColor = isMatched ? 'var(--ro-border)' : 'rgba(255,136,0,0.2)'
                   e.currentTarget.style.transform = ''
                 }}
               >
@@ -792,7 +792,7 @@ export function Photos() {
                     style={{
                       fontSize: '11px',
                       fontWeight: 600,
-                      color: '#e4e4f0',
+                      color: 'var(--ro-text)',
                       marginBottom: '1px',
                       overflow: 'hidden',
                       textOverflow: 'ellipsis',
@@ -805,13 +805,13 @@ export function Photos() {
                     style={{
                       fontFamily: '"DM Sans"',
                       fontSize: '9px',
-                      color: '#4a4a62',
+                      color: 'var(--ro-text-muted)',
                       marginBottom: '6px',
                     }}
                   >
                     {photo.sku}
                   </div>
-                  <div style={{ fontSize: '9px', color: '#4a4a62', marginBottom: '6px' }}>
+                  <div style={{ fontSize: '9px', color: 'var(--ro-text-muted)', marginBottom: '6px' }}>
                     {((photo.size ?? 0) / 1024).toFixed(0)} KB
                   </div>
 
@@ -830,9 +830,9 @@ export function Photos() {
                         fontSize: '9px',
                         fontWeight: 600,
                         cursor: 'pointer',
-                        background: '#17171f',
-                        color: '#9090aa',
-                        border: '1px solid rgba(255,255,255,0.055)',
+                        background: 'var(--ro-surface-elevated)',
+                        color: 'var(--ro-text-dim)',
+                        border: '1px solid var(--ro-border)',
                         fontFamily: '"DM Sans"',
                       }}
                     >
@@ -877,8 +877,8 @@ export function Photos() {
               }
             }}
             style={{
-              background: '#111117',
-              border: '2px dashed rgba(255,255,255,0.055)',
+              background: 'var(--ro-surface)',
+              border: '2px dashed var(--ro-border)',
               borderRadius: '11px',
               overflow: 'hidden',
               cursor: 'pointer',
@@ -894,11 +894,11 @@ export function Photos() {
               e.currentTarget.style.borderColor = 'rgba(45,212,191,0.3)'
             }}
             onMouseLeave={(e) => {
-              e.currentTarget.style.borderColor = 'rgba(255,255,255,0.055)'
+              e.currentTarget.style.borderColor = 'var(--ro-border)'
             }}
           >
-            <div style={{ fontSize: '28px', color: '#4a4a62' }}>＋</div>
-            <div style={{ fontSize: '11px', fontWeight: 600, color: '#4a4a62' }}>Add more</div>
+            <div style={{ fontSize: '28px', color: 'var(--ro-text-muted)' }}>＋</div>
+            <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--ro-text-muted)' }}>Add more</div>
           </div>
         </div>
       )}
@@ -908,8 +908,8 @@ export function Photos() {
         <div
           className="fade-up delay-2"
           style={{
-            background: '#111117',
-            border: '1px solid rgba(255,255,255,0.055)',
+            background: 'var(--ro-surface)',
+            border: '1px solid var(--ro-border)',
             borderRadius: '13px',
             overflow: 'hidden',
             marginBottom: '22px',
@@ -917,7 +917,7 @@ export function Photos() {
         >
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
-              <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.055)' }}>
+              <tr style={{ borderBottom: '1px solid var(--ro-border)' }}>
                 {['Photo', 'SKU Code', 'Product Name', 'Brand', 'Size', 'Match Status', 'Actions'].map((h) => (
                   <th
                     key={h}
@@ -928,7 +928,7 @@ export function Photos() {
                       fontWeight: 700,
                       textTransform: 'uppercase',
                       letterSpacing: '1.5px',
-                      color: '#4a4a62',
+                      color: 'var(--ro-text-muted)',
                       whiteSpace: 'nowrap',
                     }}
                   >
@@ -944,11 +944,11 @@ export function Photos() {
                   <tr
                     key={photo.sku}
                     style={{
-                      borderBottom: '1px solid rgba(255,255,255,0.055)',
+                      borderBottom: '1px solid var(--ro-border)',
                       transition: 'background 0.1s',
                     }}
                     onMouseEnter={(e) => {
-                      e.currentTarget.style.background = '#17171f'
+                      e.currentTarget.style.background = 'var(--ro-surface-elevated)'
                     }}
                     onMouseLeave={(e) => {
                       e.currentTarget.style.background = ''
@@ -963,7 +963,7 @@ export function Photos() {
                           height: '40px',
                           borderRadius: '6px',
                           overflow: 'hidden',
-                          background: '#17171f',
+                          background: 'var(--ro-surface-elevated)',
                           border: 'none',
                           padding: 0,
                           cursor: 'pointer',
@@ -983,19 +983,19 @@ export function Photos() {
                         padding: '9px 14px',
                         fontFamily: '"DM Sans"',
                         fontSize: '11px',
-                        color: '#9090aa',
+                        color: 'var(--ro-text-dim)',
                       }}
                     >
                       {photo.sku}
                     </td>
 
-                    <td style={{ padding: '9px 14px', fontSize: '12px', fontWeight: 600, color: '#e4e4f0' }}>
+                    <td style={{ padding: '9px 14px', fontSize: '12px', fontWeight: 600, color: 'var(--ro-text)' }}>
                       {skuRecord?.product_name || (
-                        <span style={{ color: '#4a4a62', fontStyle: 'italic' }}>Not found in catalog</span>
+                        <span style={{ color: 'var(--ro-text-muted)', fontStyle: 'italic' }}>Not found in catalog</span>
                       )}
                     </td>
 
-                    <td style={{ padding: '9px 14px', fontSize: '12px', color: '#9090aa' }}>
+                    <td style={{ padding: '9px 14px', fontSize: '12px', color: 'var(--ro-text-dim)' }}>
                       {skuRecord?.brand || '—'}
                     </td>
 
@@ -1004,7 +1004,7 @@ export function Photos() {
                         padding: '9px 14px',
                         fontFamily: '"DM Sans"',
                         fontSize: '11px',
-                        color: '#9090aa',
+                        color: 'var(--ro-text-dim)',
                       }}
                     >
                       {skuRecord?.size || '—'}
@@ -1051,9 +1051,9 @@ export function Photos() {
                             fontSize: '10px',
                             fontWeight: 600,
                             cursor: 'pointer',
-                            background: '#17171f',
-                            color: '#9090aa',
-                            border: '1px solid rgba(255,255,255,0.055)',
+                            background: 'var(--ro-surface-elevated)',
+                            color: 'var(--ro-text-dim)',
+                            border: '1px solid var(--ro-border)',
                             fontFamily: '"DM Sans"',
                           }}
                         >
@@ -1099,9 +1099,9 @@ export function Photos() {
               fontSize: '13px',
               fontWeight: 600,
               cursor: 'pointer',
-              background: '#17171f',
-              color: '#9090aa',
-              border: '1px solid rgba(255,255,255,0.055)',
+              background: 'var(--ro-surface-elevated)',
+              color: 'var(--ro-text-dim)',
+              border: '1px solid var(--ro-border)',
               fontFamily: '"DM Sans"',
             }}
           >
@@ -1139,8 +1139,8 @@ export function Photos() {
               <div
                 onClick={(e) => e.stopPropagation()}
                 style={{
-                  background: '#111117',
-                  border: '1px solid rgba(255,255,255,0.09)',
+                  background: 'var(--ro-surface)',
+                  border: '1px solid var(--ro-border-hover)',
                   borderRadius: '16px',
                   overflow: 'hidden',
                   maxWidth: '600px',
@@ -1164,7 +1164,7 @@ export function Photos() {
                       fontFamily: '"DM Sans"',
                       fontSize: '18px',
                       letterSpacing: '1px',
-                      color: '#fff',
+                      color: 'var(--ro-heading)',
                       marginBottom: '2px',
                     }}
                   >
@@ -1174,7 +1174,7 @@ export function Photos() {
                     style={{
                       fontFamily: '"DM Sans"',
                       fontSize: '11px',
-                      color: '#4a4a62',
+                      color: 'var(--ro-text-muted)',
                       marginBottom: '10px',
                     }}
                   >
@@ -1190,9 +1190,9 @@ export function Photos() {
                         fontSize: '12px',
                         fontWeight: 600,
                         cursor: 'pointer',
-                        background: '#17171f',
-                        color: '#9090aa',
-                        border: '1px solid rgba(255,255,255,0.055)',
+                        background: 'var(--ro-surface-elevated)',
+                        color: 'var(--ro-text-dim)',
+                        border: '1px solid var(--ro-border)',
                         fontFamily: '"DM Sans"',
                       }}
                     >
@@ -1247,8 +1247,8 @@ export function Photos() {
           <div
             onClick={(e) => e.stopPropagation()}
             style={{
-              background: '#111117',
-              border: '1px solid rgba(255,255,255,0.09)',
+              background: 'var(--ro-surface)',
+              border: '1px solid var(--ro-border-hover)',
               borderRadius: '16px',
               overflow: 'hidden',
               maxWidth: '640px',
@@ -1262,7 +1262,7 @@ export function Photos() {
                   fontFamily: '"DM Sans"',
                   fontSize: '22px',
                   letterSpacing: '1px',
-                  color: '#fff',
+                  color: 'var(--ro-heading)',
                   margin: '0 0 12px',
                   fontWeight: 400,
                 }}
@@ -1272,7 +1272,7 @@ export function Photos() {
               <p
                 style={{
                   fontSize: '13px',
-                  color: '#9090aa',
+                  color: 'var(--ro-text-dim)',
                   lineHeight: 1.6,
                   margin: '0 0 18px',
                   fontFamily: '"DM Sans"',
@@ -1292,14 +1292,14 @@ export function Photos() {
                   }}
                 >
                   <thead>
-                    <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.09)' }}>
+                    <tr style={{ borderBottom: '1px solid var(--ro-border-hover)' }}>
                       {['Filename', 'SKU Match', 'Result'].map((h) => (
                         <th
                           key={h}
                           style={{
                             textAlign: 'left',
                             padding: '10px 12px',
-                            color: '#4a4a62',
+                            color: 'var(--ro-text-muted)',
                             fontWeight: 700,
                             textTransform: 'uppercase',
                             letterSpacing: '0.6px',
@@ -1320,13 +1320,13 @@ export function Photos() {
                     ].map(([filename, sku, result]) => (
                       <tr
                         key={filename}
-                        style={{ borderBottom: '1px solid rgba(255,255,255,0.055)' }}
+                        style={{ borderBottom: '1px solid var(--ro-border)' }}
                       >
                         <td
                           style={{
                             padding: '10px 12px',
                             fontFamily: '"DM Sans"',
-                            color: '#e4e4f0',
+                            color: 'var(--ro-text)',
                             wordBreak: 'break-all',
                           }}
                         >
@@ -1336,12 +1336,12 @@ export function Photos() {
                           style={{
                             padding: '10px 12px',
                             fontFamily: '"DM Sans"',
-                            color: '#9090aa',
+                            color: 'var(--ro-text-dim)',
                           }}
                         >
                           {sku}
                         </td>
-                        <td style={{ padding: '10px 12px', color: '#9090aa', whiteSpace: 'nowrap' }}>
+                        <td style={{ padding: '10px 12px', color: 'var(--ro-text-dim)', whiteSpace: 'nowrap' }}>
                           {result}
                         </td>
                       </tr>
@@ -1352,12 +1352,12 @@ export function Photos() {
 
               <div
                 style={{
-                  background: '#17171f',
-                  border: '1px solid rgba(255,255,255,0.055)',
+                  background: 'var(--ro-surface-elevated)',
+                  border: '1px solid var(--ro-border)',
                   borderRadius: '10px',
                   padding: '12px 14px',
                   fontSize: '12px',
-                  color: '#9090aa',
+                  color: 'var(--ro-text-dim)',
                   lineHeight: 1.55,
                   fontFamily: '"DM Sans"',
                 }}
@@ -1377,9 +1377,9 @@ export function Photos() {
                   fontSize: '12px',
                   fontWeight: 600,
                   cursor: 'pointer',
-                  background: '#17171f',
-                  color: '#9090aa',
-                  border: '1px solid rgba(255,255,255,0.055)',
+                  background: 'var(--ro-surface-elevated)',
+                  color: 'var(--ro-text-dim)',
+                  border: '1px solid var(--ro-border)',
                   fontFamily: '"DM Sans"',
                 }}
               >

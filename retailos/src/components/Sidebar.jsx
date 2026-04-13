@@ -32,7 +32,7 @@ const GROUP_LABEL_STYLE = {
   fontWeight: 700,
   letterSpacing: '2px',
   textTransform: 'uppercase',
-  color: '#4a4a62',
+  color: 'var(--ro-text-muted)',
   padding: '10px 10px 5px',
   display: 'block',
 }
@@ -44,7 +44,7 @@ const NAV_ITEM_BASE = {
   padding: '8px 10px',
   borderRadius: '9px',
   cursor: 'pointer',
-  color: '#9090aa',
+  color: 'var(--ro-text-dim)',
   fontSize: '13px',
   fontWeight: 500,
   position: 'relative',
@@ -63,7 +63,7 @@ const NAV_ICON_BOX = {
   justifyContent: 'center',
   fontSize: '14px',
   flexShrink: 0,
-  background: '#17171f',
+  background: 'var(--ro-surface-elevated)',
 }
 
 const BADGE_STYLES = {
@@ -106,7 +106,7 @@ const BADGE_STYLES = {
 }
 
 const DIVIDER = (
-  <div style={{ height: '1px', background: 'rgba(255,255,255,0.055)', margin: '8px 10px' }} aria-hidden />
+  <div style={{ height: '1px', background: 'var(--ro-border)', margin: '8px 10px' }} aria-hidden />
 )
 
 function NavRow({ to, end, icon, label, badge, onNavigate }) {
@@ -118,7 +118,7 @@ function NavRow({ to, end, icon, label, badge, onNavigate }) {
       style={({ isActive }) => ({
         ...NAV_ITEM_BASE,
         background: isActive ? 'rgba(255,51,51,0.1)' : 'transparent',
-        color: isActive ? '#fff' : '#9090aa',
+        color: isActive ? 'var(--ro-heading)' : 'var(--ro-text-dim)',
         textDecoration: 'none',
         display: 'flex',
       })}
@@ -142,7 +142,7 @@ function NavRow({ to, end, icon, label, badge, onNavigate }) {
           <div
             style={{
               ...NAV_ICON_BOX,
-              background: isActive ? 'rgba(255,51,51,0.15)' : '#17171f',
+              background: isActive ? 'rgba(255,51,51,0.15)' : 'var(--ro-surface-elevated)',
               position: 'relative',
               zIndex: 1,
             }}
@@ -219,25 +219,25 @@ export function Sidebar({ onNavigate }) {
 
   return (
     <>
-      <div style={{ padding: '26px 20px 20px', borderBottom: '1px solid rgba(255,255,255,0.055)', flexShrink: 0 }}>
+      <div style={{ padding: '26px 20px 20px', borderBottom: '1px solid var(--ro-border)', flexShrink: 0 }}>
         <div
           style={{
             fontFamily: '"DM Sans"',
             fontSize: '21px',
             letterSpacing: '-0.3px',
-            color: '#fff',
+            color: 'var(--ro-heading)',
             display: 'flex',
             alignItems: 'center',
             lineHeight: 1,
           }}
         >
-          <span style={{ fontWeight: 300, color: '#6b6b80' }}>intel</span>
+          <span style={{ fontWeight: 300, color: 'var(--ro-text-muted)' }}>intel</span>
           <span style={{ fontWeight: 700 }}>Retail</span>
         </div>
         <div
           style={{
             fontSize: '9px',
-            color: '#4a4a62',
+            color: 'var(--ro-text-muted)',
             letterSpacing: '2.5px',
             textTransform: 'uppercase',
             marginTop: '2px',
@@ -353,11 +353,11 @@ export function Sidebar({ onNavigate }) {
         />
       </div>
 
-      <div style={{ padding: '12px 10px 16px', borderTop: '1px solid rgba(255,255,255,0.055)', flexShrink: 0 }}>
+      <div style={{ padding: '12px 10px 16px', borderTop: '1px solid var(--ro-border)', flexShrink: 0 }}>
         <div
           style={{
-            background: '#17171f',
-            border: '1px solid rgba(255,255,255,0.055)',
+            background: 'var(--ro-surface-elevated)',
+            border: '1px solid var(--ro-border)',
             borderRadius: '11px',
             padding: '12px 14px',
             display: 'flex',
@@ -369,7 +369,7 @@ export function Sidebar({ onNavigate }) {
             <div
               style={{
                 fontSize: '9px',
-                color: '#4a4a62',
+                color: 'var(--ro-text-muted)',
                 textTransform: 'uppercase',
                 letterSpacing: '1.5px',
               }}

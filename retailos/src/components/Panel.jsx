@@ -2,8 +2,8 @@ function Panel({ icon, title, children, style }) {
   return (
     <div
       style={{
-        background: '#111117',
-        border: '1px solid rgba(255,255,255,0.055)',
+        background: 'var(--ro-surface)',
+        border: '1px solid var(--ro-border)',
         borderRadius: '13px',
         padding: '18px',
         marginBottom: '14px',
@@ -14,7 +14,7 @@ function Panel({ icon, title, children, style }) {
         style={{
           fontSize: '13px',
           fontWeight: 600,
-          color: '#e4e4f0',
+          color: 'var(--ro-text)',
           marginBottom: '12px',
           display: 'flex',
           alignItems: 'center',
@@ -32,7 +32,7 @@ function Panel({ icon, title, children, style }) {
               alignItems: 'center',
               justifyContent: 'center',
               fontSize: '13px',
-              background: '#17171f',
+              background: 'var(--ro-surface-elevated)',
               flexShrink: 0,
             }}
           >

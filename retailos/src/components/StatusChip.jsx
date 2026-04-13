@@ -10,8 +10,8 @@ const STATUS_BG = {
 }
 
 function StatusChip({ status }) {
-  const color = STATUS_COLORS[status] || '#9090aa'
-  const bg = STATUS_BG[status] || 'rgba(144,144,170,0.1)'
+  const color = STATUS_COLORS[status] || 'var(--ro-text-dim)'
+  const bg = STATUS_BG[status] || 'color-mix(in srgb, var(--ro-text-dim) 14%, transparent)'
 
   return (
     <span

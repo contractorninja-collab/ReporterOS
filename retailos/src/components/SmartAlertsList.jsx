@@ -134,7 +134,7 @@ export function SmartAlertsList({ limit, showViewAllLink, urgencyFilter = 'all' 
   return (
     <>
       {displayedAlerts.length === 0 ? (
-        <div style={{ fontSize: 12, color: '#4a4a62', padding: '8px 0' }}>No alerts right now.</div>
+        <div style={{ fontSize: 12, color: 'var(--ro-text-muted)', padding: '8px 0' }}>No alerts right now.</div>
       ) : (
         displayedAlerts.map((a) => (
           <AlertItem

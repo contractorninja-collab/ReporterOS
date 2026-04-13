@@ -95,7 +95,7 @@ export function Footwear() {
             fontFamily: '"DM Sans"',
             fontSize: '16px',
             letterSpacing: '2px',
-            color: '#fff',
+            color: 'var(--ro-heading)',
             display: 'flex',
             alignItems: 'center',
             gap: '8px',
@@ -128,9 +128,9 @@ export function Footwear() {
                   fontWeight: 600,
                   cursor: 'pointer',
                   fontFamily: '"DM Sans"',
-                  border: active ? '1px solid rgba(56,189,248,0.35)' : '1px solid rgba(255,255,255,0.055)',
-                  background: active ? 'rgba(56,189,248,0.12)' : '#17171f',
-                  color: active ? '#38bdf8' : '#9090aa',
+                  border: active ? '1px solid rgba(56,189,248,0.35)' : '1px solid var(--ro-border)',
+                  background: active ? 'rgba(56,189,248,0.12)' : 'var(--ro-surface-elevated)',
+                  color: active ? '#38bdf8' : 'var(--ro-text-dim)',
                   transition: 'all 0.18s',
                 }}
               >
@@ -208,8 +208,8 @@ export function Footwear() {
             <div
               key={b.name}
               style={{
-                background: '#111117',
-                border: '1px solid rgba(255,255,255,0.055)',
+                background: 'var(--ro-surface)',
+                border: '1px solid var(--ro-border)',
                 borderRadius: '13px',
                 overflow: 'hidden',
                 cursor: 'pointer',
@@ -217,12 +217,12 @@ export function Footwear() {
               }}
               onMouseEnter={(e) => {
                 e.currentTarget.style.transform = 'translateY(-3px)'
-                e.currentTarget.style.borderColor = 'rgba(255,255,255,0.09)'
+                e.currentTarget.style.borderColor = 'var(--ro-border-hover)'
                 e.currentTarget.style.boxShadow = '0 12px 30px rgba(0,0,0,0.3)'
               }}
               onMouseLeave={(e) => {
                 e.currentTarget.style.transform = ''
-                e.currentTarget.style.borderColor = 'rgba(255,255,255,0.055)'
+                e.currentTarget.style.borderColor = 'var(--ro-border)'
                 e.currentTarget.style.boxShadow = ''
               }}
             >
@@ -236,7 +236,7 @@ export function Footwear() {
                   background: b.gradient,
                 }}
               >
-                <IconFootwear size={40} strokeWidth={1.5} color="rgba(255,255,255,0.95)" />
+                <IconFootwear size={40} strokeWidth={1.5} color="var(--ro-heading)" />
               </div>
 
               <div style={{ padding: '13px' }}>
@@ -245,18 +245,18 @@ export function Footwear() {
                     fontFamily: '"DM Sans"',
                     fontSize: '17px',
                     letterSpacing: '1.5px',
-                    color: '#fff',
+                    color: 'var(--ro-heading)',
                     marginBottom: '2px',
                   }}
                 >
                   {b.name}
                 </div>
-                <div style={{ fontSize: '11px', color: '#4a4a62', marginBottom: '8px' }}>
+                <div style={{ fontSize: '11px', color: 'var(--ro-text-muted)', marginBottom: '8px' }}>
                   {count} SKUs · Footwear
                 </div>
                 {exec ? (
                   <>
-                    <div style={{ height: '4px', background: '#17171f', borderRadius: '2px', overflow: 'hidden' }}>
+                    <div style={{ height: '4px', background: 'var(--ro-surface-elevated)', borderRadius: '2px', overflow: 'hidden' }}>
                       <div
                         style={{
                           height: '100%',
@@ -272,7 +272,7 @@ export function Footwear() {
                         justifyContent: 'space-between',
                         marginTop: '8px',
                         fontSize: '10px',
-                        color: '#4a4a62',
+                        color: 'var(--ro-text-muted)',
                       }}
                     >
                       <span>{avg}% avg sell-through</span>
@@ -286,7 +286,7 @@ export function Footwear() {
                       justifyContent: 'flex-end',
                       marginTop: '8px',
                       fontSize: '10px',
-                      color: '#4a4a62',
+                      color: 'var(--ro-text-muted)',
                     }}
                   >
                     <span style={{ color: atRisk > 5 ? '#ff3333' : '#fbbf24' }}>{atRisk} at risk</span>
@@ -302,8 +302,8 @@ export function Footwear() {
       <div
         className="fade-up delay-3"
         style={{
-          background: '#111117',
-          border: '1px solid rgba(255,255,255,0.055)',
+          background: 'var(--ro-surface)',
+          border: '1px solid var(--ro-border)',
           borderRadius: '13px',
           padding: '18px',
           marginBottom: '22px',
@@ -315,14 +315,14 @@ export function Footwear() {
               fontFamily: '"DM Sans"',
               fontSize: '14px',
               letterSpacing: '2px',
-              color: '#fff',
+              color: 'var(--ro-heading)',
               fontWeight: 600,
             }}
           >
             Size Coverage — Footwear
           </span>
         </div>
-        <div style={{ fontSize: '11px', color: '#4a4a62', marginBottom: '4px' }}>
+        <div style={{ fontSize: '11px', color: 'var(--ro-text-muted)', marginBottom: '4px' }}>
           Green = well stocked · Red = low stock · Grey = out of stock
         </div>
 
@@ -338,15 +338,15 @@ export function Footwear() {
             const remaining = footwearRawSkus
               .filter((s) => s.size == size)
               .reduce((a, s) => a + ((s.quantity || 0) - (s.sold_quantity || 0)), 0)
-            const cellColor = remaining === 0 ? '#4a4a62' : remaining <= 3 ? '#ff3333' : '#00e676'
+            const cellColor = remaining === 0 ? 'var(--ro-text-muted)' : remaining <= 3 ? '#ff3333' : '#00e676'
             const isOut = remaining === 0
             return (
               <div
                 key={size}
                 style={{
-                  background: '#17171f',
+                  background: 'var(--ro-surface-elevated)',
                   border: `1px solid ${
-                    remaining <= 3 && !isOut ? 'rgba(255,51,51,0.2)' : 'rgba(255,255,255,0.055)'
+                    remaining <= 3 && !isOut ? 'rgba(255,51,51,0.2)' : 'var(--ro-border)'
                   }`,
                   borderRadius: '6px',
                   padding: '5px 4px',

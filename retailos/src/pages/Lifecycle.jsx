@@ -43,7 +43,7 @@ const rules = [
     desc: 'Final push pricing. Move to outlet channel or bulk lot. Target 100% sell-through at any margin.',
   },
   {
-    color: '#4a4a62',
+    color: 'var(--ro-text-muted)',
     label: 'STOCK MODIFIER RULE',
     desc: 'High sell-through (>60%) can hold a SKU in Active status longer. Low stock + high demand triggers reorder alert.',
   },
@@ -109,7 +109,7 @@ export function Lifecycle() {
             fontFamily: '"DM Sans"',
             fontSize: '16px',
             letterSpacing: '2px',
-            color: '#fff',
+            color: 'var(--ro-heading)',
             display: 'flex',
             alignItems: 'center',
             gap: '8px',
@@ -139,12 +139,12 @@ export function Lifecycle() {
                 fontWeight: 600,
                 cursor: 'pointer',
                 transition: 'all 0.13s',
-                background: activeFilter === f ? 'rgba(255,51,51,0.1)' : '#17171f',
+                background: activeFilter === f ? 'rgba(255,51,51,0.1)' : 'var(--ro-surface-elevated)',
                 border:
                   activeFilter === f
                     ? '1px solid rgba(255,51,51,0.25)'
-                    : '1px solid rgba(255,255,255,0.055)',
-                color: activeFilter === f ? '#ff3333' : '#4a4a62',
+                    : '1px solid var(--ro-border)',
+                color: activeFilter === f ? '#ff3333' : 'var(--ro-text-muted)',
               }}
             >
               {f}
@@ -171,8 +171,8 @@ export function Lifecycle() {
             <div
               key={lane.status}
               style={{
-                background: '#111117',
-                border: '1px solid rgba(255,255,255,0.055)',
+                background: 'var(--ro-surface)',
+                border: '1px solid var(--ro-border)',
                 borderRadius: '12px',
                 padding: '12px',
                 minHeight: '340px',
@@ -205,8 +205,8 @@ export function Lifecycle() {
                   style={{
                     fontFamily: '"DM Sans"',
                     fontSize: '10px',
-                    color: '#4a4a62',
-                    background: '#17171f',
+                    color: 'var(--ro-text-muted)',
+                    background: 'var(--ro-surface-elevated)',
                     padding: '2px 6px',
                     borderRadius: '4px',
                   }}
@@ -227,7 +227,7 @@ export function Lifecycle() {
               ))}
 
               {laneSkus.length === 0 && (
-                <div style={{ textAlign: 'center', color: '#4a4a62', fontSize: '11px', marginTop: '20px' }}>No SKUs</div>
+                <div style={{ textAlign: 'center', color: 'var(--ro-text-muted)', fontSize: '11px', marginTop: '20px' }}>No SKUs</div>
               )}
             </div>
           )
@@ -237,8 +237,8 @@ export function Lifecycle() {
       {/* SECTION 3 — Rule engine explainer panel */}
       <div
         style={{
-          background: '#111117',
-          border: '1px solid rgba(255,255,255,0.055)',
+          background: 'var(--ro-surface)',
+          border: '1px solid var(--ro-border)',
           borderRadius: '13px',
           padding: '18px',
           marginBottom: '14px',
@@ -249,7 +249,7 @@ export function Lifecycle() {
           style={{
             fontSize: '13px',
             fontWeight: 700,
-            color: '#e4e4f0',
+            color: 'var(--ro-text)',
             marginBottom: '12px',
             display: 'flex',
             alignItems: 'center',
@@ -264,8 +264,8 @@ export function Lifecycle() {
             <div
               key={r.label}
               style={{
-                background: '#17171f',
-                border: '1px solid rgba(255,255,255,0.055)',
+                background: 'var(--ro-surface-elevated)',
+                border: '1px solid var(--ro-border)',
                 borderRadius: '9px',
                 padding: '13px',
               }}
@@ -282,7 +282,7 @@ export function Lifecycle() {
               >
                 {r.label}
               </div>
-              <div style={{ fontSize: '11px', color: '#9090aa', lineHeight: 1.5 }}>{r.desc}</div>
+              <div style={{ fontSize: '11px', color: 'var(--ro-text-dim)', lineHeight: 1.5 }}>{r.desc}</div>
             </div>
           ))}
         </div>
@@ -294,8 +294,8 @@ export function Lifecycle() {
           status={selectedStatus}
           statusData={{
             label: selectedStatus,
-            color: STATUS_COLORS[selectedStatus] ?? '#9090aa',
-            colorBg: `${STATUS_COLORS[selectedStatus] ?? '#9090aa'}1a`,
+            color: STATUS_COLORS[selectedStatus] ?? 'var(--ro-text-dim)',
+            colorBg: `${STATUS_COLORS[selectedStatus] ?? '#64748b'}1a`,
             icon: STATUS_ICONS[selectedStatus] ?? '',
           }}
           onClose={() => {

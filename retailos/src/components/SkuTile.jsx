@@ -34,13 +34,13 @@ function SkuTile({ sku, onClick }) {
   }, [pct])
 
   const icon = categoryIcon[sku.category] || <IconPackage size={20} strokeWidth={1} />
-  const thumbBg = categoryGrad[sku.category] || 'linear-gradient(135deg,#111117,#17171f)'
+  const thumbBg = categoryGrad[sku.category] || 'linear-gradient(135deg,var(--ro-surface),var(--ro-surface-elevated))'
 
   return (
     <div
       style={{
-        background: '#17171f',
-        border: '1px solid rgba(255,255,255,0.055)',
+        background: 'var(--ro-surface-elevated)',
+        border: '1px solid var(--ro-border)',
         borderRadius: '8px',
         marginBottom: '7px',
         cursor: 'pointer',
@@ -51,11 +51,11 @@ function SkuTile({ sku, onClick }) {
       }}
       onClick={onClick}
       onMouseEnter={(e) => {
-        e.currentTarget.style.borderColor = 'rgba(255,255,255,0.09)'
+        e.currentTarget.style.borderColor = 'var(--ro-border-hover)'
         e.currentTarget.style.transform = 'translateX(2px)'
       }}
       onMouseLeave={(e) => {
-        e.currentTarget.style.borderColor = 'rgba(255,255,255,0.055)'
+        e.currentTarget.style.borderColor = 'var(--ro-border)'
         e.currentTarget.style.transform = ''
       }}
     >
@@ -66,7 +66,7 @@ function SkuTile({ sku, onClick }) {
           style={{
             fontSize: '11px',
             fontWeight: 600,
-            color: '#e4e4f0',
+            color: 'var(--ro-text)',
             marginBottom: '2px',
             paddingLeft: '6px',
             whiteSpace: 'nowrap',
@@ -81,7 +81,7 @@ function SkuTile({ sku, onClick }) {
           style={{
             fontFamily: '"DM Sans"',
             fontSize: '9px',
-            color: '#4a4a62',
+            color: 'var(--ro-text-muted)',
             marginBottom: '5px',
             paddingLeft: '6px',
           }}
@@ -97,7 +97,7 @@ function SkuTile({ sku, onClick }) {
             paddingLeft: '6px',
           }}
         >
-          <span style={{ fontFamily: '"DM Sans"', fontSize: '9px', color: '#4a4a62' }}>Day {days}</span>
+          <span style={{ fontFamily: '"DM Sans"', fontSize: '9px', color: 'var(--ro-text-muted)' }}>Day {days}</span>
           <span style={{ fontSize: '9px', fontWeight: 700, color }}>
             {Math.round(pct)}%
           </span>
@@ -106,7 +106,7 @@ function SkuTile({ sku, onClick }) {
         <div
           style={{
             height: '3px',
-            background: 'rgba(255,255,255,0.05)',
+            background: 'var(--ro-track-bg)',
             borderRadius: '2px',
             overflow: 'hidden',
             marginTop: '6px',

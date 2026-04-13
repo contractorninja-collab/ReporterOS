@@ -126,8 +126,8 @@ export function Strategy() {
     return (
       <div style={{ maxWidth: 480, margin: '60px auto', textAlign: 'center' }}>
         <div style={{ fontSize: 48, marginBottom: 16 }}><IconLock size={48} strokeWidth={1.5} /></div>
-        <h2 style={{ fontFamily: '"DM Sans"', fontSize: 22, letterSpacing: '2px', color: '#fff', margin: '0 0 8px' }}>EXECUTIVE ACCESS ONLY</h2>
-        <p style={{ fontSize: 13, color: '#4a4a62' }}>Rotation Strategy is only available to Executive users.</p>
+        <h2 style={{ fontFamily: '"DM Sans"', fontSize: 22, letterSpacing: '2px', color: 'var(--ro-heading)', margin: '0 0 8px' }}>EXECUTIVE ACCESS ONLY</h2>
+        <p style={{ fontSize: 13, color: 'var(--ro-text-muted)' }}>Rotation Strategy is only available to Executive users.</p>
       </div>
     )
   }
@@ -149,7 +149,7 @@ export function Strategy() {
             fontFamily: '"DM Sans"',
             fontSize: '16px',
             letterSpacing: '2px',
-            color: '#fff',
+            color: 'var(--ro-heading)',
             display: 'flex',
             alignItems: 'center',
             gap: '8px',
@@ -182,8 +182,8 @@ export function Strategy() {
           <div
             key={ins.label}
             style={{
-              background: '#111117',
-              border: '1px solid rgba(255,255,255,0.055)',
+              background: 'var(--ro-surface)',
+              border: '1px solid var(--ro-border)',
               borderRadius: '12px',
               padding: '16px',
               position: 'relative',
@@ -213,10 +213,10 @@ export function Strategy() {
             >
               {ins.number}
             </div>
-            <div style={{ fontSize: '12px', fontWeight: 700, color: '#e4e4f0', marginBottom: '3px' }}>
+            <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--ro-text)', marginBottom: '3px' }}>
               {ins.label}
             </div>
-            <div style={{ fontSize: '10px', color: '#9090aa', lineHeight: 1.5 }}>{ins.desc}</div>
+            <div style={{ fontSize: '10px', color: 'var(--ro-text-dim)', lineHeight: 1.5 }}>{ins.desc}</div>
           </div>
         ))}
       </div>
@@ -233,8 +233,8 @@ export function Strategy() {
       >
         <div
           style={{
-            background: '#111117',
-            border: '1px solid rgba(255,255,255,0.055)',
+            background: 'var(--ro-surface)',
+            border: '1px solid var(--ro-border)',
             borderRadius: '13px',
             padding: '18px',
           }}
@@ -243,7 +243,7 @@ export function Strategy() {
             style={{
               fontSize: '13px',
               fontWeight: 700,
-              color: '#e4e4f0',
+              color: 'var(--ro-text)',
               marginBottom: '6px',
               display: 'flex',
               alignItems: 'center',
@@ -259,19 +259,19 @@ export function Strategy() {
                 alignItems: 'center',
                 justifyContent: 'center',
                 fontSize: '13px',
-                background: '#17171f',
+                background: 'var(--ro-surface-elevated)',
                 flexShrink: 0,
               }}
             >
             </div>
             Immediate Rotation Actions
           </div>
-          <div style={{ fontSize: '10px', color: '#9090aa', marginBottom: '12px' }}>
+          <div style={{ fontSize: '10px', color: 'var(--ro-text-dim)', marginBottom: '12px' }}>
             Rule-based recommendations for this week
           </div>
 
           {rotationActions.length === 0 ? (
-            <div style={{ fontSize: '12px', color: '#9090aa', padding: '12px 0' }}>
+            <div style={{ fontSize: '12px', color: 'var(--ro-text-dim)', padding: '12px 0' }}>
               No rotation actions match current inventory — all clear.
             </div>
           ) : (
@@ -290,8 +290,8 @@ export function Strategy() {
 
         <div
           style={{
-            background: '#111117',
-            border: '1px solid rgba(255,255,255,0.055)',
+            background: 'var(--ro-surface)',
+            border: '1px solid var(--ro-border)',
             borderRadius: '13px',
             padding: '18px',
           }}
@@ -300,7 +300,7 @@ export function Strategy() {
             style={{
               fontSize: '13px',
               fontWeight: 700,
-              color: '#e4e4f0',
+              color: 'var(--ro-text)',
               marginBottom: '12px',
               display: 'flex',
               alignItems: 'center',
@@ -316,7 +316,7 @@ export function Strategy() {
                 alignItems: 'center',
                 justifyContent: 'center',
                 fontSize: '13px',
-                background: '#17171f',
+                background: 'var(--ro-surface-elevated)',
                 flexShrink: 0,
               }}
             >

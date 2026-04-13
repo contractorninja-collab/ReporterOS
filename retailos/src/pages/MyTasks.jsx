@@ -63,10 +63,10 @@ export function MyTasks() {
   return (
     <div style={{ maxWidth: 700 }}>
       <div style={{ marginBottom: 20 }}>
-        <h2 style={{ fontFamily: '"DM Sans"', fontSize: 22, letterSpacing: '2px', color: '#fff', margin: 0 }}>
+        <h2 style={{ fontFamily: '"DM Sans"', fontSize: 22, letterSpacing: '2px', color: 'var(--ro-heading)', margin: 0 }}>
           MY TASKS
         </h2>
-        <p style={{ fontSize: 12, color: '#4a4a62', margin: '4px 0 0' }}>
+        <p style={{ fontSize: 12, color: 'var(--ro-text-muted)', margin: '4px 0 0' }}>
           Assignments for {activeUser?.name || 'you'}. Mark them as you work.
         </p>
       </div>
@@ -89,9 +89,9 @@ export function MyTasks() {
               fontWeight: 600,
               cursor: 'pointer',
               fontFamily: '"DM Sans"',
-              border: filter === f.key ? '1px solid rgba(255,51,51,0.25)' : '1px solid rgba(255,255,255,0.055)',
-              background: filter === f.key ? 'rgba(255,51,51,0.1)' : '#17171f',
-              color: filter === f.key ? '#ff3333' : '#9090aa',
+              border: filter === f.key ? '1px solid rgba(255,51,51,0.25)' : '1px solid var(--ro-border)',
+              background: filter === f.key ? 'rgba(255,51,51,0.1)' : 'var(--ro-surface-elevated)',
+              color: filter === f.key ? '#ff3333' : 'var(--ro-text-dim)',
             }}
           >
             {f.label} ({counts[f.key]})
@@ -104,10 +104,10 @@ export function MyTasks() {
           style={{
             textAlign: 'center',
             padding: 48,
-            background: '#111117',
-            border: '1px solid rgba(255,255,255,0.055)',
+            background: 'var(--ro-surface)',
+            border: '1px solid var(--ro-border)',
             borderRadius: 14,
-            color: '#4a4a62',
+            color: 'var(--ro-text-muted)',
             fontSize: 14,
           }}
         >
@@ -124,8 +124,8 @@ export function MyTasks() {
             <div
               key={t.id}
               style={{
-                background: '#111117',
-                border: '1px solid rgba(255,255,255,0.055)',
+                background: 'var(--ro-surface)',
+                border: '1px solid var(--ro-border)',
                 borderRadius: 14,
                 padding: '16px 18px',
                 display: 'flex',
@@ -138,7 +138,7 @@ export function MyTasks() {
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                  <span style={{ fontSize: 13, fontWeight: 700, color: '#e4e4f0' }}>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--ro-text)' }}>
                     {t.productName}
                   </span>
                   <span
@@ -155,20 +155,20 @@ export function MyTasks() {
                     {cfg.label}
                   </span>
                 </div>
-                <div style={{ fontSize: 11, color: '#4a4a62', fontFamily: '"DM Sans"', marginBottom: 4 }}>
+                <div style={{ fontSize: 11, color: 'var(--ro-text-muted)', fontFamily: '"DM Sans"', marginBottom: 4 }}>
                   {t.skuCode}
                 </div>
-                <div style={{ fontSize: 11, color: '#9090aa', marginBottom: 2 }}>
-                  <strong style={{ color: '#e4e4f0' }}>Action:</strong>{' '}
+                <div style={{ fontSize: 11, color: 'var(--ro-text-dim)', marginBottom: 2 }}>
+                  <strong style={{ color: 'var(--ro-text)' }}>Action:</strong>{' '}
                   {t.type.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())}
                   {t.shop ? ` — ${t.shop}` : ''}
                 </div>
                 {t.note && (
-                  <div style={{ fontSize: 11, color: '#9090aa', fontStyle: 'italic' }}>
+                  <div style={{ fontSize: 11, color: 'var(--ro-text-dim)', fontStyle: 'italic' }}>
                     &quot;{t.note}&quot;
                   </div>
                 )}
-                <div style={{ fontSize: 10, color: '#4a4a62', marginTop: 4 }}>
+                <div style={{ fontSize: 10, color: 'var(--ro-text-muted)', marginTop: 4 }}>
                   Assigned by {getUserName(t.assignedBy)} — {new Date(t.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}
                   {t.completedAt && (
                     <span style={{ color: '#00e676', marginLeft: 8 }}>

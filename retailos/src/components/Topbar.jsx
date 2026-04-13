@@ -1,9 +1,10 @@
 import { useState, useRef, useEffect } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { Bell, PackageCheck, AlertTriangle, CheckCircle, Truck, Clock, LogIn, LogOut, UserCheck } from 'lucide-react'
+import { Bell, PackageCheck, AlertTriangle, CheckCircle, Truck, Clock, LogIn, LogOut, UserCheck, Sun, Moon } from 'lucide-react'
 import { IconSearch } from '../utils/icons.js'
 import useStore from '../store/useStore.js'
 import { isExecutive } from '../utils/roles.js'
+import { applyThemeToDocument, readStoredTheme } from '../themeStorage.js'
 
 const ROLE_COLORS = { manager: '#38bdf8', executive: '#c084fc', outlet: '#fbbf24' }
 
@@ -22,7 +23,7 @@ const NOTIF_COLORS = {
   transfer_completed: '#00e676',
   transfer_missing_items: '#fbbf24',
   shift_clock_in: '#00e676',
-  shift_clock_out: '#9090aa',
+  shift_clock_out: 'var(--ro-text-dim)',
   alert_assigned: '#ff3333',
 }
 
@@ -78,16 +79,16 @@ function NotificationDropdown({ onClose }) {
       style={{
         position: 'absolute', top: '100%', right: 0, marginTop: 8,
         width: 340, maxHeight: 420, overflowY: 'auto',
-        background: '#17171f', border: '1px solid rgba(255,255,255,0.08)',
-        borderRadius: 12, boxShadow: '0 12px 40px rgba(0,0,0,0.5)',
+        background: 'var(--ro-surface-elevated)', border: '1px solid var(--ro-border-hover)',
+        borderRadius: 12, boxShadow: 'var(--ro-dropdown-shadow)',
         zIndex: 1000,
       }}
     >
       <div style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.06)',
+        padding: '12px 16px', borderBottom: '1px solid var(--ro-border)',
       }}>
-        <span style={{ fontSize: 13, fontWeight: 700, color: '#e4e4f0', fontFamily: '"DM Sans"' }}>Notifications</span>
+        <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--ro-text)', fontFamily: '"DM Sans"' }}>Notifications</span>
         <button
           type="button"
           onClick={() => markAllNotificationsRead()}
@@ -100,18 +101,18 @@ function NotificationDropdown({ onClose }) {
         </button>
       </div>
       {notifications.length === 0 ? (
-        <div style={{ padding: 32, textAlign: 'center', color: '#4a4a62', fontSize: 12 }}>No notifications</div>
+        <div style={{ padding: 32, textAlign: 'center', color: 'var(--ro-text-muted)', fontSize: 12 }}>No notifications</div>
       ) : (
         notifications.slice(0, 50).map((n) => {
           const Icon = NOTIF_ICONS[n.type] || Bell
-          const iconColor = NOTIF_COLORS[n.type] || '#9090aa'
+          const iconColor = NOTIF_COLORS[n.type] || 'var(--ro-text-dim)'
           return (
             <div
               key={n.id}
               onClick={() => { if (!n.read) markNotificationRead(n.id) }}
               style={{
                 display: 'flex', gap: 10, padding: '10px 16px', cursor: 'pointer',
-                borderBottom: '1px solid rgba(255,255,255,0.03)',
+                borderBottom: '1px solid var(--ro-border)',
                 background: n.read ? 'transparent' : 'rgba(56,189,248,0.04)',
                 transition: 'background 0.15s',
               }}
@@ -120,7 +121,7 @@ function NotificationDropdown({ onClose }) {
                 <Icon size={16} style={{ color: iconColor }} />
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: '#e4e4f0', marginBottom: 2 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--ro-text)', marginBottom: 2 }}>
                   {n.title}
                   {!n.read && (
                     <span style={{
@@ -129,8 +130,8 @@ function NotificationDropdown({ onClose }) {
                     }} />
                   )}
                 </div>
-                <div style={{ fontSize: 10, color: '#9090aa', lineHeight: 1.4 }}>{n.message}</div>
-                <div style={{ fontSize: 9, color: '#4a4a62', marginTop: 3 }}>{timeAgo(n.createdAt)}</div>
+                <div style={{ fontSize: 10, color: 'var(--ro-text-dim)', lineHeight: 1.4 }}>{n.message}</div>
+                <div style={{ fontSize: 9, color: 'var(--ro-text-muted)', marginTop: 3 }}>{timeAgo(n.createdAt)}</div>
               </div>
             </div>
           )
@@ -168,12 +169,12 @@ function NotificationBell() {
         className={ringing ? 'bell-ring' : ''}
         style={{
           position: 'relative', display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-          width: 34, height: 34, borderRadius: 8, border: '1px solid rgba(255,255,255,0.055)',
-          background: open ? 'rgba(56,189,248,0.08)' : '#17171f',
+          width: 34, height: 34, borderRadius: 8, border: '1px solid var(--ro-border)',
+          background: open ? 'rgba(56,189,248,0.08)' : 'var(--ro-surface-elevated)',
           cursor: 'pointer', padding: 0, transformOrigin: 'top center',
         }}
       >
-        <Bell size={16} style={{ color: unreadCount > 0 ? '#38bdf8' : '#9090aa' }} />
+        <Bell size={16} style={{ color: unreadCount > 0 ? '#38bdf8' : 'var(--ro-text-dim)' }} />
         {unreadCount > 0 && (
           <span className={ringing ? 'badge-pop' : ''} style={{
             position: 'absolute', top: -4, right: -4, minWidth: 16, height: 16,
@@ -198,6 +199,38 @@ function formatElapsed(clockInIso) {
   const s = totalSec % 60
   const pad = (n) => String(n).padStart(2, '0')
   return h > 0 ? `${h}h ${pad(m)}m ${pad(s)}s` : `${m}m ${pad(s)}s`
+}
+
+function ThemeToggle() {
+  const [light, setLight] = useState(() => readStoredTheme() === 'light')
+  return (
+    <button
+      type="button"
+      className="topbar-theme-toggle"
+      onClick={() => {
+        const next = light ? 'dark' : 'light'
+        applyThemeToDocument(next)
+        setLight(next === 'light')
+      }}
+      aria-label={light ? 'Switch to dark theme' : 'Switch to light theme'}
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        width: 34,
+        height: 30,
+        padding: 0,
+        borderRadius: 8,
+        border: '1px solid var(--ro-border-hover)',
+        background: 'var(--ro-surface-elevated)',
+        color: 'var(--ro-text-dim)',
+        cursor: 'pointer',
+        flexShrink: 0,
+      }}
+    >
+      {light ? <Moon size={16} strokeWidth={1.5} /> : <Sun size={16} strokeWidth={1.5} />}
+    </button>
+  )
 }
 
 function ShiftButton() {
@@ -236,9 +269,9 @@ function ShiftButton() {
         gap: 6,
         padding: '5px 10px',
         borderRadius: 8,
-        border: onShift ? '1px solid rgba(0,230,118,0.25)' : '1px solid rgba(255,255,255,0.055)',
-        background: onShift ? 'rgba(0,230,118,0.08)' : '#17171f',
-        color: onShift ? '#00e676' : '#9090aa',
+        border: onShift ? '1px solid rgba(0,230,118,0.25)' : '1px solid var(--ro-border)',
+        background: onShift ? 'rgba(0,230,118,0.08)' : 'var(--ro-surface-elevated)',
+        color: onShift ? '#00e676' : 'var(--ro-text-dim)',
         fontSize: 11,
         fontWeight: 600,
         cursor: 'pointer',
@@ -252,7 +285,7 @@ function ShiftButton() {
         <>
           <span style={{ fontSize: 10 }}>On Shift</span>
           <span style={{
-            fontSize: 10, fontWeight: 700, color: '#fff',
+            fontSize: 10, fontWeight: 700, color: 'var(--ro-heading)',
             background: 'rgba(0,230,118,0.2)', padding: '1px 6px', borderRadius: 4,
           }}>
             {elapsed}
@@ -301,10 +334,10 @@ export function Topbar() {
   return (
     <>
       <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
-        <div style={{ fontFamily: '"DM Sans"', fontSize: '19px', letterSpacing: '2px', color: '#fff', whiteSpace: 'nowrap' }}>
+        <div style={{ fontFamily: '"DM Sans"', fontSize: '19px', letterSpacing: '2px', color: 'var(--ro-heading)', whiteSpace: 'nowrap' }}>
           {current.title}
         </div>
-        <div className="topbar-crumb" style={{ fontSize: '11px', color: '#4a4a62' }}>{current.crumb}</div>
+        <div className="topbar-crumb" style={{ fontSize: '11px', color: 'var(--ro-text-muted)' }}>{current.crumb}</div>
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -315,14 +348,14 @@ export function Topbar() {
               display: 'flex',
               alignItems: 'center',
               gap: '7px',
-              background: '#17171f',
-              border: '1px solid rgba(255,255,255,0.055)',
+              background: 'var(--ro-surface-elevated)',
+              border: '1px solid var(--ro-border)',
               borderRadius: '8px',
               padding: '6px 11px',
               width: '210px',
             }}
           >
-            <span style={{ color: '#4a4a62', fontSize: '13px' }}>
+            <span style={{ color: 'var(--ro-text-muted)', fontSize: '13px' }}>
               <IconSearch size={13} strokeWidth={1.5} />
             </span>
             <input
@@ -340,7 +373,7 @@ export function Topbar() {
                 background: 'none',
                 border: 'none',
                 outline: 'none',
-                color: '#e4e4f0',
+                color: 'var(--ro-text)',
                 fontSize: '12px',
                 fontFamily: '"DM Sans"',
                 width: '100%',
@@ -361,18 +394,19 @@ export function Topbar() {
               fontWeight: 600,
               cursor: 'pointer',
               transition: 'all 0.13s',
-              background: activeSeason === s ? 'rgba(255,51,51,0.1)' : '#17171f',
+              background: activeSeason === s ? 'rgba(255,51,51,0.1)' : 'var(--ro-surface-elevated)',
               border:
                 activeSeason === s
                   ? '1px solid rgba(255,51,51,0.25)'
-                  : '1px solid rgba(255,255,255,0.055)',
-              color: activeSeason === s ? '#ff3333' : '#4a4a62',
+                  : '1px solid var(--ro-border)',
+              color: activeSeason === s ? '#ff3333' : 'var(--ro-text-muted)',
             }}
           >
             {s}
           </div>
         ))}
 
+        <ThemeToggle />
         <ShiftButton />
         <NotificationBell />
 
@@ -382,8 +416,8 @@ export function Topbar() {
               display: 'flex',
               alignItems: 'center',
               gap: 8,
-              background: '#17171f',
-              border: '1px solid rgba(255,255,255,0.055)',
+              background: 'var(--ro-surface-elevated)',
+              border: '1px solid var(--ro-border)',
               borderRadius: 8,
               padding: '5px 10px',
             }}
@@ -393,11 +427,11 @@ export function Topbar() {
                 width: 6,
                 height: 6,
                 borderRadius: '50%',
-                background: ROLE_COLORS[activeUser.role] || '#9090aa',
+                background: ROLE_COLORS[activeUser.role] || 'var(--ro-text-dim)',
                 flexShrink: 0,
               }}
             />
-            <span style={{ fontSize: 11, color: '#e4e4f0', fontWeight: 600, whiteSpace: 'nowrap' }}>
+            <span style={{ fontSize: 11, color: 'var(--ro-text)', fontWeight: 600, whiteSpace: 'nowrap' }}>
               {activeUser.name}
             </span>
             <button
@@ -405,7 +439,7 @@ export function Topbar() {
               onClick={() => setActiveUser(null)}
               style={{
                 fontSize: 10,
-                color: '#4a4a62',
+                color: 'var(--ro-text-muted)',
                 background: 'none',
                 border: 'none',
                 cursor: 'pointer',
@@ -431,9 +465,9 @@ export function Topbar() {
             fontSize: '12px',
             fontWeight: 600,
             cursor: 'pointer',
-            border: '1px solid rgba(255,255,255,0.055)',
-            background: '#17171f',
-            color: '#9090aa',
+            border: '1px solid var(--ro-border)',
+            background: 'var(--ro-surface-elevated)',
+            color: 'var(--ro-text-dim)',
             fontFamily: '"DM Sans"',
             whiteSpace: 'nowrap',
           }}

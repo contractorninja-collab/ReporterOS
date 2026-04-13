@@ -5,11 +5,43 @@
 @tailwind utilities;
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+/* Theme tokens — dark defaults; light overrides in theme-light.css */
+:root {
+  --ro-page-bg: #09090e;
+  --ro-surface: #111117;
+  --ro-surface-elevated: #17171f;
+  --ro-border: rgba(255, 255, 255, 0.055);
+  --ro-border-hover: rgba(255, 255, 255, 0.12);
+  --ro-text: #e4e4f0;
+  --ro-text-muted: #4a4a62;
+  --ro-text-dim: #9090aa;
+  --ro-heading: #ffffff;
+  --ro-chart-grid: rgba(255, 255, 255, 0.06);
+  --ro-chart-axis: rgba(255, 255, 255, 0.06);
+  --ro-tooltip-bg: #111117;
+  --ro-tooltip-border: rgba(255, 255, 255, 0.1);
+  --ro-tooltip-label: #e4e4f0;
+  --ro-tooltip-muted: #9090aa;
+  --ro-shadow-ambient-hover: 0 8px 24px rgba(0, 0, 0, 0.3);
+  --ro-shadow-ambient-selected: 0 12px 32px rgba(0, 0, 0, 0.4);
+  --ro-shadow-card-hover: 0 12px 28px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(255, 255, 255, 0.06);
+  --ro-scrollbar-thumb: #2a2a38;
+  --ro-track-bg: rgba(255, 255, 255, 0.06);
+  --ro-dropdown-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+  /* Subtle fills / row hovers (theme overrides in theme-light.css) */
+  --ro-fill-soft: rgba(255, 255, 255, 0.04);
+  --ro-fill-muted: rgba(255, 255, 255, 0.06);
+  --ro-fill-faint: rgba(255, 255, 255, 0.03);
+  --ro-table-row-hover: rgba(255, 255, 255, 0.03);
+  --ro-surface-deep: #1a1a24;
+}
+
 .app-root { overflow-x: clip; }
 html { scroll-behavior: smooth; }
 body {
-  background-color: #09090e;
-  color: #e4e4f0;
+  background-color: var(--ro-page-bg);
+  color: var(--ro-text);
   font-family: 'DM Sans', sans-serif;
   font-size: 14px;
   line-height: 1.5;
@@ -17,7 +49,7 @@ body {
 }
 ::-webkit-scrollbar { width: 3px; height: 3px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #2a2a38; border-radius: 2px; }
+::-webkit-scrollbar-thumb { background: var(--ro-scrollbar-thumb); border-radius: 2px; }
 
 @keyframes fadeUp {
   from { opacity: 0; transform: translateY(16px); }
@@ -90,9 +122,9 @@ body {
   width: 40px;
   height: 40px;
   border-radius: 8px;
-  border: 1px solid rgba(255,255,255,0.055);
-  background: #17171f;
-  color: #9090aa;
+  border: 1px solid var(--ro-border);
+  background: var(--ro-surface-elevated);
+  color: var(--ro-text-dim);
   cursor: pointer;
   flex-shrink: 0;
   -webkit-tap-highlight-color: transparent;
@@ -105,8 +137,8 @@ body {
   right: 0;
   z-index: 180;
   height: 64px;
-  background: #111117;
-  border-top: 1px solid rgba(255,255,255,0.055);
+  background: var(--ro-surface);
+  border-top: 1px solid var(--ro-border);
   display: none;
   align-items: center;
   justify-content: space-around;
@@ -127,7 +159,7 @@ body {
   font-size: 9px;
   font-weight: 600;
   font-family: 'DM Sans', sans-serif;
-  color: #4a4a62;
+  color: var(--ro-text-muted);
   text-decoration: none;
   background: none;
   border: none;
@@ -138,6 +170,20 @@ body {
 
 .bottom-nav a.active {
   color: #ff3333;
+}
+
+/* Import tab: accent color so it reads as a primary action (mobile bar) */
+.bottom-nav a.bottom-nav-import {
+  color: #ff3333;
+}
+
+.bottom-nav a.bottom-nav-import.active {
+  color: #ff3333;
+  font-weight: 700;
+}
+
+.app-footer-import:hover {
+  filter: brightness(1.06);
 }
 
 @media (max-width: 767px) {
@@ -322,5 +368,5 @@ body {
 }
 
 tr.clickable-row:hover td {
-  background: #ffffff08;
+  background: var(--ro-table-row-hover);
 }

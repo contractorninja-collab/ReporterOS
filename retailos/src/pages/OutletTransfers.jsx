@@ -54,14 +54,14 @@ function renderItemRow(it, idx) {
   if (it.sizeBreakdown && it.sizeBreakdown.length > 0) {
     return (
       <tr key={idx}>
-        <td style={{ padding: '8px 14px', fontSize: 11, color: '#9090aa', fontFamily: '"DM Sans"' }}>{it.skuCode}</td>
-        <td style={{ padding: '8px 14px', fontSize: 12, color: '#e4e4f0', fontWeight: 600 }}>{it.productName}</td>
-        <td style={{ padding: '8px 14px', fontSize: 12, color: '#e4e4f0' }}>{it.totalQty ?? it.quantity}</td>
+        <td style={{ padding: '8px 14px', fontSize: 11, color: 'var(--ro-text-dim)', fontFamily: '"DM Sans"' }}>{it.skuCode}</td>
+        <td style={{ padding: '8px 14px', fontSize: 12, color: 'var(--ro-text)', fontWeight: 600 }}>{it.productName}</td>
+        <td style={{ padding: '8px 14px', fontSize: 12, color: 'var(--ro-text)' }}>{it.totalQty ?? it.quantity}</td>
         <td style={{ padding: '8px 14px' }}>
           <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
             {it.sizeBreakdown.map((b) => (
-              <span key={b.size} style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: 'rgba(255,255,255,0.06)', color: '#e4e4f0', fontFamily: '"DM Sans"', fontWeight: 600 }}>
-                {b.size} <span style={{ color: '#9090aa' }}>×{b.qty}</span>
+              <span key={b.size} style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: 'var(--ro-fill-muted)', color: 'var(--ro-text)', fontFamily: '"DM Sans"', fontWeight: 600 }}>
+                {b.size} <span style={{ color: 'var(--ro-text-dim)' }}>×{b.qty}</span>
               </span>
             ))}
           </div>
@@ -71,10 +71,10 @@ function renderItemRow(it, idx) {
   }
   return (
     <tr key={idx}>
-      <td style={{ padding: '8px 14px', fontSize: 11, color: '#9090aa', fontFamily: '"DM Sans"' }}>{it.skuCode}</td>
-      <td style={{ padding: '8px 14px', fontSize: 12, color: '#e4e4f0', fontWeight: 600 }}>{it.productName}</td>
-      <td style={{ padding: '8px 14px', fontSize: 12, color: '#e4e4f0' }}>{it.quantity}</td>
-      <td style={{ padding: '8px 14px', fontSize: 11, color: '#9090aa' }}>{it.sizes || '—'}</td>
+      <td style={{ padding: '8px 14px', fontSize: 11, color: 'var(--ro-text-dim)', fontFamily: '"DM Sans"' }}>{it.skuCode}</td>
+      <td style={{ padding: '8px 14px', fontSize: 12, color: 'var(--ro-text)', fontWeight: 600 }}>{it.productName}</td>
+      <td style={{ padding: '8px 14px', fontSize: 12, color: 'var(--ro-text)' }}>{it.quantity}</td>
+      <td style={{ padding: '8px 14px', fontSize: 11, color: 'var(--ro-text-dim)' }}>{it.sizes || '—'}</td>
     </tr>
   )
 }
@@ -105,10 +105,10 @@ export function OutletTransfers() {
   return (
     <div style={{ maxWidth: 700 }}>
       <div style={{ marginBottom: 20 }}>
-        <h2 style={{ fontFamily: '"DM Sans"', fontSize: 22, letterSpacing: '2px', color: '#fff', margin: 0 }}>
+        <h2 style={{ fontFamily: '"DM Sans"', fontSize: 22, letterSpacing: '2px', color: 'var(--ro-heading)', margin: 0 }}>
           OUTLET TRANSFERS
         </h2>
-        <p style={{ fontSize: 12, color: '#4a4a62', margin: '4px 0 0' }}>
+        <p style={{ fontSize: 12, color: 'var(--ro-text-muted)', margin: '4px 0 0' }}>
           Batches of products being moved to the outlet. Each day's moves are grouped into one batch.
         </p>
       </div>
@@ -130,10 +130,10 @@ export function OutletTransfers() {
           style={{
             textAlign: 'center',
             padding: 48,
-            background: '#111117',
-            border: '1px solid rgba(255,255,255,0.055)',
+            background: 'var(--ro-surface)',
+            border: '1px solid var(--ro-border)',
             borderRadius: 14,
-            color: '#4a4a62',
+            color: 'var(--ro-text-muted)',
             fontSize: 14,
           }}
         >
@@ -150,8 +150,8 @@ export function OutletTransfers() {
             <div
               key={batch.id}
               style={{
-                background: '#111117',
-                border: `1px solid ${isPending ? 'rgba(251,191,36,0.18)' : 'rgba(255,255,255,0.055)'}`,
+                background: 'var(--ro-surface)',
+                border: `1px solid ${isPending ? 'rgba(251,191,36,0.18)' : 'var(--ro-border)'}`,
                 borderRadius: 14,
                 overflow: 'hidden',
               }}
@@ -168,17 +168,17 @@ export function OutletTransfers() {
               >
                 <div style={{ fontSize: 22 }} />
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: '#e4e4f0', marginBottom: 3 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ro-text)', marginBottom: 3 }}>
                     Transfer — {formatDate(batch.createdAt)}
                   </div>
-                  <div style={{ fontSize: 11, color: '#4a4a62' }}>
+                  <div style={{ fontSize: 11, color: 'var(--ro-text-muted)' }}>
                     {batch.items.length} products · {totalUnits} units · by {getUserName(batch.createdBy)}
                     {batch.assignedTo && (
                       <span> · assigned to {formatAssigneeList(batch.assignedTo)}</span>
                     )}
                   </div>
                   {batch.note && (
-                    <div style={{ fontSize: 10, color: '#9090aa', marginTop: 2, fontStyle: 'italic' }}>{batch.note}</div>
+                    <div style={{ fontSize: 10, color: 'var(--ro-text-dim)', marginTop: 2, fontStyle: 'italic' }}>{batch.note}</div>
                   )}
                 </div>
                 <span
@@ -194,13 +194,13 @@ export function OutletTransfers() {
                 >
                   {isPending ? 'Pending' : 'Received'}
                 </span>
-                <span style={{ fontSize: 14, color: '#4a4a62', transform: isExpanded ? 'rotate(180deg)' : '', transition: 'transform 0.2s' }}>
+                <span style={{ fontSize: 14, color: 'var(--ro-text-muted)', transform: isExpanded ? 'rotate(180deg)' : '', transition: 'transform 0.2s' }}>
                   ▼
                 </span>
               </div>
 
               {isExpanded && (
-                <div style={{ borderTop: '1px solid rgba(255,255,255,0.04)' }}>
+                <div style={{ borderTop: '1px solid var(--ro-border)' }}>
                   <div style={{ overflowX: 'auto' }}>
                     <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                       <thead>
@@ -213,10 +213,10 @@ export function OutletTransfers() {
                                 padding: '8px 14px',
                                 fontSize: 9,
                                 fontWeight: 700,
-                                color: '#4a4a62',
+                                color: 'var(--ro-text-muted)',
                                 textTransform: 'uppercase',
                                 letterSpacing: '0.8px',
-                                borderBottom: '1px solid rgba(255,255,255,0.04)',
+                                borderBottom: '1px solid var(--ro-border)',
                               }}
                             >
                               {h}
@@ -230,7 +230,7 @@ export function OutletTransfers() {
                     </table>
                   </div>
 
-                  <div style={{ display: 'flex', gap: 8, padding: '12px 18px', borderTop: '1px solid rgba(255,255,255,0.04)' }}>
+                  <div style={{ display: 'flex', gap: 8, padding: '12px 18px', borderTop: '1px solid var(--ro-border)' }}>
                     {isPending && (
                       <button
                         type="button"
@@ -259,9 +259,9 @@ export function OutletTransfers() {
                         fontSize: 11,
                         fontWeight: 600,
                         cursor: 'pointer',
-                        border: '1px solid rgba(255,255,255,0.08)',
+                        border: '1px solid var(--ro-border-hover)',
                         background: 'none',
-                        color: '#9090aa',
+                        color: 'var(--ro-text-dim)',
                         fontFamily: '"DM Sans"',
                       }}
                     >
@@ -276,16 +276,16 @@ export function OutletTransfers() {
                         fontSize: 11,
                         fontWeight: 600,
                         cursor: 'pointer',
-                        border: '1px solid rgba(255,255,255,0.08)',
+                        border: '1px solid var(--ro-border-hover)',
                         background: 'none',
-                        color: '#9090aa',
+                        color: 'var(--ro-text-dim)',
                         fontFamily: '"DM Sans"',
                       }}
                     >
                       PDF / Print
                     </button>
                     {batch.receivedAt && (
-                      <span style={{ fontSize: 10, color: '#4a4a62', marginLeft: 'auto', alignSelf: 'center' }}>
+                      <span style={{ fontSize: 10, color: 'var(--ro-text-muted)', marginLeft: 'auto', alignSelf: 'center' }}>
                         Received {formatDate(batch.receivedAt)}
                       </span>
                     )}

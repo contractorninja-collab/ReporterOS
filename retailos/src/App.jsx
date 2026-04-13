@@ -49,7 +49,7 @@ class AppErrorBoundary extends Component {
           style={{
             padding: 32,
             background: '#09090e',
-            color: '#e4e4f0',
+            color: 'var(--ro-text)',
             minHeight: '100vh',
             fontFamily: '"DM Sans", sans-serif',
           }}
@@ -144,11 +144,11 @@ function LoginScreen() {
 
   const loginInputStyle = {
     width: '100%',
-    background: 'rgba(255,255,255,0.03)',
-    border: '1px solid rgba(255,255,255,0.08)',
+    background: 'var(--ro-fill-faint)',
+    border: '1px solid var(--ro-border-hover)',
     borderRadius: 12,
     padding: '14px 16px',
-    color: '#e4e4f0',
+    color: 'var(--ro-text)',
     fontSize: 18,
     fontWeight: 600,
     fontFamily: '"DM Sans"',
@@ -165,7 +165,7 @@ function LoginScreen() {
         <div className="glow-pulse" style={{ position: 'absolute', top: '-25%', left: '50%', transform: 'translateX(-50%)', width: '120%', height: '55%', background: 'radial-gradient(ellipse, rgba(56,189,248,0.07) 0%, transparent 65%)', filter: 'blur(50px)' }} />
         <div style={{ position: 'absolute', bottom: '-15%', right: '10%', width: '50%', height: '45%', background: 'radial-gradient(ellipse, rgba(192,132,252,0.05) 0%, transparent 65%)', filter: 'blur(60px)' }} />
         <div style={{ position: 'absolute', top: '40%', left: '-10%', width: '35%', height: '35%', background: 'radial-gradient(circle, rgba(251,191,36,0.03) 0%, transparent 65%)', filter: 'blur(50px)' }} />
-        <div style={{ position: 'absolute', inset: 0, backgroundImage: 'radial-gradient(rgba(255,255,255,0.03) 1px, transparent 1px)', backgroundSize: '32px 32px' }} />
+        <div style={{ position: 'absolute', inset: 0, backgroundImage: 'radial-gradient(var(--ro-fill-faint) 1px, transparent 1px)', backgroundSize: '32px 32px' }} />
       </div>
 
       <div
@@ -198,8 +198,8 @@ function LoginScreen() {
 
         <div
           style={{
-            background: 'rgba(255,255,255,0.02)',
-            border: '1px solid rgba(255,255,255,0.06)',
+            background: 'var(--ro-table-row-hover)',
+            border: '1px solid var(--ro-border)',
             borderRadius: 20,
             padding: '36px 32px 32px',
             backdropFilter: 'blur(16px)',
@@ -233,7 +233,7 @@ function LoginScreen() {
               autoFocus
               style={{
                 ...loginInputStyle,
-                borderColor: error ? 'rgba(255,51,51,0.4)' : code.length === 5 ? 'rgba(56,189,248,0.3)' : 'rgba(255,255,255,0.08)',
+                borderColor: error ? 'rgba(255,51,51,0.4)' : code.length === 5 ? 'rgba(56,189,248,0.3)' : 'var(--ro-border-hover)',
                 boxShadow: code.length === 5 && !error ? '0 0 20px rgba(56,189,248,0.08)' : error ? '0 0 20px rgba(255,51,51,0.08)' : 'none',
               }}
             />
@@ -253,7 +253,7 @@ function LoginScreen() {
               placeholder="0000"
               style={{
                 ...loginInputStyle,
-                borderColor: error ? 'rgba(255,51,51,0.4)' : pin.length === 4 ? 'rgba(192,132,252,0.3)' : 'rgba(255,255,255,0.08)',
+                borderColor: error ? 'rgba(255,51,51,0.4)' : pin.length === 4 ? 'rgba(192,132,252,0.3)' : 'var(--ro-border-hover)',
                 boxShadow: pin.length === 4 && !error ? '0 0 20px rgba(192,132,252,0.08)' : error ? '0 0 20px rgba(255,51,51,0.08)' : 'none',
               }}
             />
@@ -276,8 +276,8 @@ function LoginScreen() {
               border: 'none',
               background: canSubmit && !busy
                 ? 'linear-gradient(135deg, #ff3333, #ff5544)'
-                : 'rgba(255,255,255,0.04)',
-              color: canSubmit && !busy ? '#fff' : '#4a4a62',
+                : 'var(--ro-fill-soft)',
+              color: canSubmit && !busy ? '#fff' : 'var(--ro-text-muted)',
               fontSize: 14,
               fontWeight: 700,
               fontFamily: '"DM Sans"',
@@ -329,7 +329,10 @@ function BottomNav({ onMorePress }) {
         <span>Transfer</span>
       </NavLink>
       {exec && (
-        <NavLink to="/import" className={({ isActive }) => isActive ? 'active' : ''}>
+        <NavLink
+          to="/import"
+          className={({ isActive }) => `bottom-nav-import${isActive ? ' active' : ''}`}
+        >
           <IconImport size={20} strokeWidth={1.5} />
           <span>Import</span>
         </NavLink>
@@ -412,7 +415,7 @@ function App() {
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          color: '#4a4a62',
+          color: 'var(--ro-text-muted)',
           fontFamily: '"DM Sans", sans-serif',
           fontSize: 14,
         }}
@@ -425,12 +428,13 @@ function App() {
   if (!activeUser) return <><ApiOfflineBanner /><LoginScreen /></>
 
   const closeSidebar = () => setSidebarOpen(false)
+  const exec = isExecutive(activeUser)
 
   return (
     <AppErrorBoundary>
     <div
       className="min-h-screen app-root"
-      style={{ background: '#09090e' }}
+      style={{ background: 'var(--ro-page-bg)' }}
     >
       <ApiOfflineBanner />
       {/* Mobile overlay */}
@@ -449,8 +453,8 @@ function App() {
           top: 0,
           bottom: 0,
           width: '228px',
-          background: '#111117',
-          borderRight: '1px solid rgba(255,255,255,0.055)',
+          background: 'var(--ro-surface)',
+          borderRight: '1px solid var(--ro-border)',
           display: 'flex',
           flexDirection: 'column',
           zIndex: 200,
@@ -481,7 +485,7 @@ function App() {
             background: 'rgba(9,9,14,0.88)',
             backdropFilter: 'blur(24px)',
             WebkitBackdropFilter: 'blur(24px)',
-            borderBottom: '1px solid rgba(255,255,255,0.055)',
+            borderBottom: '1px solid var(--ro-border)',
             padding: '0 28px',
             height: '58px',
             display: 'flex',
@@ -543,7 +547,7 @@ function App() {
               marginLeft: '-28px',
               marginRight: '-28px',
               padding: '16px 28px',
-              borderTop: '1px solid rgba(255,255,255,0.055)',
+              borderTop: '1px solid var(--ro-border)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'space-between',
@@ -551,12 +555,38 @@ function App() {
               gap: '8px',
             }}
           >
-            <div style={{ fontSize: '10px', color: '#4a4a62' }}>
+            <div style={{ fontSize: '10px', color: 'var(--ro-text-muted)' }}>
               RetailOS v1.0 · Built for Driloni Sportswear Sh.P.K · SKU Lifecycle Intelligence
             </div>
-            <div style={{ fontSize: '10px', color: '#4a4a62' }}>
-              Last sync: Today · {skus.length} SKUs · {activeSeason} Active ·{' '}
-              <span style={{ color: '#00e676' }}>● Live</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+              {exec && (
+                <NavLink
+                  to="/import"
+                  className="app-footer-import"
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '6px 12px',
+                    borderRadius: '8px',
+                    fontSize: '11px',
+                    fontWeight: 600,
+                    textDecoration: 'none',
+                    background: '#ff3333',
+                    color: '#fff',
+                    fontFamily: '"DM Sans", sans-serif',
+                    whiteSpace: 'nowrap',
+                    boxShadow: '0 2px 10px rgba(255, 51, 51, 0.35)',
+                  }}
+                >
+                  <IconImport size={14} strokeWidth={1.5} />
+                  Import CSV
+                </NavLink>
+              )}
+              <div style={{ fontSize: '10px', color: 'var(--ro-text-muted)' }}>
+                Last sync: Today · {skus.length} SKUs · {activeSeason} Active ·{' '}
+                <span style={{ color: '#00e676' }}>● Live</span>
+              </div>
             </div>
           </div>
         </main>

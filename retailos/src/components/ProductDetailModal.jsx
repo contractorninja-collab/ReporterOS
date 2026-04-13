@@ -196,11 +196,11 @@ export default function ProductDetailModal({ sku, status, statusData, onClose })
     Accessories: <IconAccessories size={56} strokeWidth={1} />,
   }
 
-  const thumbBg = categoryGrad[sku.category] || 'linear-gradient(135deg,#111117,#17171f)'
+  const thumbBg = categoryGrad[sku.category] || 'linear-gradient(135deg,var(--ro-surface),var(--ro-surface-elevated))'
   const icon = categoryIcon[sku.category] || <IconPackage size={56} strokeWidth={1} />
 
   const activeIdx = STATUS_ORDER.indexOf(status)
-  const accentColor = statusData.color ?? STATUS_COLORS[status] ?? '#9090aa'
+  const accentColor = statusData.color ?? STATUS_COLORS[status] ?? 'var(--ro-text-dim)'
 
   const showMarkdown = status === 'Clearance' || status === 'Outlet'
   const showReorder = status === 'Active' && pct >= 60
@@ -230,8 +230,8 @@ export default function ProductDetailModal({ sku, status, statusData, onClose })
           maxWidth: '92vw',
           maxHeight: '88vh',
           overflowY: 'auto',
-          background: '#111117',
-          border: '1px solid rgba(255,255,255,0.09)',
+          background: 'var(--ro-surface)',
+          border: '1px solid var(--ro-border-hover)',
           borderRadius: '18px',
         }}
       >
@@ -316,9 +316,9 @@ export default function ProductDetailModal({ sku, status, statusData, onClose })
               width: 32,
               height: 32,
               borderRadius: 8,
-              border: '1px solid rgba(255,255,255,0.12)',
+              border: '1px solid var(--ro-border-hover)',
               background: 'rgba(0,0,0,0.45)',
-              color: '#e4e4f0',
+              color: 'var(--ro-text)',
               fontSize: 16,
               lineHeight: 1,
               cursor: 'pointer',
@@ -338,7 +338,7 @@ export default function ProductDetailModal({ sku, status, statusData, onClose })
               zIndex: 2,
               fontFamily: '"DM Sans"',
               fontSize: 11,
-              color: 'rgba(255,255,255,0.75)',
+              color: 'color-mix(in srgb, var(--ro-text) 85%, transparent)',
             }}
           >
             Day {days} in store
@@ -352,7 +352,7 @@ export default function ProductDetailModal({ sku, status, statusData, onClose })
               fontFamily: '"DM Sans"',
               fontSize: 22,
               letterSpacing: '0.5px',
-              color: '#fff',
+              color: 'var(--ro-heading)',
               lineHeight: 1.15,
               marginBottom: 6,
             }}
@@ -363,7 +363,7 @@ export default function ProductDetailModal({ sku, status, statusData, onClose })
             style={{
               fontFamily: '"DM Sans"',
               fontSize: 11,
-              color: '#4a4a62',
+              color: 'var(--ro-text-muted)',
               marginBottom: 18,
             }}
           >
@@ -380,7 +380,7 @@ export default function ProductDetailModal({ sku, status, statusData, onClose })
           >
             {(showSalesMetrics
               ? [
-                  { label: 'Price', value: `€${sku.price_sold}`, color: '#fff' },
+                  { label: 'Price', value: `€${sku.price_sold}`, color: 'var(--ro-heading)' },
                   { label: 'Stock', value: String(remaining), color: stockColor },
                   { label: 'Sold', value: `${Math.round(pct)}%`, color: statusData.color },
                 ]
@@ -389,14 +389,14 @@ export default function ProductDetailModal({ sku, status, statusData, onClose })
               <div
                 key={c.label}
                 style={{
-                  background: '#17171f',
-                  border: '1px solid rgba(255,255,255,0.055)',
+                  background: 'var(--ro-surface-elevated)',
+                  border: '1px solid var(--ro-border)',
                   borderRadius: 10,
                   padding: 12,
                   textAlign: 'center',
                 }}
               >
-                <div style={{ fontSize: 9, fontWeight: 700, color: '#4a4a62', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.6px' }}>
+                <div style={{ fontSize: 9, fontWeight: 700, color: 'var(--ro-text-muted)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.6px' }}>
                   {c.label}
                 </div>
                 <div style={{ fontFamily: '"DM Sans"', fontSize: 26, lineHeight: 1, color: c.color, letterSpacing: '0.5px' }}>
@@ -416,12 +416,12 @@ export default function ProductDetailModal({ sku, status, statusData, onClose })
                   marginBottom: 8,
                 }}
               >
-                <span style={{ fontSize: 11, fontWeight: 600, color: '#9090aa' }}>Sell-through progress</span>
+                <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--ro-text-dim)' }}>Sell-through progress</span>
                 <span style={{ fontSize: 11, fontWeight: 600, color: accentColor, fontFamily: '"DM Sans"' }}>
                   {sku.sold_quantity} of {sku.quantity} units
                 </span>
               </div>
-              <div style={{ height: 6, background: 'rgba(255,255,255,0.06)', borderRadius: 3, overflow: 'hidden' }}>
+              <div style={{ height: 6, background: 'var(--ro-fill-muted)', borderRadius: 3, overflow: 'hidden' }}>
                 <div
                   style={{
                     height: '100%',
@@ -437,8 +437,8 @@ export default function ProductDetailModal({ sku, status, statusData, onClose })
 
           <div
             style={{
-              background: '#17171f',
-              border: '1px solid rgba(255,255,255,0.055)',
+              background: 'var(--ro-surface-elevated)',
+              border: '1px solid var(--ro-border)',
               borderRadius: 10,
               overflow: 'hidden',
               marginBottom: 18,
@@ -460,18 +460,18 @@ export default function ProductDetailModal({ sku, status, statusData, onClose })
                   alignItems: 'center',
                   gap: 12,
                   padding: '9px 14px',
-                  borderBottom: idx < arr.length - 1 ? '1px solid rgba(255,255,255,0.045)' : 'none',
+                  borderBottom: idx < arr.length - 1 ? '1px solid var(--ro-border)' : 'none',
                 }}
               >
-                <span style={{ fontSize: 11, color: '#4a4a62', flexShrink: 0 }}>{key}</span>
-                <span style={{ fontSize: 12, fontWeight: 700, color: '#e4e4f0', textAlign: 'right' }}>{val}</span>
+                <span style={{ fontSize: 11, color: 'var(--ro-text-muted)', flexShrink: 0 }}>{key}</span>
+                <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--ro-text)', textAlign: 'right' }}>{val}</span>
               </div>
             ))}
           </div>
 
           {sizeBreakdown.length > 0 && (
             <div style={{ marginBottom: 18 }}>
-              <div style={{ fontSize: 9, fontWeight: 700, color: '#4a4a62', textTransform: 'uppercase', letterSpacing: '0.8px', marginBottom: 8 }}>
+              <div style={{ fontSize: 9, fontWeight: 700, color: 'var(--ro-text-muted)', textTransform: 'uppercase', letterSpacing: '0.8px', marginBottom: 8 }}>
                 Size stock
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
@@ -486,15 +486,15 @@ export default function ProductDetailModal({ sku, status, statusData, onClose })
                         padding: '8px 6px',
                         borderRadius: 8,
                         textAlign: 'center',
-                        background: soldOut ? 'rgba(255,255,255,0.03)' : '#17171f',
-                        border: `1px solid ${soldOut ? 'rgba(255,255,255,0.04)' : low ? 'rgba(255,136,0,0.25)' : 'rgba(255,255,255,0.055)'}`,
+                        background: soldOut ? 'var(--ro-fill-faint)' : 'var(--ro-surface-elevated)',
+                        border: `1px solid ${soldOut ? 'var(--ro-border)' : low ? 'rgba(255,136,0,0.25)' : 'var(--ro-border)'}`,
                         opacity: soldOut ? 0.4 : 1,
                       }}
                     >
                       <div style={{
                         fontSize: 12,
                         fontWeight: 700,
-                        color: soldOut ? '#4a4a62' : '#e4e4f0',
+                        color: soldOut ? 'var(--ro-text-muted)' : 'var(--ro-text)',
                         textDecoration: soldOut ? 'line-through' : 'none',
                         marginBottom: 3,
                       }}>
@@ -504,7 +504,7 @@ export default function ProductDetailModal({ sku, status, statusData, onClose })
                         fontSize: 10,
                         fontFamily: '"DM Sans"',
                         fontWeight: 600,
-                        color: soldOut ? '#4a4a62' : low ? '#ff8800' : '#00e676',
+                        color: soldOut ? 'var(--ro-text-muted)' : low ? '#ff8800' : '#00e676',
                       }}>
                         {soldOut ? '—' : s.remaining}
                       </div>
@@ -526,7 +526,7 @@ export default function ProductDetailModal({ sku, status, statusData, onClose })
                       flex: 1,
                       height: 5,
                       borderRadius: 3,
-                      background: isActive ? accentColor : 'rgba(255,255,255,0.06)',
+                      background: isActive ? accentColor : 'var(--ro-fill-muted)',
                       boxShadow: isActive ? `0 0 10px ${accentColor}66` : 'none',
                       transition: 'background 0.2s',
                     }}
@@ -535,8 +535,8 @@ export default function ProductDetailModal({ sku, status, statusData, onClose })
               })}
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <span style={{ fontSize: 8, color: '#4a4a62', textTransform: 'uppercase', letterSpacing: '0.5px' }}>New</span>
-              <span style={{ fontSize: 8, color: '#4a4a62', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Outlet</span>
+              <span style={{ fontSize: 8, color: 'var(--ro-text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>New</span>
+              <span style={{ fontSize: 8, color: 'var(--ro-text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Outlet</span>
             </div>
           </div>
 
@@ -574,7 +574,7 @@ export default function ProductDetailModal({ sku, status, statusData, onClose })
             <button
               type="button"
               onClick={onClose}
-              style={{ ...ACTION_BTN, background: 'transparent', color: '#9090aa', border: '1px solid rgba(255,255,255,0.055)' }}
+              style={{ ...ACTION_BTN, background: 'transparent', color: 'var(--ro-text-dim)', border: '1px solid var(--ro-border)' }}
             >
               Close
             </button>
@@ -587,8 +587,8 @@ export default function ProductDetailModal({ sku, status, statusData, onClose })
           )}
 
           {assignPanel && assignPanel === 'store_transfer' && !assignDone && (
-            <div style={{ marginTop: 10, background: '#17171f', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12, padding: 14 }}>
-              <div style={{ fontSize: 10, fontWeight: 700, color: '#9090aa', textTransform: 'uppercase', letterSpacing: '0.8px', marginBottom: 10 }}>
+            <div style={{ marginTop: 10, background: 'var(--ro-surface-elevated)', border: '1px solid var(--ro-border-hover)', borderRadius: 12, padding: 14 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--ro-text-dim)', textTransform: 'uppercase', letterSpacing: '0.8px', marginBottom: 10 }}>
                 Transfer to Shop
               </div>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
@@ -600,9 +600,9 @@ export default function ProductDetailModal({ sku, status, statusData, onClose })
                     style={{
                       ...ACTION_BTN,
                       padding: '6px 14px',
-                      background: transferShop === s ? 'rgba(56,189,248,0.15)' : 'rgba(255,255,255,0.04)',
-                      color: transferShop === s ? '#38bdf8' : '#9090aa',
-                      border: `1px solid ${transferShop === s ? 'rgba(56,189,248,0.3)' : 'rgba(255,255,255,0.06)'}`,
+                      background: transferShop === s ? 'rgba(56,189,248,0.15)' : 'var(--ro-fill-soft)',
+                      color: transferShop === s ? '#38bdf8' : 'var(--ro-text-dim)',
+                      border: `1px solid ${transferShop === s ? 'rgba(56,189,248,0.3)' : 'var(--ro-border)'}`,
                     }}
                   >
                     {s}
@@ -613,7 +613,7 @@ export default function ProductDetailModal({ sku, status, statusData, onClose })
                 <button type="button" onClick={handleStoreTransfer} style={{ ...ACTION_BTN, background: '#38bdf8', color: '#09090e', padding: '7px 16px' }}>
                   Transfer
                 </button>
-                <button type="button" onClick={() => setAssignPanel(null)} style={{ ...ACTION_BTN, background: 'none', color: '#4a4a62', border: '1px solid rgba(255,255,255,0.06)', padding: '7px 16px' }}>
+                <button type="button" onClick={() => setAssignPanel(null)} style={{ ...ACTION_BTN, background: 'none', color: 'var(--ro-text-muted)', border: '1px solid var(--ro-border)', padding: '7px 16px' }}>
                   Cancel
                 </button>
               </div>
@@ -621,18 +621,18 @@ export default function ProductDetailModal({ sku, status, statusData, onClose })
           )}
 
           {assignPanel && assignPanel !== 'store_transfer' && (
-            <div style={{ marginTop: 10, background: '#17171f', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12, padding: 14 }}>
+            <div style={{ marginTop: 10, background: 'var(--ro-surface-elevated)', border: '1px solid var(--ro-border-hover)', borderRadius: 12, padding: 14 }}>
               {assignDone ? (
                 <div style={{ fontSize: 13, color: '#00e676', fontWeight: 600 }}>Assigned: {assignDone}</div>
               ) : (
                 <>
-                  <div style={{ fontSize: 10, fontWeight: 700, color: '#9090aa', textTransform: 'uppercase', letterSpacing: '0.8px', marginBottom: 10 }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--ro-text-dim)', textTransform: 'uppercase', letterSpacing: '0.8px', marginBottom: 10 }}>
                     Assign &quot;{ASSIGN_TYPES[assignPanel]?.label || assignPanel}&quot;
                   </div>
 
                   {assignPanel === 'markdown' && (
                     <div style={{ marginBottom: 10 }}>
-                      <div style={{ fontSize: 10, color: '#4a4a62', marginBottom: 6 }}>Select discount tier:</div>
+                      <div style={{ fontSize: 10, color: 'var(--ro-text-muted)', marginBottom: 6 }}>Select discount tier:</div>
                       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                         {[20, 30, 50, 70].map((pct) => {
                           const suggested = suggestMarkdownTier(days)
@@ -647,9 +647,9 @@ export default function ProductDetailModal({ sku, status, statusData, onClose })
                                 ...ACTION_BTN,
                                 padding: '5px 12px',
                                 fontSize: 11,
-                                background: isSelected ? 'rgba(255,51,51,0.15)' : 'rgba(255,255,255,0.04)',
-                                color: isSelected ? '#ff3333' : '#9090aa',
-                                border: `1px solid ${isSelected ? 'rgba(255,51,51,0.3)' : isSuggested ? 'rgba(255,51,51,0.15)' : 'rgba(255,255,255,0.06)'}`,
+                                background: isSelected ? 'rgba(255,51,51,0.15)' : 'var(--ro-fill-soft)',
+                                color: isSelected ? '#ff3333' : 'var(--ro-text-dim)',
+                                border: `1px solid ${isSelected ? 'rgba(255,51,51,0.3)' : isSuggested ? 'rgba(255,51,51,0.15)' : 'var(--ro-border)'}`,
                                 position: 'relative',
                               }}
                             >
@@ -669,9 +669,9 @@ export default function ProductDetailModal({ sku, status, statusData, onClose })
                             ...ACTION_BTN,
                             padding: '5px 12px',
                             fontSize: 11,
-                            background: markdownTier === 'custom' ? 'rgba(255,51,51,0.15)' : 'rgba(255,255,255,0.04)',
-                            color: markdownTier === 'custom' ? '#ff3333' : '#9090aa',
-                            border: `1px solid ${markdownTier === 'custom' ? 'rgba(255,51,51,0.3)' : 'rgba(255,255,255,0.06)'}`,
+                            background: markdownTier === 'custom' ? 'rgba(255,51,51,0.15)' : 'var(--ro-fill-soft)',
+                            color: markdownTier === 'custom' ? '#ff3333' : 'var(--ro-text-dim)',
+                            border: `1px solid ${markdownTier === 'custom' ? 'rgba(255,51,51,0.3)' : 'var(--ro-border)'}`,
                           }}
                         >
                           Custom
@@ -679,7 +679,7 @@ export default function ProductDetailModal({ sku, status, statusData, onClose })
                       </div>
                       {markdownTier === 'custom' && (
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 8 }}>
-                          <span style={{ fontSize: 12, color: '#9090aa' }}>-</span>
+                          <span style={{ fontSize: 12, color: 'var(--ro-text-dim)' }}>-</span>
                           <input
                             type="number"
                             min="1"
@@ -689,17 +689,17 @@ export default function ProductDetailModal({ sku, status, statusData, onClose })
                             placeholder="e.g. 15"
                             style={{
                               width: 64,
-                              background: '#111117',
-                              border: '1px solid rgba(255,255,255,0.08)',
+                              background: 'var(--ro-surface)',
+                              border: '1px solid var(--ro-border-hover)',
                               borderRadius: 8,
                               padding: '5px 8px',
-                              color: '#e4e4f0',
+                              color: 'var(--ro-text)',
                               fontSize: 12,
                               fontFamily: '"DM Sans"',
                               outline: 'none',
                             }}
                           />
-                          <span style={{ fontSize: 12, color: '#9090aa' }}>%</span>
+                          <span style={{ fontSize: 12, color: 'var(--ro-text-dim)' }}>%</span>
                         </div>
                       )}
                     </div>
@@ -711,11 +711,11 @@ export default function ProductDetailModal({ sku, status, statusData, onClose })
                       onChange={(e) => setAssignTo(e.target.value)}
                       style={{
                         flex: '1 1 160px',
-                        background: '#111117',
-                        border: '1px solid rgba(255,255,255,0.08)',
+                        background: 'var(--ro-surface)',
+                        border: '1px solid var(--ro-border-hover)',
                         borderRadius: 8,
                         padding: '7px 10px',
-                        color: '#e4e4f0',
+                        color: 'var(--ro-text)',
                         fontSize: 12,
                         fontFamily: '"DM Sans"',
                         outline: 'none',
@@ -734,11 +734,11 @@ export default function ProductDetailModal({ sku, status, statusData, onClose })
                       onChange={(e) => setAssignNote(e.target.value)}
                       style={{
                         flex: '1 1 120px',
-                        background: '#111117',
-                        border: '1px solid rgba(255,255,255,0.08)',
+                        background: 'var(--ro-surface)',
+                        border: '1px solid var(--ro-border-hover)',
                         borderRadius: 8,
                         padding: '7px 10px',
-                        color: '#e4e4f0',
+                        color: 'var(--ro-text)',
                         fontSize: 12,
                         fontFamily: '"DM Sans"',
                         outline: 'none',
@@ -757,7 +757,7 @@ export default function ProductDetailModal({ sku, status, statusData, onClose })
                     <button
                       type="button"
                       onClick={() => setAssignPanel(null)}
-                      style={{ ...ACTION_BTN, background: 'none', color: '#4a4a62', border: '1px solid rgba(255,255,255,0.06)', padding: '7px 16px' }}
+                      style={{ ...ACTION_BTN, background: 'none', color: 'var(--ro-text-muted)', border: '1px solid var(--ro-border)', padding: '7px 16px' }}
                     >
                       Cancel
                     </button>

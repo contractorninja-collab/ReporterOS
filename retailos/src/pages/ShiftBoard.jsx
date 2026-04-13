@@ -5,12 +5,12 @@ import * as api from '../api/client.js'
 
 const DM = '"DM Sans", sans-serif'
 const S = {
-  surface: '#111117',
-  surface2: '#17171f',
-  border: 'rgba(255,255,255,0.055)',
-  text: '#e4e4f0',
-  text2: '#9090aa',
-  muted: '#4a4a62',
+  surface: 'var(--ro-surface)',
+  surface2: 'var(--ro-surface-elevated)',
+  border: 'var(--ro-border)',
+  text: 'var(--ro-text)',
+  text2: 'var(--ro-text-dim)',
+  muted: 'var(--ro-text-muted)',
   accent: '#ff3333',
   green: '#00e676',
   blue: '#38bdf8',
@@ -62,14 +62,14 @@ const TH = {
 }
 const TD = {
   padding: '8px 10px', fontSize: 12, color: S.text, fontFamily: DM,
-  borderBottom: `1px solid rgba(255,255,255,0.03)`, whiteSpace: 'nowrap',
+  borderBottom: `1px solid var(--ro-border)`, whiteSpace: 'nowrap',
 }
 
 function ShiftRow({ s }) {
   return (
     <div style={{
       display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0',
-      borderBottom: '1px solid rgba(255,255,255,0.03)',
+      borderBottom: '1px solid var(--ro-border)',
     }}>
       <div style={{
         width: 8, height: 8, borderRadius: '50%', background: S.green, flexShrink: 0,
@@ -267,7 +267,7 @@ function ManagerView() {
   return (
     <div style={{ maxWidth: 700 }}>
       <div style={{ marginBottom: 24 }}>
-        <h2 style={{ fontFamily: DM, fontSize: 22, letterSpacing: '2px', color: '#fff', margin: 0 }}>
+        <h2 style={{ fontFamily: DM, fontSize: 22, letterSpacing: '2px', color: 'var(--ro-heading)', margin: 0 }}>
           SHIFT BOARD
         </h2>
         <p style={{ fontSize: 12, color: S.muted, margin: '4px 0 0' }}>
@@ -290,7 +290,7 @@ function ManagerView() {
 
         <div style={{
           width: 64, height: 64, borderRadius: 16, margin: '0 auto 16px',
-          background: onShift ? 'rgba(0,230,118,0.1)' : 'rgba(255,255,255,0.04)',
+          background: onShift ? 'rgba(0,230,118,0.1)' : 'var(--ro-fill-soft)',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           border: `1px solid ${onShift ? 'rgba(0,230,118,0.2)' : S.border}`,
         }}>
@@ -302,7 +302,7 @@ function ManagerView() {
             <div style={{ fontSize: 11, fontWeight: 700, color: S.green, textTransform: 'uppercase', letterSpacing: '2px', marginBottom: 6 }}>
               On Shift
             </div>
-            <div style={{ fontSize: 36, fontWeight: 700, color: '#fff', fontFamily: DM, marginBottom: 4 }}>
+            <div style={{ fontSize: 36, fontWeight: 700, color: 'var(--ro-heading)', fontFamily: DM, marginBottom: 4 }}>
               {elapsed}
             </div>
             <div style={{ fontSize: 11, color: S.muted, marginBottom: 20 }}>
@@ -458,7 +458,7 @@ function ExecutiveView() {
   return (
     <div style={{ maxWidth: 1100 }}>
       <div style={{ marginBottom: 24 }}>
-        <h2 style={{ fontFamily: DM, fontSize: 22, letterSpacing: '2px', color: '#fff', margin: 0 }}>
+        <h2 style={{ fontFamily: DM, fontSize: 22, letterSpacing: '2px', color: 'var(--ro-heading)', margin: 0 }}>
           SHIFT BOARD
         </h2>
         <p style={{ fontSize: 12, color: S.muted, margin: '4px 0 0' }}>

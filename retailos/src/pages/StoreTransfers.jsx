@@ -12,13 +12,13 @@ function Thumb({ src, onClick }) {
   const interactive = !!onClick
   const base = {
     width: THUMB_SIZE, height: THUMB_SIZE, borderRadius: 6, flexShrink: 0,
-    background: 'rgba(255,255,255,0.04)',
+    background: 'var(--ro-fill-soft)',
     ...(interactive ? { cursor: 'pointer', transition: 'opacity 0.15s' } : {}),
   }
   if (!src) {
     return (
       <div style={{ ...base, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={onClick}>
-        <ImageOff size={16} style={{ color: '#4a4a62' }} />
+        <ImageOff size={16} style={{ color: 'var(--ro-text-muted)' }} />
       </div>
     )
   }
@@ -94,7 +94,7 @@ const TAB_STYLE = {
   fontSize: 12,
   fontWeight: 600,
   cursor: 'pointer',
-  border: '1px solid rgba(255,255,255,0.06)',
+  border: '1px solid var(--ro-border)',
   fontFamily: '"DM Sans"',
   transition: 'all 0.15s',
 }
@@ -133,14 +133,14 @@ function flattenItems(items) {
 
 function QtyCounter({ value, max, onChange, disabled }) {
   return (
-    <div style={{ display: 'inline-flex', alignItems: 'center', gap: 0, borderRadius: 6, border: '1px solid rgba(255,255,255,0.1)', overflow: 'hidden' }}>
+    <div style={{ display: 'inline-flex', alignItems: 'center', gap: 0, borderRadius: 6, border: '1px solid var(--ro-border-hover)', overflow: 'hidden' }}>
       <button
         type="button"
         disabled={disabled || value <= 0}
         onClick={() => onChange(Math.max(0, value - 1))}
         style={{
-          width: 26, height: 26, border: 'none', background: 'rgba(255,255,255,0.06)',
-          color: disabled ? '#333' : '#9090aa', fontSize: 14, fontWeight: 700, cursor: disabled ? 'default' : 'pointer',
+          width: 26, height: 26, border: 'none', background: 'var(--ro-fill-muted)',
+          color: disabled ? '#333' : 'var(--ro-text-dim)', fontSize: 14, fontWeight: 700, cursor: disabled ? 'default' : 'pointer',
           display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: '"DM Sans"',
         }}
       >
@@ -149,7 +149,7 @@ function QtyCounter({ value, max, onChange, disabled }) {
       <span style={{
         minWidth: 30, textAlign: 'center', fontSize: 12, fontWeight: 700,
         color: value === max ? '#00e676' : value === 0 ? '#fbbf24' : '#38bdf8',
-        fontFamily: '"DM Sans"', background: '#111117', height: 26, lineHeight: '26px',
+        fontFamily: '"DM Sans"', background: 'var(--ro-surface)', height: 26, lineHeight: '26px',
       }}>
         {value}
       </span>
@@ -158,8 +158,8 @@ function QtyCounter({ value, max, onChange, disabled }) {
         disabled={disabled || value >= max}
         onClick={() => onChange(Math.min(max, value + 1))}
         style={{
-          width: 26, height: 26, border: 'none', background: 'rgba(255,255,255,0.06)',
-          color: disabled ? '#333' : '#9090aa', fontSize: 14, fontWeight: 700, cursor: disabled ? 'default' : 'pointer',
+          width: 26, height: 26, border: 'none', background: 'var(--ro-fill-muted)',
+          color: disabled ? '#333' : 'var(--ro-text-dim)', fontSize: 14, fontWeight: 700, cursor: disabled ? 'default' : 'pointer',
           display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: '"DM Sans"',
         }}
       >
@@ -332,19 +332,19 @@ function ReceivingPanel({ batch, onUpdate, onCompleted, onSkuClick }) {
   return (
     <div style={{ padding: '0 0 12px' }}>
       {skuGroups.map((group) => (
-        <div key={group.skuCode} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)', padding: '10px 18px' }}>
+        <div key={group.skuCode} style={{ borderBottom: '1px solid var(--ro-border)', padding: '10px 18px' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <Thumb src={photoMap?.[group.skuCode] || null} onClick={onSkuClick ? (e) => { e.stopPropagation(); onSkuClick(group.skuCode) } : undefined} />
               <div onClick={onSkuClick ? (e) => { e.stopPropagation(); onSkuClick(group.skuCode) } : undefined} style={onSkuClick ? { cursor: 'pointer' } : undefined}>
-                <span style={{ fontSize: 12, fontWeight: 700, color: '#e4e4f0' }}>{group.productName}</span>
-                <span style={{ fontSize: 10, color: '#9090aa', marginLeft: 8 }}>{group.skuCode}</span>
+                <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--ro-text)' }}>{group.productName}</span>
+                <span style={{ fontSize: 10, color: 'var(--ro-text-dim)', marginLeft: 8 }}>{group.skuCode}</span>
               </div>
             </div>
             <button
               type="button"
               onClick={() => handleSelectAllDone(group.skuCode)}
-              style={{ ...BTN, background: 'rgba(255,255,255,0.06)', color: '#9090aa', fontSize: 10, padding: '4px 10px' }}
+              style={{ ...BTN, background: 'var(--ro-fill-muted)', color: 'var(--ro-text-dim)', fontSize: 10, padding: '4px 10px' }}
             >
               All sizes done
             </button>
@@ -358,12 +358,12 @@ function ReceivingPanel({ batch, onUpdate, onCompleted, onSkuClick }) {
             const isConfirmed = isDone || isPartial || isMissing
             const received = st.received ?? line.qty
             return (
-              <div key={key} style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, padding: '6px 0', borderTop: '1px solid rgba(255,255,255,0.02)' }}>
+              <div key={key} style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, padding: '6px 0', borderTop: '1px solid var(--ro-border)' }}>
                 <span style={{
-                  fontSize: 11, fontWeight: 600, color: '#e4e4f0', background: 'rgba(255,255,255,0.06)',
+                  fontSize: 11, fontWeight: 600, color: 'var(--ro-text)', background: 'var(--ro-fill-muted)',
                   padding: '2px 8px', borderRadius: 4, minWidth: 54, textAlign: 'center',
                 }}>
-                  {line.size} <span style={{ color: '#9090aa', fontWeight: 400 }}>×{line.qty}</span>
+                  {line.size} <span style={{ color: 'var(--ro-text-dim)', fontWeight: 400 }}>×{line.qty}</span>
                 </span>
 
                 <QtyCounter value={received} max={line.qty} onChange={(v) => setReceived(key, v)} disabled={isConfirmed} />
@@ -436,7 +436,7 @@ function ReceivingPanel({ batch, onUpdate, onCompleted, onSkuClick }) {
           Complete Transfer
         </button>
         {!allVerified && (
-          <span style={{ fontSize: 10, color: '#4a4a62' }}>
+          <span style={{ fontSize: 10, color: 'var(--ro-text-muted)' }}>
             {lines.filter((l) => !localStatuses[`${l.skuCode}|${l.size}`]?.status).length} items still need verification
           </span>
         )}
@@ -449,7 +449,7 @@ function renderItemRow(it, idx, photoMap, onSkuClick) {
   const thumbUrl = photoMap?.[it.skuCode] || null
   const clickable = !!onSkuClick
   const nameStyle = {
-    padding: '8px 14px', fontSize: 12, color: '#e4e4f0', fontWeight: 600,
+    padding: '8px 14px', fontSize: 12, color: 'var(--ro-text)', fontWeight: 600,
     ...(clickable ? { cursor: 'pointer' } : {}),
   }
   const handleClick = clickable ? (e) => { e.stopPropagation(); onSkuClick(it.skuCode) } : undefined
@@ -457,14 +457,14 @@ function renderItemRow(it, idx, photoMap, onSkuClick) {
     return (
       <tr key={idx}>
         <td style={{ padding: '8px 10px', width: THUMB_SIZE + 16 }}><Thumb src={thumbUrl} onClick={handleClick} /></td>
-        <td style={{ padding: '8px 14px', fontSize: 11, color: '#9090aa', fontFamily: '"DM Sans"' }}>{it.skuCode}</td>
+        <td style={{ padding: '8px 14px', fontSize: 11, color: 'var(--ro-text-dim)', fontFamily: '"DM Sans"' }}>{it.skuCode}</td>
         <td style={nameStyle} onClick={handleClick}>{it.productName}</td>
-        <td style={{ padding: '8px 14px', fontSize: 12, color: '#e4e4f0' }}>{it.totalQty ?? it.quantity}</td>
+        <td style={{ padding: '8px 14px', fontSize: 12, color: 'var(--ro-text)' }}>{it.totalQty ?? it.quantity}</td>
         <td style={{ padding: '8px 14px' }}>
           <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
             {it.sizeBreakdown.map((b) => (
-              <span key={b.size} style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: 'rgba(255,255,255,0.06)', color: '#e4e4f0', fontFamily: '"DM Sans"', fontWeight: 600 }}>
-                {b.size} <span style={{ color: '#9090aa' }}>×{b.qty}</span>
+              <span key={b.size} style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: 'var(--ro-fill-muted)', color: 'var(--ro-text)', fontFamily: '"DM Sans"', fontWeight: 600 }}>
+                {b.size} <span style={{ color: 'var(--ro-text-dim)' }}>×{b.qty}</span>
               </span>
             ))}
           </div>
@@ -475,10 +475,10 @@ function renderItemRow(it, idx, photoMap, onSkuClick) {
   return (
     <tr key={idx}>
       <td style={{ padding: '8px 10px', width: THUMB_SIZE + 16 }}><Thumb src={thumbUrl} onClick={handleClick} /></td>
-      <td style={{ padding: '8px 14px', fontSize: 11, color: '#9090aa', fontFamily: '"DM Sans"' }}>{it.skuCode}</td>
+      <td style={{ padding: '8px 14px', fontSize: 11, color: 'var(--ro-text-dim)', fontFamily: '"DM Sans"' }}>{it.skuCode}</td>
       <td style={nameStyle} onClick={handleClick}>{it.productName}</td>
-      <td style={{ padding: '8px 14px', fontSize: 12, color: '#e4e4f0' }}>{it.quantity}</td>
-      <td style={{ padding: '8px 14px', fontSize: 11, color: '#9090aa' }}>{it.sizes || '—'}</td>
+      <td style={{ padding: '8px 14px', fontSize: 12, color: 'var(--ro-text)' }}>{it.quantity}</td>
+      <td style={{ padding: '8px 14px', fontSize: 11, color: 'var(--ro-text-dim)' }}>{it.sizes || '—'}</td>
     </tr>
   )
 }
@@ -520,13 +520,13 @@ function CompletedSummary({ batch, getUserName, expanded: forceExpanded, onSkuCl
             )}
           </>
         ) : (
-          <div style={{ fontSize: 12, color: '#9090aa', display: 'flex', alignItems: 'center', gap: 4 }}>
+          <div style={{ fontSize: 12, color: 'var(--ro-text-dim)', display: 'flex', alignItems: 'center', gap: 4 }}>
             <AlertTriangle size={13} />
             {itemTotalUnits} units transferred — no item-level verification recorded
           </div>
         )}
         {batch.receivedAt && (
-          <div style={{ fontSize: 10, color: '#4a4a62', display: 'flex', alignItems: 'center', gap: 4, marginLeft: 'auto' }}>
+          <div style={{ fontSize: 10, color: 'var(--ro-text-muted)', display: 'flex', alignItems: 'center', gap: 4, marginLeft: 'auto' }}>
             <Clock size={11} /> Received {formatDate(batch.receivedAt)}
           </div>
         )}
@@ -540,8 +540,8 @@ function CompletedSummary({ batch, getUserName, expanded: forceExpanded, onSkuCl
                 {['', 'SKU', 'Product', 'Qty', 'Sizes'].map((h) => (
                   <th key={h || '_img'} style={{
                     textAlign: 'left', padding: '6px 10px', fontSize: 9, fontWeight: 700,
-                    color: '#4a4a62', textTransform: 'uppercase', letterSpacing: '0.8px',
-                    borderBottom: '1px solid rgba(255,255,255,0.04)',
+                    color: 'var(--ro-text-muted)', textTransform: 'uppercase', letterSpacing: '0.8px',
+                    borderBottom: '1px solid var(--ro-border)',
                     ...(h === '' ? { width: THUMB_SIZE + 16 } : {}),
                   }}>{h}</th>
                 ))}
@@ -551,7 +551,7 @@ function CompletedSummary({ batch, getUserName, expanded: forceExpanded, onSkuCl
               {batch.items.map((it, idx) => renderItemRow(it, idx, photoMap, onSkuClick))}
             </tbody>
           </table>
-          <div style={{ fontSize: 10, color: '#4a4a62', fontStyle: 'italic', padding: '4px 10px' }}>
+          <div style={{ fontSize: 10, color: 'var(--ro-text-muted)', fontStyle: 'italic', padding: '4px 10px' }}>
             Completed before item-level verification was available.
           </div>
         </div>
@@ -565,8 +565,8 @@ function CompletedSummary({ batch, getUserName, expanded: forceExpanded, onSkuCl
                 {['', 'SKU', 'Size', 'Sent', 'Received', 'Missing', 'Status', 'Comment'].map((h) => (
                   <th key={h || '_img'} style={{
                     textAlign: 'left', padding: '6px 10px', fontSize: 9, fontWeight: 700,
-                    color: '#4a4a62', textTransform: 'uppercase', letterSpacing: '0.8px',
-                    borderBottom: '1px solid rgba(255,255,255,0.04)',
+                    color: 'var(--ro-text-muted)', textTransform: 'uppercase', letterSpacing: '0.8px',
+                    borderBottom: '1px solid var(--ro-border)',
                     ...(h === '' ? { width: THUMB_SIZE + 16 } : {}),
                   }}>{h}</th>
                 ))}
@@ -582,11 +582,11 @@ function CompletedSummary({ batch, getUserName, expanded: forceExpanded, onSkuCl
                 return (
                   <tr key={key}>
                     <td style={{ padding: '5px 10px', width: THUMB_SIZE + 16 }}><Thumb src={photoMap?.[sku] || null} onClick={onSkuClick ? (e) => { e.stopPropagation(); onSkuClick(sku) } : undefined} /></td>
-                    <td style={{ padding: '5px 10px', fontSize: 11, color: onSkuClick ? '#38bdf8' : '#9090aa', cursor: onSkuClick ? 'pointer' : 'default' }} onClick={onSkuClick ? (e) => { e.stopPropagation(); onSkuClick(sku) } : undefined}>{sku}</td>
-                    <td style={{ padding: '5px 10px', fontSize: 11, color: '#e4e4f0', fontWeight: 600 }}>{size}</td>
-                    <td style={{ padding: '5px 10px', fontSize: 11, color: '#e4e4f0' }}>{sent}</td>
+                    <td style={{ padding: '5px 10px', fontSize: 11, color: onSkuClick ? '#38bdf8' : 'var(--ro-text-dim)', cursor: onSkuClick ? 'pointer' : 'default' }} onClick={onSkuClick ? (e) => { e.stopPropagation(); onSkuClick(sku) } : undefined}>{sku}</td>
+                    <td style={{ padding: '5px 10px', fontSize: 11, color: 'var(--ro-text)', fontWeight: 600 }}>{size}</td>
+                    <td style={{ padding: '5px 10px', fontSize: 11, color: 'var(--ro-text)' }}>{sent}</td>
                     <td style={{ padding: '5px 10px', fontSize: 11, fontWeight: 700, color: isDone ? '#00e676' : isPartial ? '#38bdf8' : '#ff5555' }}>{val.received ?? 0}</td>
-                    <td style={{ padding: '5px 10px', fontSize: 11, fontWeight: 700, color: (val.missing ?? 0) > 0 ? '#fbbf24' : '#4a4a62' }}>{val.missing ?? 0}</td>
+                    <td style={{ padding: '5px 10px', fontSize: 11, fontWeight: 700, color: (val.missing ?? 0) > 0 ? '#fbbf24' : 'var(--ro-text-muted)' }}>{val.missing ?? 0}</td>
                     <td style={{ padding: '5px 10px' }}>
                       <span style={{
                         fontSize: 9, fontWeight: 700, textTransform: 'uppercase', padding: '2px 6px', borderRadius: 4,
@@ -596,7 +596,7 @@ function CompletedSummary({ batch, getUserName, expanded: forceExpanded, onSkuCl
                         {isDone ? 'Full' : isPartial ? 'Partial' : isMissing ? 'Missing' : val.status}
                       </span>
                     </td>
-                    <td style={{ padding: '5px 10px', fontSize: 10, color: '#9090aa', fontStyle: 'italic' }}>{val.comment || '—'}</td>
+                    <td style={{ padding: '5px 10px', fontSize: 10, color: 'var(--ro-text-dim)', fontStyle: 'italic' }}>{val.comment || '—'}</td>
                   </tr>
                 )
               })}
@@ -611,10 +611,10 @@ function CompletedSummary({ batch, getUserName, expanded: forceExpanded, onSkuCl
           {itemsWithMissing.map(([key, val]) => {
             const [sku, size] = key.split('|')
             return (
-              <div key={key} style={{ fontSize: 11, color: '#e4e4f0', padding: '3px 0', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <div key={key} style={{ fontSize: 11, color: 'var(--ro-text)', padding: '3px 0', display: 'flex', alignItems: 'center', gap: 6 }}>
                 <span>{sku} — {size}</span>
                 <span style={{ color: '#fbbf24', fontWeight: 700 }}>×{val.missing}</span>
-                {val.comment && <span style={{ color: '#9090aa', fontStyle: 'italic' }}>{val.comment}</span>}
+                {val.comment && <span style={{ color: 'var(--ro-text-dim)', fontStyle: 'italic' }}>{val.comment}</span>}
               </div>
             )
           })}
@@ -663,15 +663,15 @@ function ExecIssueSummary({ issues, getUserName }) {
       <div style={{ display: 'flex', gap: 20, marginBottom: 14, flexWrap: 'wrap' }}>
         <div style={{ textAlign: 'center' }}>
           <div style={{ fontSize: 22, fontWeight: 700, color: '#ff5555' }}>{issues.length}</div>
-          <div style={{ fontSize: 10, color: '#9090aa', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Transfers with issues</div>
+          <div style={{ fontSize: 10, color: 'var(--ro-text-dim)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Transfers with issues</div>
         </div>
         <div style={{ textAlign: 'center' }}>
           <div style={{ fontSize: 22, fontWeight: 700, color: '#fbbf24' }}>{totalMissingUnits}</div>
-          <div style={{ fontSize: 10, color: '#9090aa', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Total units missing</div>
+          <div style={{ fontSize: 10, color: 'var(--ro-text-dim)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Total units missing</div>
         </div>
         <div style={{ textAlign: 'center' }}>
-          <div style={{ fontSize: 22, fontWeight: 700, color: '#e4e4f0' }}>{allMissingItems.length}</div>
-          <div style={{ fontSize: 10, color: '#9090aa', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Affected SKU/size lines</div>
+          <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--ro-text)' }}>{allMissingItems.length}</div>
+          <div style={{ fontSize: 10, color: 'var(--ro-text-dim)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Affected SKU/size lines</div>
         </div>
       </div>
       {allMissingItems.length > 0 && (
@@ -682,8 +682,8 @@ function ExecIssueSummary({ issues, getUserName }) {
                 {['SKU', 'Size', 'Missing', 'Route', 'Date', 'Created by', 'Comment'].map((h) => (
                   <th key={h} style={{
                     textAlign: 'left', padding: '6px 8px', fontSize: 9, fontWeight: 700,
-                    color: '#4a4a62', textTransform: 'uppercase', letterSpacing: '0.6px',
-                    borderBottom: '1px solid rgba(255,255,255,0.06)',
+                    color: 'var(--ro-text-muted)', textTransform: 'uppercase', letterSpacing: '0.6px',
+                    borderBottom: '1px solid var(--ro-border)',
                   }}>{h}</th>
                 ))}
               </tr>
@@ -691,12 +691,12 @@ function ExecIssueSummary({ issues, getUserName }) {
             <tbody>
               {allMissingItems.map((item, idx) => (
                 <tr key={idx}>
-                  <td style={{ padding: '5px 8px', fontSize: 11, color: '#e4e4f0', fontWeight: 600 }}>{item.sku}</td>
-                  <td style={{ padding: '5px 8px', fontSize: 11, color: '#e4e4f0' }}>{item.size}</td>
+                  <td style={{ padding: '5px 8px', fontSize: 11, color: 'var(--ro-text)', fontWeight: 600 }}>{item.sku}</td>
+                  <td style={{ padding: '5px 8px', fontSize: 11, color: 'var(--ro-text)' }}>{item.size}</td>
                   <td style={{ padding: '5px 8px', fontSize: 11, fontWeight: 700, color: '#ff5555' }}>×{item.missing}</td>
-                  <td style={{ padding: '5px 8px', fontSize: 10, color: '#9090aa' }}>{item.fromShop} → {item.toShop}</td>
-                  <td style={{ padding: '5px 8px', fontSize: 10, color: '#9090aa' }}>{formatDate(item.date)}</td>
-                  <td style={{ padding: '5px 8px', fontSize: 10, color: '#9090aa' }}>{getUserName(item.createdBy)}</td>
+                  <td style={{ padding: '5px 8px', fontSize: 10, color: 'var(--ro-text-dim)' }}>{item.fromShop} → {item.toShop}</td>
+                  <td style={{ padding: '5px 8px', fontSize: 10, color: 'var(--ro-text-dim)' }}>{formatDate(item.date)}</td>
+                  <td style={{ padding: '5px 8px', fontSize: 10, color: 'var(--ro-text-dim)' }}>{getUserName(item.createdBy)}</td>
                   <td style={{ padding: '5px 8px', fontSize: 10, color: '#fbbf24', fontStyle: 'italic' }}>{item.comment || '—'}</td>
                 </tr>
               ))}
@@ -717,19 +717,19 @@ function SuccessToast({ message, onDismiss }) {
   return (
     <div style={{
       position: 'fixed', top: 24, left: '50%', transform: 'translateX(-50%)',
-      background: '#111117', border: '1px solid rgba(0,230,118,0.3)',
+      background: 'var(--ro-surface)', border: '1px solid rgba(0,230,118,0.3)',
       borderRadius: 12, padding: '14px 24px', display: 'flex', alignItems: 'center', gap: 10,
       boxShadow: '0 8px 32px rgba(0,0,0,0.5)', zIndex: 9999, animation: 'fadeUp 0.3s ease',
     }}>
       <CheckCircle2 size={20} style={{ color: '#00e676', flexShrink: 0 }} />
       <div>
         <div style={{ fontSize: 13, fontWeight: 700, color: '#00e676', marginBottom: 2 }}>Transfer Completed</div>
-        <div style={{ fontSize: 11, color: '#9090aa' }}>{message}</div>
+        <div style={{ fontSize: 11, color: 'var(--ro-text-dim)' }}>{message}</div>
       </div>
       <button
         type="button"
         onClick={onDismiss}
-        style={{ background: 'none', border: 'none', color: '#4a4a62', cursor: 'pointer', fontSize: 16, padding: '0 0 0 8px' }}
+        style={{ background: 'none', border: 'none', color: 'var(--ro-text-muted)', cursor: 'pointer', fontSize: 16, padding: '0 0 0 8px' }}
       >
         ×
       </button>
@@ -818,10 +818,10 @@ export function StoreTransfers() {
       {toast && <SuccessToast message={toast} onDismiss={() => setToast(null)} />}
 
       <div style={{ marginBottom: 20 }}>
-        <h2 style={{ fontFamily: '"DM Sans"', fontSize: 22, letterSpacing: '2px', color: '#fff', margin: 0 }}>
+        <h2 style={{ fontFamily: '"DM Sans"', fontSize: 22, letterSpacing: '2px', color: 'var(--ro-heading)', margin: 0 }}>
           STORE TRANSFERS
         </h2>
-        <p style={{ fontSize: 12, color: '#4a4a62', margin: '4px 0 0' }}>
+        <p style={{ fontSize: 12, color: 'var(--ro-text-muted)', margin: '4px 0 0' }}>
           Products being moved between retail shops. Each day's transfers per destination are grouped into one batch.
         </p>
       </div>
@@ -847,8 +847,8 @@ export function StoreTransfers() {
             style={{
               ...TAB_STYLE,
               background: tab === t.key ? `${t.color}18` : 'transparent',
-              color: tab === t.key ? t.color : '#4a4a62',
-              borderColor: tab === t.key ? `${t.color}33` : 'rgba(255,255,255,0.06)',
+              color: tab === t.key ? t.color : 'var(--ro-text-muted)',
+              borderColor: tab === t.key ? `${t.color}33` : 'var(--ro-border)',
             }}
           >
             {t.key === 'history' && <History size={12} style={{ marginRight: 4, verticalAlign: 'middle' }} />}
@@ -864,8 +864,8 @@ export function StoreTransfers() {
       {visible.length === 0 && (
         <div
           style={{
-            textAlign: 'center', padding: 48, background: '#111117',
-            border: '1px solid rgba(255,255,255,0.055)', borderRadius: 14, color: '#4a4a62', fontSize: 14,
+            textAlign: 'center', padding: 48, background: 'var(--ro-surface)',
+            border: '1px solid var(--ro-border)', borderRadius: 14, color: 'var(--ro-text-muted)', fontSize: 14,
           }}
         >
           {tab === 'issues'
@@ -902,7 +902,7 @@ export function StoreTransfers() {
             : 0
           const hasIssues = completedMissing > 0
 
-          let borderColor = 'rgba(255,255,255,0.055)'
+          let borderColor = 'var(--ro-border)'
           if (isPending) borderColor = `${accentColor}2e`
           else if (isInProgress) borderColor = 'rgba(251,191,36,0.2)'
           else if (isCompleted && hasIssues) borderColor = 'rgba(255,85,85,0.25)'
@@ -912,7 +912,7 @@ export function StoreTransfers() {
             <div
               key={batch.id}
               style={{
-                background: '#111117',
+                background: 'var(--ro-surface)',
                 border: `1px solid ${borderColor}`,
                 borderRadius: 14, overflow: 'hidden',
               }}
@@ -922,15 +922,15 @@ export function StoreTransfers() {
                 style={{ padding: '16px 18px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 14 }}
               >
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: '#e4e4f0', marginBottom: 3 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ro-text)', marginBottom: 3 }}>
                     {directionLabel} — {formatDate(batch.createdAt)}
                   </div>
-                  <div style={{ fontSize: 11, color: '#4a4a62' }}>
+                  <div style={{ fontSize: 11, color: 'var(--ro-text-muted)' }}>
                     {batch.items.length} products · {totalUnits} units · by {getUserName(batch.createdBy)}
                     {batch.assignedTo && <span> · assigned to {getUserName(batch.assignedTo)}</span>}
                   </div>
                   {batch.note && (
-                    <div style={{ fontSize: 10, color: '#9090aa', marginTop: 2, fontStyle: 'italic' }}>{batch.note}</div>
+                    <div style={{ fontSize: 10, color: 'var(--ro-text-dim)', marginTop: 2, fontStyle: 'italic' }}>{batch.note}</div>
                   )}
                   {isCompleted && (tab === 'history' || tab === 'issues') && (
                     <div style={{ fontSize: 10, marginTop: 4, display: 'flex', gap: 12, alignItems: 'center' }}>
@@ -944,9 +944,9 @@ export function StoreTransfers() {
                           )}
                         </>
                       ) : (
-                        <span style={{ color: '#9090aa' }}>{totalUnits} units — no verification data</span>
+                        <span style={{ color: 'var(--ro-text-dim)' }}>{totalUnits} units — no verification data</span>
                       )}
-                      {batch.receivedAt && <span style={{ color: '#4a4a62' }}>{formatDate(batch.receivedAt)}</span>}
+                      {batch.receivedAt && <span style={{ color: 'var(--ro-text-muted)' }}>{formatDate(batch.receivedAt)}</span>}
                     </div>
                   )}
                 </div>
@@ -962,12 +962,12 @@ export function StoreTransfers() {
                 </span>
                 <ChevronDown
                   size={16}
-                  style={{ color: '#4a4a62', transform: isExpanded ? 'rotate(180deg)' : '', transition: 'transform 0.2s', flexShrink: 0 }}
+                  style={{ color: 'var(--ro-text-muted)', transform: isExpanded ? 'rotate(180deg)' : '', transition: 'transform 0.2s', flexShrink: 0 }}
                 />
               </div>
 
               {isExpanded && (
-                <div style={{ borderTop: '1px solid rgba(255,255,255,0.04)' }}>
+                <div style={{ borderTop: '1px solid var(--ro-border)' }}>
                   {(isPending || (!isInProgress && !isCompleted)) && (
                     <div style={{ overflowX: 'auto' }}>
                       <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -978,8 +978,8 @@ export function StoreTransfers() {
                                 key={h || '_img'}
                                 style={{
                                   textAlign: 'left', padding: '8px 14px', fontSize: 9, fontWeight: 700,
-                                  color: '#4a4a62', textTransform: 'uppercase', letterSpacing: '0.8px',
-                                  borderBottom: '1px solid rgba(255,255,255,0.04)',
+                                  color: 'var(--ro-text-muted)', textTransform: 'uppercase', letterSpacing: '0.8px',
+                                  borderBottom: '1px solid var(--ro-border)',
                                   ...(h === '' ? { width: THUMB_SIZE + 16 } : {}),
                                 }}
                               >
@@ -1010,7 +1010,7 @@ export function StoreTransfers() {
                         <thead>
                           <tr>
                             {['', 'SKU', 'Product', 'Qty', 'Sizes'].map((h) => (
-                              <th key={h || '_img'} style={{ textAlign: 'left', padding: '8px 14px', fontSize: 9, fontWeight: 700, color: '#4a4a62', textTransform: 'uppercase', letterSpacing: '0.8px', borderBottom: '1px solid rgba(255,255,255,0.04)', ...(h === '' ? { width: THUMB_SIZE + 16 } : {}) }}>{h}</th>
+                              <th key={h || '_img'} style={{ textAlign: 'left', padding: '8px 14px', fontSize: 9, fontWeight: 700, color: 'var(--ro-text-muted)', textTransform: 'uppercase', letterSpacing: '0.8px', borderBottom: '1px solid var(--ro-border)', ...(h === '' ? { width: THUMB_SIZE + 16 } : {}) }}>{h}</th>
                             ))}
                           </tr>
                         </thead>
@@ -1021,7 +1021,7 @@ export function StoreTransfers() {
 
                   {isCompleted && <CompletedSummary batch={batch} getUserName={getUserName} expanded={tab === 'history'} onSkuClick={handleSkuClick} />}
 
-                  <div style={{ display: 'flex', gap: 8, padding: '12px 18px', borderTop: '1px solid rgba(255,255,255,0.04)', flexWrap: 'wrap' }}>
+                  <div style={{ display: 'flex', gap: 8, padding: '12px 18px', borderTop: '1px solid var(--ro-border)', flexWrap: 'wrap' }}>
                     {isPending && isIncoming && (
                       <button
                         type="button"
@@ -1035,7 +1035,7 @@ export function StoreTransfers() {
                     <button
                       type="button"
                       onClick={() => downloadCSV(batch)}
-                      style={{ ...BTN, border: '1px solid rgba(255,255,255,0.08)', background: 'none', color: '#9090aa' }}
+                      style={{ ...BTN, border: '1px solid var(--ro-border-hover)', background: 'none', color: 'var(--ro-text-dim)' }}
                     >
                       <Download size={12} style={{ marginRight: 4, verticalAlign: 'middle' }} />
                       CSV
@@ -1043,13 +1043,13 @@ export function StoreTransfers() {
                     <button
                       type="button"
                       onClick={() => printBatch(batch, getUserName(batch.createdBy))}
-                      style={{ ...BTN, border: '1px solid rgba(255,255,255,0.08)', background: 'none', color: '#9090aa' }}
+                      style={{ ...BTN, border: '1px solid var(--ro-border-hover)', background: 'none', color: 'var(--ro-text-dim)' }}
                     >
                       <Printer size={12} style={{ marginRight: 4, verticalAlign: 'middle' }} />
                       PDF / Print
                     </button>
                     {batch.receivedAt && (
-                      <span style={{ fontSize: 10, color: '#4a4a62', marginLeft: 'auto', alignSelf: 'center' }}>
+                      <span style={{ fontSize: 10, color: 'var(--ro-text-muted)', marginLeft: 'auto', alignSelf: 'center' }}>
                         Received {formatDate(batch.receivedAt)}
                       </span>
                     )}
@@ -1067,7 +1067,7 @@ export function StoreTransfers() {
           <ProductDetailModal
             sku={detailSku}
             status={st}
-            statusData={{ color: STATUS_COLORS[st] || '#9090aa', colorBg: `${STATUS_COLORS[st] || '#9090aa'}18` }}
+            statusData={{ color: STATUS_COLORS[st] || 'var(--ro-text-dim)', colorBg: `${STATUS_COLORS[st] || '#64748b'}18` }}
             onClose={() => setDetailSku(null)}
           />
         )

@@ -75,18 +75,18 @@ const PLACEHOLDER_IMPORT_ROWS = [
 ]
 
 const S = {
-  surface: '#111117',
-  surface2: '#17171f',
-  border: 'rgba(255,255,255,0.055)',
-  text2: '#9090aa',
-  muted: '#4a4a62',
+  surface: 'var(--ro-surface)',
+  surface2: 'var(--ro-surface-elevated)',
+  border: 'var(--ro-border)',
+  text2: 'var(--ro-text-dim)',
+  muted: 'var(--ro-text-muted)',
   accent: '#ff3333',
 }
 
 const tileShell = {
   position: 'relative',
-  background: '#111117',
-  border: '1px solid rgba(255,255,255,0.055)',
+  background: 'var(--ro-surface)',
+  border: '1px solid var(--ro-border)',
   borderRadius: '13px',
   padding: '18px',
 }
@@ -101,12 +101,12 @@ function FieldPillList({ pills }) {
             display: 'flex',
             alignItems: 'center',
             gap: '5px',
-            background: '#17171f',
-            border: '1px solid rgba(255,255,255,0.055)',
+            background: 'var(--ro-surface-elevated)',
+            border: '1px solid var(--ro-border)',
             borderRadius: '6px',
             padding: '3px 9px',
             fontSize: '10px',
-            color: '#e4e4f0',
+            color: 'var(--ro-text)',
           }}
         >
           <div style={{ width: '5px', height: '5px', borderRadius: '50%', background: f.color }} />
@@ -146,7 +146,7 @@ function ImportUploadTile({
             fontFamily: '"DM Sans"',
             fontSize: '13px',
             letterSpacing: '2px',
-            color: '#e4e4f0',
+            color: 'var(--ro-text)',
             fontWeight: 600,
           }}
         >
@@ -194,7 +194,7 @@ function ImportUploadTile({
         onMouseLeave={() => onFile.setHover(false)}
         style={{
           display: 'block',
-          border: `2px dashed ${uploadHot ? '#ff3333' : 'rgba(255,255,255,0.055)'}`,
+          border: `2px dashed ${uploadHot ? '#ff3333' : 'var(--ro-border)'}`,
           borderRadius: '12px',
           padding: '22px 16px',
           textAlign: 'center',
@@ -209,10 +209,10 @@ function ImportUploadTile({
           <div style={{ fontSize: '26px', marginBottom: '8px' }}>
             <IconFolder size={28} strokeWidth={1.5} />
           </div>
-          <div style={{ fontSize: '13px', fontWeight: 600, color: '#e4e4f0', marginBottom: '3px' }}>
+          <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--ro-text)', marginBottom: '3px' }}>
             {loading ? 'Parsing...' : 'Drop your CSV here or click to browse'}
           </div>
-          <div style={{ fontSize: '11px', color: '#4a4a62' }}>Supports .csv · Max 50MB</div>
+          <div style={{ fontSize: '11px', color: 'var(--ro-text-muted)' }}>Supports .csv · Max 50MB</div>
         </div>
       </label>
       <input
@@ -232,7 +232,7 @@ function ImportUploadTile({
         <p style={{ color: S.accent, fontSize: '12px', marginTop: '-6px', marginBottom: '12px' }}>{error}</p>
       )}
 
-      <div style={{ fontSize: '11px', color: '#4a4a62', marginBottom: '8px' }}>CSV columns:</div>
+      <div style={{ fontSize: '11px', color: 'var(--ro-text-muted)', marginBottom: '8px' }}>CSV columns:</div>
       <FieldPillList pills={fieldPills} />
 
       <button
@@ -247,9 +247,9 @@ function ImportUploadTile({
           fontSize: '11px',
           fontWeight: 600,
           cursor: 'pointer',
-          background: '#17171f',
-          color: '#9090aa',
-          border: '1px solid rgba(255,255,255,0.055)',
+          background: 'var(--ro-surface-elevated)',
+          color: 'var(--ro-text-dim)',
+          border: '1px solid var(--ro-border)',
           fontFamily: '"DM Sans"',
         }}
       >
@@ -408,7 +408,7 @@ function PreviewSection({
           in New Arrivals and will be skipped:
           {' '}{[...unrecognizedSkuSet].slice(0, 8).join(', ')}
           {unrecognizedSkuSet.size > 8 && ` ...and ${unrecognizedSkuSet.size - 8} more`}
-          <div style={{ marginTop: '4px', color: '#9090aa', fontSize: '11px' }}>
+          <div style={{ marginTop: '4px', color: 'var(--ro-text-dim)', fontSize: '11px' }}>
             Only {recognizedCount} row{recognizedCount === 1 ? '' : 's'} for recognized products will be imported.
           </div>
         </div>
@@ -496,7 +496,7 @@ function PreviewSection({
                       style={{
                         padding: '8px 14px',
                         fontSize: '12px',
-                        color: '#fff',
+                        color: 'var(--ro-text)',
                         maxWidth: '160px',
                         overflow: 'hidden',
                         textOverflow: 'ellipsis',
@@ -517,9 +517,9 @@ function PreviewSection({
                             borderRadius: '4px',
                             fontSize: '10px',
                             fontWeight: 600,
-                            background: 'rgba(255,255,255,0.06)',
-                            border: '1px solid rgba(255,255,255,0.08)',
-                            color: '#e4e4f0',
+                            background: 'var(--ro-fill-muted)',
+                            border: '1px solid var(--ro-border-hover)',
+                            color: 'var(--ro-text)',
                             fontFamily: "'DM Sans', sans-serif",
                           }}
                         >
@@ -539,7 +539,7 @@ function PreviewSection({
                     </>
                   ) : (
                     <>
-                      <td style={{ padding: '8px 14px', fontSize: '12px', fontFamily: "'DM Sans', sans-serif", fontWeight: 700, color: '#e4e4f0' }}>
+                      <td style={{ padding: '8px 14px', fontSize: '12px', fontFamily: "'DM Sans', sans-serif", fontWeight: 700, color: 'var(--ro-text)' }}>
                         {g.totalQty}
                       </td>
                       <td style={{ padding: '8px 14px', fontSize: '12px', fontFamily: "'DM Sans', sans-serif" }}>
@@ -965,7 +965,7 @@ export function ImportCSV() {
             fontFamily: '"DM Sans"',
             fontSize: '16px',
             letterSpacing: '2px',
-            color: '#fff',
+            color: 'var(--ro-heading)',
             display: 'flex',
             alignItems: 'center',
             gap: '8px',
@@ -1001,7 +1001,7 @@ export function ImportCSV() {
             flexWrap: 'wrap',
           }}
         >
-          <div style={{ fontSize: '13px', color: '#e4e4f0', lineHeight: 1.5 }}>
+          <div style={{ fontSize: '13px', color: 'var(--ro-text)', lineHeight: 1.5 }}>
             <strong style={{ color: '#00e676' }}>Import successful.</strong>{' '}
             Saved {successBanner.distinctProducts} product{successBanner.distinctProducts === 1 ? '' : 's'}{' '}
             ({successBanner.count} size row{successBanner.count === 1 ? '' : 's'}, {successBanner.totalUnits} total units) from{' '}
@@ -1025,7 +1025,7 @@ export function ImportCSV() {
               fontWeight: 600,
               cursor: 'pointer',
               background: 'rgba(0,0,0,0.25)',
-              border: '1px solid rgba(255,255,255,0.1)',
+              border: '1px solid var(--ro-border-hover)',
               color: S.text2,
               fontFamily: '"DM Sans"',
               flexShrink: 0,
@@ -1109,7 +1109,7 @@ export function ImportCSV() {
                 fontFamily: '"DM Sans"',
                 fontSize: '13px',
                 letterSpacing: '2px',
-                color: '#e4e4f0',
+                color: 'var(--ro-text)',
                 fontWeight: 600,
               }}
             >
@@ -1159,7 +1159,7 @@ export function ImportCSV() {
                         padding: '8px 14px',
                         fontSize: '12px',
                         fontFamily: "'DM Sans', sans-serif",
-                        color: '#e4e4f0',
+                        color: 'var(--ro-text)',
                       }}
                     >
                       {row.filename}
@@ -1170,7 +1170,7 @@ export function ImportCSV() {
                         padding: '8px 14px',
                         fontSize: '12px',
                         fontFamily: "'DM Sans', sans-serif",
-                        color: '#e4e4f0',
+                        color: 'var(--ro-text)',
                       }}
                     >
                       {row.productCount ?? row.count}
@@ -1195,8 +1195,8 @@ export function ImportCSV() {
                             borderRadius: '6px',
                             fontSize: '10px',
                             fontWeight: 700,
-                            background: 'rgba(255,255,255,0.05)',
-                            color: '#4a4a62',
+                            background: 'var(--ro-track-bg)',
+                            color: 'var(--ro-text-muted)',
                           }}
                         >
                           Archived
@@ -1292,8 +1292,8 @@ export function ImportCSV() {
           >
             <div
               style={{
-                background: '#111117',
-                border: '1px solid rgba(255,255,255,0.09)',
+                background: 'var(--ro-surface)',
+                border: '1px solid var(--ro-border-hover)',
                 borderRadius: '14px',
                 padding: '28px 32px',
                 maxWidth: '420px',
@@ -1302,12 +1302,12 @@ export function ImportCSV() {
               }}
               onClick={(e) => e.stopPropagation()}
             >
-              <div style={{ fontSize: '14px', fontWeight: 700, color: '#e4e4f0', marginBottom: '10px' }}>
+              <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--ro-text)', marginBottom: '10px' }}>
                 Delete import?
               </div>
               <div style={{ fontSize: '12px', color: S.text2, lineHeight: 1.6, marginBottom: '20px' }}>
-                This will permanently remove <strong style={{ color: '#e4e4f0' }}>{rec.count} SKU row{rec.count === 1 ? '' : 's'}</strong> imported
-                from <span style={{ fontFamily: "'DM Sans', sans-serif", color: '#e4e4f0' }}>{rec.filename}</span> and
+                This will permanently remove <strong style={{ color: 'var(--ro-text)' }}>{rec.count} SKU row{rec.count === 1 ? '' : 's'}</strong> imported
+                from <span style={{ fontFamily: "'DM Sans', sans-serif", color: 'var(--ro-text)' }}>{rec.filename}</span> and
                 the import record itself.
               </div>
               <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>

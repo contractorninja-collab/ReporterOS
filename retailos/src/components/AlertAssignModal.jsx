@@ -6,10 +6,10 @@ import { ALERT_ASSIGN_SHOPS, getAssignableUsersForAlertShop, defaultAlertShopFor
 const DM = '"DM Sans", sans-serif'
 const S = {
   overlay: 'rgba(0,0,0,0.65)',
-  surface: '#111117',
-  border: 'rgba(255,255,255,0.08)',
-  text: '#e4e4f0',
-  muted: '#4a4a62',
+  surface: 'var(--ro-surface)',
+  border: 'var(--ro-border-hover)',
+  text: 'var(--ro-text)',
+  muted: 'var(--ro-text-muted)',
   accent: '#ff3333',
   blue: '#38bdf8',
 }
@@ -91,7 +91,7 @@ export function AlertAssignModal({ alert, onClose, onConfirm }) {
               onChange={(e) => setShop(e.target.value)}
               style={{
                 width: '100%',
-                background: '#17171f',
+                background: 'var(--ro-surface-elevated)',
                 border: `1px solid ${S.border}`,
                 borderRadius: 8,
                 padding: '8px 10px',
@@ -123,7 +123,7 @@ export function AlertAssignModal({ alert, onClose, onConfirm }) {
             onChange={(e) => setAssigneeId(e.target.value)}
             style={{
               width: '100%',
-              background: '#17171f',
+              background: 'var(--ro-surface-elevated)',
               border: `1px solid ${S.border}`,
               borderRadius: 8,
               padding: '8px 10px',

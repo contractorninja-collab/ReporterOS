@@ -46,14 +46,14 @@ function AlertItem({ urgency, icon, title, description, messageSecondary, onAssi
             }}
             style={{ cursor: 'pointer' }}
           >
-            <div style={{ fontSize: '12px', fontWeight: 600, marginBottom: '2px' }}>{title}</div>
+            <div style={{ fontSize: '12px', fontWeight: 600, marginBottom: '2px', color: 'var(--ro-text)' }}>{title}</div>
           </div>
         ) : (
-          <div style={{ fontSize: '12px', fontWeight: 600, marginBottom: '2px' }}>{title}</div>
+          <div style={{ fontSize: '12px', fontWeight: 600, marginBottom: '2px', color: 'var(--ro-text)' }}>{title}</div>
         )}
-        <div style={{ fontSize: '10px', color: '#9090aa', lineHeight: 1.45 }}>{description}</div>
+        <div style={{ fontSize: '10px', color: 'var(--ro-text-dim)', lineHeight: 1.45 }}>{description}</div>
         {messageSecondary ? (
-          <div style={{ fontSize: '9px', color: '#6a6a7a', marginTop: 4, lineHeight: 1.4 }}>{messageSecondary}</div>
+          <div style={{ fontSize: '9px', color: 'var(--ro-text-muted)', marginTop: 4, lineHeight: 1.4 }}>{messageSecondary}</div>
         ) : null}
         {onViewProduct ? (
           <button
