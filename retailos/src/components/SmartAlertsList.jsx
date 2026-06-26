@@ -7,16 +7,9 @@ import { getLifecycleStatus } from '../utils/lifecycle.js'
 import AlertItem from './AlertItem.jsx'
 import ProductDetailModal from './ProductDetailModal.jsx'
 import { AlertAssignModal } from './AlertAssignModal.jsx'
-import { IconCircle, IconAlert } from '../utils/icons.js'
+import { IconAlert } from '../utils/icons.js'
 
 const DM_SANS = '"DM Sans", sans-serif'
-
-const URGENCY_ICON = {
-  critical: <IconCircle size={10} fill="#ff3333" color="#ff3333" />,
-  warning: <IconCircle size={10} fill="#ff8800" color="#ff8800" />,
-  info: <IconCircle size={10} fill="#38bdf8" color="#38bdf8" />,
-  opportunity: <IconCircle size={10} fill="#00e676" color="#00e676" />,
-}
 
 const STATUS_LABELS = {
   'New Arrival': 'New Arrivals',
@@ -140,14 +133,10 @@ export function SmartAlertsList({ limit, showViewAllLink, urgencyFilter = 'all' 
           <AlertItem
             key={`${a.skuCode}-${a.type}`}
             urgency={a.urgency}
-            icon={
-              URGENCY_ICON[a.urgency] ?? (
-                <IconCircle size={10} fill="#38bdf8" color="#38bdf8" />
-              )
-            }
             title={`${a.productName} — ${a.skuCode}`}
-            description={`${a.message} · ${a.action}`}
-            messageSecondary={a.messageSecondary}
+            message={a.messageSecondary ? `${a.message} · ${a.messageSecondary}` : a.message}
+            action={a.action}
+            messageTone={a.urgency === 'opportunity' ? 'positive' : undefined}
             assigned={assignedSkuSet.has(a.skuCode)}
             onAssign={() => setAssignModalAlert(a)}
             onViewProduct={() => openProductDetail(a.skuCode)}
@@ -191,8 +180,9 @@ export function SmartAlertsList({ limit, showViewAllLink, urgencyFilter = 'all' 
 
 export function SmartAlertsHeaderTitle() {
   return (
-    <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-      <IconAlert size={14} strokeWidth={1.5} /> Smart Alerts — Today
+    <span className="dash-smart-alerts-title">
+      <IconAlert size={14} strokeWidth={1.5} aria-hidden />
+      Smart Alerts — Today
     </span>
   )
 }

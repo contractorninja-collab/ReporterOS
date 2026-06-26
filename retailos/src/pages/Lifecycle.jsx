@@ -1,11 +1,13 @@
 import { useMemo, useState } from 'react'
+import { normalizeGenderCodeForFilter } from '../utils/gender.js'
 import { useStore } from '../store/useStore'
 import { getLifecycleStatus, STATUS_COLORS } from '../utils/lifecycle'
 import { aggregateSkus } from '../utils/aggregateSkus'
 import SkuTile from '../components/SkuTile'
 import ProductDetailModal from '../components/ProductDetailModal'
+import { IconPackage } from '../utils/icons.js'
 
-const filters = ['All', 'Footwear', 'Apparel', 'Male', 'Female', 'Kids']
+const filters = ['All', 'Footwear', 'Apparel', 'Male', 'Female', 'Kids', 'Unisex']
 
 const LANES = [
   { status: 'New Arrival', color: '#38bdf8' },
@@ -15,6 +17,15 @@ const LANES = [
   { status: 'Clearance', color: '#ff3333' },
   { status: 'Outlet', color: '#c084fc' },
 ]
+
+const LANE_CLASS = {
+  'New Arrival': 'lifecycle-lane--new-arrival',
+  Active: 'lifecycle-lane--active',
+  Aging: 'lifecycle-lane--aging',
+  Risk: 'lifecycle-lane--risk',
+  Clearance: 'lifecycle-lane--clearance',
+  Outlet: 'lifecycle-lane--outlet',
+}
 
 const rules = [
   {
@@ -57,12 +68,13 @@ function matchesSeason(sku, activeSeason) {
 
 function matchesActiveFilter(sku, activeFilter) {
   if (activeFilter === 'All') return true
-  const g = (sku.gender || '').toUpperCase().slice(0, 1)
+  const g = normalizeGenderCodeForFilter(sku.gender)
   if (activeFilter.includes('Footwear')) return (sku.category || '') === 'Footwear'
   if (activeFilter.includes('Apparel')) return (sku.category || '') === 'Apparel'
   if (activeFilter.includes('Male') && !activeFilter.includes('Female')) return g === 'M'
   if (activeFilter.includes('Female')) return g === 'F'
   if (activeFilter.includes('Kids')) return g === 'K'
+  if (activeFilter.includes('Unisex')) return g === 'U'
   return true
 }
 
@@ -77,12 +89,13 @@ const STATUS_ICONS = {
 
 export function Lifecycle() {
   const skus = useStore((s) => s.skus)
+  const shipmentMeta = useStore((s) => s.shipmentMeta)
   const activeSeason = useStore((s) => s.activeSeason)
   const [activeFilter, setActiveFilter] = useState('All')
   const [selectedSku, setSelectedSku] = useState(null)
   const [selectedStatus, setSelectedStatus] = useState(null)
 
-  const products = useMemo(() => aggregateSkus(skus), [skus])
+  const products = useMemo(() => aggregateSkus(skus, shipmentMeta), [skus, shipmentMeta])
 
   const filteredSkus = useMemo(
     () =>
@@ -93,59 +106,17 @@ export function Lifecycle() {
   )
 
   return (
-    <div>
+    <div className="lifecycle-page">
       {/* SECTION 1 — Header row with filter pills */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          marginBottom: '14px',
-        }}
-        className="fade-up delay-1"
-      >
-        <div
-          style={{
-            fontFamily: '"DM Sans"',
-            fontSize: '16px',
-            letterSpacing: '2px',
-            color: 'var(--ro-heading)',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-          }}
-        >
-          <div
-            style={{
-              width: '6px',
-              height: '6px',
-              borderRadius: '50%',
-              background: '#ff3333',
-              animation: 'blink 2s infinite',
-            }}
-          />
-          SKU LIFECYCLE BOARD
-        </div>
+      <div className="lc-board-header fade-up delay-1">
+        <div className="lc-board-header__label page-hero-mobile-hide">SKU Lifecycle Board</div>
 
-        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+        <div className="lifecycle-filter-row">
           {filters.map((f) => (
             <div
               key={f}
+              className={`lc-filter-chip${activeFilter === f ? ' lc-filter-chip--active' : ''}`}
               onClick={() => setActiveFilter(f)}
-              style={{
-                padding: '5px 11px',
-                borderRadius: '20px',
-                fontSize: '11px',
-                fontWeight: 600,
-                cursor: 'pointer',
-                transition: 'all 0.13s',
-                background: activeFilter === f ? 'rgba(255,51,51,0.1)' : 'var(--ro-surface-elevated)',
-                border:
-                  activeFilter === f
-                    ? '1px solid rgba(255,51,51,0.25)'
-                    : '1px solid var(--ro-border)',
-                color: activeFilter === f ? '#ff3333' : 'var(--ro-text-muted)',
-              }}
             >
               {f}
             </div>
@@ -153,16 +124,8 @@ export function Lifecycle() {
         </div>
       </div>
 
-      {/* SECTION 2 — Kanban board */}
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(6, 1fr)',
-          gap: '8px',
-          marginBottom: '22px',
-        }}
-        className="fade-up delay-2"
-      >
+      {/* SECTION 2 — Kanban board (each lane scrolls independently) */}
+      <div className="fade-up delay-2 lifecycle-kanban-root">
         {LANES.map((lane) => {
           const laneSkus = filteredSkus.filter(
             (s) => getLifecycleStatus(s.import_date, s.sold_quantity, s.quantity) === lane.status
@@ -170,65 +133,32 @@ export function Lifecycle() {
           return (
             <div
               key={lane.status}
-              style={{
-                background: 'var(--ro-surface)',
-                border: '1px solid var(--ro-border)',
-                borderRadius: '12px',
-                padding: '12px',
-                minHeight: '340px',
-              }}
+              className={`lifecycle-lane ${LANE_CLASS[lane.status] || ''}`}
             >
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  marginBottom: '11px',
-                }}
-              >
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '5px',
-                    fontSize: '9px',
-                    fontWeight: 700,
-                    textTransform: 'uppercase',
-                    letterSpacing: '1.5px',
-                    color: lane.color,
-                  }}
-                >
-                  <div style={{ width: '5px', height: '5px', borderRadius: '50%', background: lane.color }} />
-                  {lane.status}
-                </div>
-                <div
-                  style={{
-                    fontFamily: '"DM Sans"',
-                    fontSize: '10px',
-                    color: 'var(--ro-text-muted)',
-                    background: 'var(--ro-surface-elevated)',
-                    padding: '2px 6px',
-                    borderRadius: '4px',
-                  }}
-                >
-                  {laneSkus.length}
-                </div>
+              <div className="lifecycle-lane__header">
+                <div className="lifecycle-lane__title">{lane.status}</div>
+                <div className="lifecycle-lane__count">{laneSkus.length}</div>
               </div>
 
-              {laneSkus.map((sku) => (
-                <SkuTile
-                  key={sku.id ?? sku.sku}
-                  sku={sku}
-                  onClick={() => {
-                    setSelectedSku(sku)
-                    setSelectedStatus(lane.status)
-                  }}
-                />
-              ))}
+              <div className="lifecycle-lane__scroll">
+                {laneSkus.map((sku) => (
+                  <SkuTile
+                    key={sku.id ?? sku.sku}
+                    sku={sku}
+                    onClick={() => {
+                      setSelectedSku(sku)
+                      setSelectedStatus(lane.status)
+                    }}
+                  />
+                ))}
 
-              {laneSkus.length === 0 && (
-                <div style={{ textAlign: 'center', color: 'var(--ro-text-muted)', fontSize: '11px', marginTop: '20px' }}>No SKUs</div>
-              )}
+                {laneSkus.length === 0 && (
+                  <div className="lifecycle-lane__empty">
+                    <IconPackage size={28} strokeWidth={1.25} aria-hidden />
+                    <span>No SKUs</span>
+                  </div>
+                )}
+              </div>
             </div>
           )
         })}
@@ -243,7 +173,7 @@ export function Lifecycle() {
           padding: '18px',
           marginBottom: '14px',
         }}
-        className="fade-up delay-3"
+        className="fade-up delay-3 lifecycle-rule-panel"
       >
         <div
           style={{
@@ -259,10 +189,11 @@ export function Lifecycle() {
           Lifecycle Rule Engine — How Status is Assigned Automatically
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' }}>
+        <div className="lifecycle-rule-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' }}>
           {rules.map((r) => (
             <div
               key={r.label}
+              className="lifecycle-rule-card"
               style={{
                 background: 'var(--ro-surface-elevated)',
                 border: '1px solid var(--ro-border)',

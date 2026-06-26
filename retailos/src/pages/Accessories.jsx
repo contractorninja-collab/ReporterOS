@@ -5,6 +5,7 @@ import { aggregateSkus } from '../utils/aggregateSkus'
 import KpiCard from '../components/KpiCard'
 import { IconAccessories } from '../utils/icons.js'
 import { isExecutive } from '../utils/roles.js'
+import { toTitleCase } from '../utils/textFormat.js'
 
 function avgSellThroughForSkus(list) {
   if (!list.length) return 0
@@ -61,6 +62,21 @@ function skusForAccessorySubcategory(skus, groupName) {
     default:
       return []
   }
+}
+
+function sellThroughThresholdClass(pct) {
+  const n = Number(pct) || 0
+  if (n >= 40) return 'catalog-threshold--good'
+  if (n >= 20) return 'catalog-threshold--mid'
+  return 'catalog-threshold--bad'
+}
+
+function catalogCardSlug(name) {
+  return String(name || '')
+    .toLowerCase()
+    .replace(/&/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
 }
 
 export function Accessories() {
@@ -130,6 +146,7 @@ export function Accessories() {
 
   return (
     <div
+      className="catalog-page"
       data-sku-count={products.length}
       data-accessories-count={n}
       data-accessories-avg-sellthrough={avgSellThrough}
@@ -137,191 +154,103 @@ export function Accessories() {
       data-accessories-low-stock={lowStockCount}
       data-accessories-clearance-outlet={clearanceOutletCount}
     >
-      {/* SECTION 1 — Header (no filter pills) */}
-      <div
-        className="fade-up delay-1"
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          marginBottom: '14px',
-        }}
-      >
-        <div
-          style={{
-            fontFamily: '"DM Sans"',
-            fontSize: '16px',
-            letterSpacing: '2px',
-            color: 'var(--ro-heading)',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-          }}
-        >
-          <div
-            style={{
-              width: '6px',
-              height: '6px',
-              borderRadius: '50%',
-              background: '#2dd4bf',
-              animation: 'blink 2s infinite',
-            }}
-          />
-          ACCESSORIES CATALOG
-        </div>
-      </div>
-
-      {/* SECTION 2 — 4 KPI cards */}
-      <div
-        className="fade-up delay-2"
-        style={{
-          display: 'grid',
-          gridTemplateColumns: exec ? 'repeat(4, 1fr)' : 'repeat(3, 1fr)',
-          gap: '12px',
-          marginBottom: '22px',
-        }}
-      >
+      <div className={`fade-up delay-2 catalog-kpi-grid${exec ? '' : ' catalog-kpi-grid--3'}`}>
         <KpiCard
-          label="Total Accessory SKUs"
+          className="catalog-kpi-tile catalog-kpi-tile--total"
+          label="Total SKUs"
           value={n}
           sub="Accessories"
-          accentColor="#2dd4bf"
+          accentColor="#60A5FA"
         />
         {exec ? (
           <KpiCard
-            label="Avg Sell-Through"
+            className={`catalog-kpi-tile catalog-kpi-tile--sellthrough ${sellThroughThresholdClass(avgSellThrough)}`}
+            label="Avg sell-through"
             value={`${peakCatalogAvg}%`}
             sub={`Peak: ${peakCatalog.label}`}
-            accentColor="#00e676"
+            accentColor="#34D399"
           />
         ) : null}
         <KpiCard
-          label="Low Stock Items"
+          className="catalog-kpi-tile catalog-kpi-tile--alert"
+          label="Low stock items"
           value={lowStockCount}
           sub="Remaining < 3 units"
-          accentColor="#ff3333"
+          accentColor="#F87171"
         />
         <KpiCard
+          className="catalog-kpi-tile catalog-kpi-tile--highlight"
           label="Clearance"
           value={clearanceOutletCount}
           sub="Clearance + outlet"
-          accentColor="#fbbf24"
+          accentColor="#FBBF24"
         />
       </div>
 
-      {/* SECTION 3 — Sub-category cards (3 columns) */}
-      <div
-        className="fade-up delay-3"
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(3, 1fr)',
-          gap: '12px',
-          marginBottom: '22px',
-        }}
-      >
-        {subcategoryCardStats.map(({ sc, count, avg, atRisk }) => (
-          <div
-            key={sc.name}
-            style={{
-              background: 'var(--ro-surface)',
-              border: '1px solid var(--ro-border)',
-              borderRadius: '13px',
-              overflow: 'hidden',
-              cursor: 'pointer',
-              transition: 'all 0.18s',
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.transform = 'translateY(-3px)'
-              e.currentTarget.style.borderColor = 'var(--ro-border-hover)'
-              e.currentTarget.style.boxShadow = '0 12px 30px rgba(0,0,0,0.3)'
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.transform = ''
-              e.currentTarget.style.borderColor = 'var(--ro-border)'
-              e.currentTarget.style.boxShadow = ''
-            }}
-          >
-            <div
-              style={{
-                height: '110px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: '46px',
-                background: sc.gradient,
-              }}
-            >
-              <IconAccessories size={40} strokeWidth={1.5} color="var(--ro-heading)" />
-            </div>
-
-            <div style={{ padding: '13px' }}>
+      {n === 0 ? (
+        <div className="catalog-empty fade-up delay-3">
+          <IconAccessories className="catalog-empty__icon" size={32} strokeWidth={1.5} aria-hidden />
+          <p className="catalog-empty__title">No brands found</p>
+          <p className="catalog-empty__hint">Try selecting a different filter above.</p>
+        </div>
+      ) : (
+        <div className="fade-up delay-3 catalog-card-grid catalog-card-grid--3">
+          {subcategoryCardStats.map(({ sc, count, avg, atRisk }) => {
+            const thresholdClass = sellThroughThresholdClass(avg)
+            const cardSlug = catalogCardSlug(sc.name)
+            const cardInitial = String(sc.name || '?').charAt(0).toUpperCase()
+            return (
               <div
-                style={{
-                  fontFamily: '"DM Sans"',
-                  fontSize: '17px',
-                  letterSpacing: '1.5px',
-                  color: 'var(--ro-heading)',
-                  marginBottom: '2px',
-                }}
+                key={sc.name}
+                className="catalog-card"
+                data-card={cardSlug}
               >
-                {sc.name}
-              </div>
-              <div style={{ fontSize: '11px', color: 'var(--ro-text-muted)', marginBottom: '8px' }}>
-                {count} SKUs · Accessories
-              </div>
-              {exec ? (
-                <>
-                  <div style={{ height: '4px', background: 'var(--ro-surface-elevated)', borderRadius: '2px', overflow: 'hidden' }}>
-                    <div
-                      style={{
-                        height: '100%',
-                        borderRadius: '2px',
-                        background: sc.barColor,
-                        width: `${avg}%`,
-                      }}
-                    />
-                  </div>
-                  <div
-                    style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                      marginTop: '8px',
-                      fontSize: '10px',
-                      color: 'var(--ro-text-muted)',
-                    }}
-                  >
-                    <span>{avg}% avg sell-through</span>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      {atRisk > 0 && (
-                        <span style={{ color: atRisk > 5 ? '#ff3333' : '#fbbf24' }}>{atRisk} at risk</span>
-                      )}
-                      <span style={{ color: sc.highlightColor, fontWeight: 700 }}>{sc.highlight}</span>
-                    </div>
-                  </div>
-                </>
-              ) : (
-                <div
-                  style={{
-                    display: 'flex',
-                    justifyContent: 'flex-end',
-                    alignItems: 'center',
-                    gap: '8px',
-                    marginTop: '8px',
-                    fontSize: '10px',
-                    color: 'var(--ro-text-muted)',
-                  }}
-                >
-                  {atRisk > 0 && (
-                    <span style={{ color: atRisk > 5 ? '#ff3333' : '#fbbf24' }}>{atRisk} at risk</span>
-                  )}
-                  <span style={{ color: sc.highlightColor, fontWeight: 700 }}>{sc.highlight}</span>
+                <div className="catalog-card__header" data-card={cardSlug}>
+                  <span className="catalog-card__initial" aria-hidden="true">{cardInitial}</span>
                 </div>
-              )}
-            </div>
-          </div>
-        ))}
-      </div>
+
+                <div className="catalog-card__body">
+                  <div className="catalog-card__name">{toTitleCase(sc.name)}</div>
+                  <div className="catalog-card__meta">
+                    {count} SKUs · Accessories
+                  </div>
+                  {exec ? (
+                    <>
+                      <div className="catalog-card__bar">
+                        <div
+                          className={`catalog-card__bar-fill ${thresholdClass}`}
+                          style={{ width: `${avg}%` }}
+                        />
+                      </div>
+                      <div className="catalog-card__stats">
+                        <div className="catalog-stat-chip">
+                          <span className={`catalog-stat-chip__val ${thresholdClass}`}>{avg}%</span>
+                          <span className="catalog-stat-chip__label">avg sell-through</span>
+                        </div>
+                        <div className="catalog-stat-chip catalog-stat-chip--right">
+                          <span className={`catalog-stat-chip__val${atRisk > 0 ? ' catalog-stat-chip__val--risk' : ' catalog-stat-chip__val--zero'}`}>
+                            {atRisk}
+                          </span>
+                          <span className="catalog-stat-chip__label">at risk</span>
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="catalog-card__stats">
+                      <div className="catalog-stat-chip catalog-stat-chip--right catalog-stat-chip--solo">
+                        <span className={`catalog-stat-chip__val${atRisk > 0 ? ' catalog-stat-chip__val--risk' : ' catalog-stat-chip__val--zero'}`}>
+                          {atRisk}
+                        </span>
+                        <span className="catalog-stat-chip__label">at risk</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }

@@ -1,7 +1,10 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { getSellThrough, getDaysInStore, STATUS_COLORS } from '../utils/lifecycle'
 import useStore from '../store/useStore'
+import { fetchSalesBySku, fetchSalesSummaryForSku } from '../api/client.js'
 import { isExecutive } from '../utils/roles.js'
+import { DISCOUNTS, salePriceOf } from '../utils/saleList.js'
 import {
   IconFootwear,
   IconApparel,
@@ -10,6 +13,7 @@ import {
   IconHot,
   IconClose,
 } from '../utils/icons.js'
+import { genderShortLabel } from '../utils/gender.js'
 
 const ACTION_BTN = {
   padding: '8px 14px',
@@ -38,23 +42,20 @@ function suggestMarkdownTier(days) {
   return 70
 }
 
-function genderSymbol(g) {
-  const x = (g || 'M').toUpperCase().slice(0, 1)
-  if (x === 'M') return 'M'
-  if (x === 'F') return 'F'
-  return 'K'
-}
-
-export default function ProductDetailModal({ sku, status, statusData, onClose }) {
+export default function ProductDetailModal({ sku, status, statusData, onClose, saleListAssign = false }) {
   const photoUrl = useStore((s) => s.photoMap[sku.sku]) || null
   const rawSkus = useStore((s) => s.skus)
   const users = useStore((s) => s.users)
   const activeUser = useStore((s) => s.activeUser)
+  const markdownLists = useStore((s) => s.markdownLists)
   const showSalesMetrics = isExecutive(activeUser)
   const addAssignment = useStore((s) => s.addAssignment)
+  const addItemToMarkdownList = useStore((s) => s.addItemToMarkdownList)
   const addItemToTodayTransfer = useStore((s) => s.addItemToTodayTransfer)
   const addItemToStoreTransfer = useStore((s) => s.addItemToStoreTransfer)
   const activeShifts = useStore((s) => s.activeShifts)
+
+  const canManage = activeUser?.role === 'executive' || activeUser?.role === 'manager'
 
   const [assignPanel, setAssignPanel] = useState(null)
   const [assignTo, setAssignTo] = useState('')
@@ -63,6 +64,52 @@ export default function ProductDetailModal({ sku, status, statusData, onClose })
   const [markdownTier, setMarkdownTier] = useState(null)
   const [customMarkdown, setCustomMarkdown] = useState('')
   const [transferShop, setTransferShop] = useState('')
+  const [selectedSaleListId, setSelectedSaleListId] = useState('')
+  const [salePct, setSalePct] = useState(30)
+  const [summaryBySku, setSummaryBySku] = useState(() => ({}))
+
+  const pendingSaleLists = useMemo(
+    () => markdownLists.filter((l) => l.kind !== 'removal' && l.status === 'pending'),
+    [markdownLists],
+  )
+
+  useEffect(() => {
+    if (!sku?.sku) return
+    let cancelled = false
+    const code = sku.sku
+    const fallbackQty = Number(sku.sold_quantity) || 0
+    const since = '1970-01-01'
+    const until = new Date().toISOString().slice(0, 10)
+    Promise.all([fetchSalesBySku(since, until), fetchSalesSummaryForSku(code)])
+      .then(([bySku, retSummary]) => {
+        if (cancelled) return
+        const row = Array.isArray(bySku) ? bySku.find((r) => r.sku === code) : null
+        setSummaryBySku((prev) => ({
+          ...prev,
+          [code]: {
+            netQtySold: row?.sold_qty ?? 0,
+            netRevenue: row?.revenue ?? 0,
+            returnsCount: retSummary?.returnsCount ?? 0,
+          },
+        }))
+      })
+      .catch(() => {
+        if (cancelled) return
+        setSummaryBySku((prev) => ({
+          ...prev,
+          [code]: { netRevenue: 0, netQtySold: fallbackQty, returnsCount: 0 },
+        }))
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [sku.sku, sku.sold_quantity])
+
+  const summaryData = summaryBySku[sku.sku]
+  const netSoldQty = summaryData
+    ? summaryData.netQtySold
+    : (Number(sku.sold_quantity) || 0)
+  const returnsCount = summaryData?.returnsCount ?? 0
 
   const openAssignPanel = (actionType) => {
     setAssignPanel(actionType)
@@ -73,6 +120,34 @@ export default function ProductDetailModal({ sku, status, statusData, onClose })
     setCustomMarkdown('')
     const otherShops = SHOPS.filter((s) => s !== (activeUser?.shop || ''))
     setTransferShop(otherShops[0] || SHOPS[0])
+    if (actionType === 'sale_list') {
+      setSelectedSaleListId(pendingSaleLists[0]?.id || '')
+      setSalePct(30)
+    }
+  }
+
+  const handleSaleListAssign = () => {
+    if (!selectedSaleListId || !salePct) return
+    if (sku.sale_active && sku.sale_list_id && sku.sale_list_id !== selectedSaleListId) return
+
+    const item = {
+      skuCode: sku.sku,
+      productName: sku.product_name || '',
+      brand: sku.brand || '',
+      category: sku.category || '',
+      gender: sku.gender || '',
+      season: sku.season || '',
+      priceTag: Number(sku.price_tag) || 0,
+      salePct,
+      salePrice: salePriceOf(sku.price_tag, salePct),
+      sizes: Array.isArray(sku.sizes) ? sku.sizes.join(', ') : String(sku.sizes || ''),
+    }
+    const ok = addItemToMarkdownList(selectedSaleListId, item)
+    if (!ok) return
+    const listTitle = pendingSaleLists.find((l) => l.id === selectedSaleListId)?.title || 'sale list'
+    setAssignPanel(null)
+    setAssignDone(`Added to ${listTitle} at -${salePct}%`)
+    setTimeout(() => setAssignDone(null), 1600)
   }
 
   const handleAssign = () => {
@@ -100,7 +175,7 @@ export default function ProductDetailModal({ sku, status, statusData, onClose })
 
   const handleStoreTransfer = () => {
     if (!transferShop) return
-    const remaining = Math.max(0, sku.quantity - sku.sold_quantity)
+    const remaining = Math.max(0, sku.quantity - netSoldQty)
     addItemToStoreTransfer(
       { skuCode: sku.sku, productName: sku.product_name, quantity: remaining, sizes: (sku.sizes || []).join(', ') },
       activeUser?.shop || 'Ring Mall',
@@ -129,7 +204,7 @@ export default function ProductDetailModal({ sku, status, statusData, onClose })
       {
         skuCode: sku.sku,
         productName: sku.product_name,
-        quantity: Math.max(0, sku.quantity - sku.sold_quantity),
+        quantity: Math.max(0, sku.quantity - netSoldQty),
         sizes: (sku.sizes || []).join(', '),
       },
       activeUser?.id || '',
@@ -176,9 +251,9 @@ export default function ProductDetailModal({ sku, status, statusData, onClose })
     }
     return [...map.values()]
   }, [rawSkus, sku.sku])
-  const pct = getSellThrough(sku.sold_quantity, sku.quantity)
+  const pct = getSellThrough(netSoldQty, sku.quantity)
   const days = getDaysInStore(sku.import_date)
-  const remaining = sku.quantity - sku.sold_quantity
+  const remaining = Math.max(0, (Number(sku.quantity) || 0) - (Number(netSoldQty) || 0))
   const stockColor =
     remaining <= 3 && remaining > 0 ? '#ff8800' : remaining === 0 ? '#ff3333' : '#00e676'
   const isFire = pct >= 60
@@ -201,10 +276,14 @@ export default function ProductDetailModal({ sku, status, statusData, onClose })
 
   const activeIdx = STATUS_ORDER.indexOf(status)
   const accentColor = statusData.color ?? STATUS_COLORS[status] ?? 'var(--ro-text-dim)'
+  const ticketPrice = Number(sku.price_tag) || 0
+  const avgSoldPrice = Number(sku.avg_price_sold) || 0
 
   const showMarkdown = status === 'Clearance' || status === 'Outlet'
   const showReorder = status === 'Active' && pct >= 60
   const showDisplay = status === 'Aging' || status === 'Risk'
+  const onOtherSaleList = Boolean(sku.sale_active && sku.sale_list_id && sku.sale_list_id !== selectedSaleListId)
+  const priceTag = Number(sku.price_tag) || 0
 
   return (
     <div
@@ -223,7 +302,7 @@ export default function ProductDetailModal({ sku, status, statusData, onClose })
       }}
     >
       <div
-        className="fade-up"
+        className="fade-up product-detail-modal"
         onClick={(e) => e.stopPropagation()}
         style={{
           width: '480px',
@@ -371,6 +450,7 @@ export default function ProductDetailModal({ sku, status, statusData, onClose })
           </div>
 
           <div
+            className="product-detail-kpi-grid"
             style={{
               display: 'grid',
               gridTemplateColumns: showSalesMetrics ? 'repeat(3, 1fr)' : '1fr',
@@ -380,7 +460,7 @@ export default function ProductDetailModal({ sku, status, statusData, onClose })
           >
             {(showSalesMetrics
               ? [
-                  { label: 'Price', value: `€${sku.price_sold}`, color: 'var(--ro-heading)' },
+                  { label: 'Price', value: `€${ticketPrice.toFixed(2)}`, color: 'var(--ro-heading)' },
                   { label: 'Stock', value: String(remaining), color: stockColor },
                   { label: 'Sold', value: `${Math.round(pct)}%`, color: statusData.color },
                 ]
@@ -399,12 +479,70 @@ export default function ProductDetailModal({ sku, status, statusData, onClose })
                 <div style={{ fontSize: 9, fontWeight: 700, color: 'var(--ro-text-muted)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.6px' }}>
                   {c.label}
                 </div>
-                <div style={{ fontFamily: '"DM Sans"', fontSize: 26, lineHeight: 1, color: c.color, letterSpacing: '0.5px' }}>
+                <div style={{ fontFamily: '"DM Sans"', fontSize: c.label === 'Price' ? 22 : 26, lineHeight: 1, color: c.color, letterSpacing: '0.5px' }}>
                   {c.value}
                 </div>
+                {c.label === 'Sold' && showSalesMetrics && returnsCount > 0 ? (
+                  <div
+                    style={{
+                      marginTop: 6,
+                      display: 'inline-block',
+                      background: 'rgba(255,136,0,0.1)',
+                      border: '1px solid rgba(255,136,0,0.2)',
+                      color: '#ff8800',
+                      fontSize: 10,
+                      fontWeight: 700,
+                      padding: '2px 7px',
+                      borderRadius: 20,
+                    }}
+                  >
+                    ↩ {returnsCount} return{returnsCount > 1 ? 's' : ''}
+                  </div>
+                ) : null}
               </div>
             ))}
           </div>
+
+          {showSalesMetrics ? (
+            <div
+              className="product-detail-avg-row"
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                gap: 12,
+                background: 'var(--ro-surface-elevated)',
+                border: '1px solid var(--ro-border)',
+                borderRadius: 10,
+                padding: '10px 14px',
+                marginTop: '-8px',
+                marginBottom: 18,
+              }}
+            >
+              <span
+                style={{
+                  fontSize: 10,
+                  fontWeight: 700,
+                  color: 'var(--ro-text-muted)',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.6px',
+                }}
+              >
+                AVG sold price
+              </span>
+              <span
+                style={{
+                  fontFamily: '"DM Sans"',
+                  fontSize: 16,
+                  fontWeight: 700,
+                  color: avgSoldPrice > 0 ? '#fbbf24' : 'var(--ro-text-dim)',
+                  fontVariantNumeric: 'tabular-nums',
+                }}
+              >
+                {avgSoldPrice.toFixed(2)}
+              </span>
+            </div>
+          ) : null}
 
           {showSalesMetrics ? (
             <div style={{ marginBottom: 18 }}>
@@ -418,7 +556,7 @@ export default function ProductDetailModal({ sku, status, statusData, onClose })
               >
                 <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--ro-text-dim)' }}>Sell-through progress</span>
                 <span style={{ fontSize: 11, fontWeight: 600, color: accentColor, fontFamily: '"DM Sans"' }}>
-                  {sku.sold_quantity} of {sku.quantity} units
+                  {netSoldQty} of {sku.quantity} units
                 </span>
               </div>
               <div style={{ height: 6, background: 'var(--ro-fill-muted)', borderRadius: 3, overflow: 'hidden' }}>
@@ -447,7 +585,7 @@ export default function ProductDetailModal({ sku, status, statusData, onClose })
             {[
               ['Brand', sku.brand ?? '—'],
               ['Category', sku.category ?? '—'],
-              ['Gender', genderSymbol(sku.gender)],
+              ['Gender', genderShortLabel(sku.gender)],
               ['Arrival Date', sku.import_date ? new Date(sku.import_date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'],
               ['Days in store', String(days)],
               ['Season', sku.season ?? '—'],
@@ -556,7 +694,17 @@ export default function ProductDetailModal({ sku, status, statusData, onClose })
                 Move to Display
               </button>
             )}
-            {(status === 'Aging' || status === 'Risk') && (
+            {saleListAssign && canManage && (
+              <button type="button" onClick={() => openAssignPanel('sale_list')} style={{ ...ACTION_BTN, background: '#c084fc', color: '#09090e' }}>
+                Assign Sale
+              </button>
+            )}
+            {saleListAssign && !canManage && (status === 'Aging' || status === 'Risk') && (
+              <button type="button" onClick={() => openAssignPanel('sale')} style={{ ...ACTION_BTN, background: '#c084fc', color: '#09090e' }}>
+                Assign Sale
+              </button>
+            )}
+            {!saleListAssign && (status === 'Aging' || status === 'Risk') && (
               <button type="button" onClick={() => openAssignPanel('sale')} style={{ ...ACTION_BTN, background: '#c084fc', color: '#09090e' }}>
                 Assign Sale
               </button>
@@ -620,7 +768,97 @@ export default function ProductDetailModal({ sku, status, statusData, onClose })
             </div>
           )}
 
-          {assignPanel && assignPanel !== 'store_transfer' && (
+          {assignPanel && assignPanel === 'sale_list' && !assignDone && (
+            <div style={{ marginTop: 10, background: 'var(--ro-surface-elevated)', border: '1px solid var(--ro-border-hover)', borderRadius: 12, padding: 14 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--ro-text-dim)', textTransform: 'uppercase', letterSpacing: '0.8px', marginBottom: 10 }}>
+                Assign to sale list
+              </div>
+              {pendingSaleLists.length === 0 ? (
+                <div style={{ fontSize: 12, color: 'var(--ro-text-dim)', marginBottom: 10 }}>
+                  No open sale lists yet.{' '}
+                  <Link to="/markdown" style={{ color: '#38bdf8', textDecoration: 'none', fontWeight: 600 }}>Create one first</Link>
+                </div>
+              ) : (
+                <>
+                  <div style={{ marginBottom: 10 }}>
+                    <div style={{ fontSize: 10, color: 'var(--ro-text-muted)', marginBottom: 6 }}>Select sale list:</div>
+                    <select
+                      value={selectedSaleListId}
+                      onChange={(e) => setSelectedSaleListId(e.target.value)}
+                      style={{
+                        width: '100%',
+                        background: 'var(--ro-surface)',
+                        border: '1px solid var(--ro-border-hover)',
+                        borderRadius: 8,
+                        padding: '7px 10px',
+                        color: 'var(--ro-text)',
+                        fontSize: 12,
+                        fontFamily: '"DM Sans"',
+                        outline: 'none',
+                      }}
+                    >
+                      {pendingSaleLists.map((l) => (
+                        <option key={l.id} value={l.id}>
+                          {l.title || 'Sale list'} ({(l.items || []).length} products)
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div style={{ marginBottom: 10 }}>
+                    <div style={{ fontSize: 10, color: 'var(--ro-text-muted)', marginBottom: 6 }}>Select discount:</div>
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      {DISCOUNTS.map((d) => (
+                        <button
+                          key={d}
+                          type="button"
+                          onClick={() => setSalePct(d)}
+                          style={{
+                            ...ACTION_BTN,
+                            padding: '5px 12px',
+                            fontSize: 11,
+                            background: salePct === d ? 'rgba(192,132,252,0.15)' : 'var(--ro-fill-soft)',
+                            color: salePct === d ? '#c084fc' : 'var(--ro-text-dim)',
+                            border: `1px solid ${salePct === d ? 'rgba(192,132,252,0.3)' : 'var(--ro-border)'}`,
+                          }}
+                        >
+                          -{d}%
+                        </button>
+                      ))}
+                    </div>
+                    {priceTag > 0 && salePct > 0 && (
+                      <div style={{ fontSize: 11, color: 'var(--ro-text-dim)', marginTop: 8, fontFamily: '"DM Sans"' }}>
+                        {priceTag.toFixed(2)}€ → <span style={{ color: '#00e676', fontWeight: 700 }}>{salePriceOf(priceTag, salePct).toFixed(2)}€</span>
+                      </div>
+                    )}
+                  </div>
+                  {onOtherSaleList && (
+                    <div style={{ fontSize: 11, color: '#fbbf24', marginBottom: 10, padding: '8px 10px', borderRadius: 8, background: 'rgba(251,191,36,0.1)', border: '1px solid rgba(251,191,36,0.2)' }}>
+                      This product is already on another active sale list. End that sale first or choose the same list to update the discount.
+                    </div>
+                  )}
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button
+                      type="button"
+                      onClick={handleSaleListAssign}
+                      disabled={!selectedSaleListId || !salePct || onOtherSaleList}
+                      style={{ ...ACTION_BTN, background: '#c084fc', color: '#09090e', padding: '7px 16px', opacity: !selectedSaleListId || !salePct || onOtherSaleList ? 0.4 : 1 }}
+                    >
+                      Add to list
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setAssignPanel(null)}
+                      style={{ ...ACTION_BTN, background: 'none', color: 'var(--ro-text-muted)', border: '1px solid var(--ro-border)', padding: '7px 16px' }}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
+          {assignPanel && assignPanel !== 'store_transfer' && assignPanel !== 'sale_list' && (
             <div style={{ marginTop: 10, background: 'var(--ro-surface-elevated)', border: '1px solid var(--ro-border-hover)', borderRadius: 12, padding: 14 }}>
               {assignDone ? (
                 <div style={{ fontSize: 13, color: '#00e676', fontWeight: 600 }}>Assigned: {assignDone}</div>

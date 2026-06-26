@@ -1,10 +1,12 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Check, AlertTriangle, ChevronDown, Download, Printer, PackageCheck, Truck, CheckCircle2, Clock, History, ImageOff } from 'lucide-react'
+import { Check, AlertTriangle, PackageCheck, CheckCircle2, Clock, ArrowLeftRight, ImageOff } from 'lucide-react'
 import useStore from '../store/useStore.js'
 import ProductDetailModal from '../components/ProductDetailModal.jsx'
 import { aggregateSkus } from '../utils/aggregateSkus.js'
 import { getLifecycleStatus, STATUS_COLORS } from '../utils/lifecycle.js'
+import { toTitleCase } from '../utils/textFormat.js'
+import { IconPlus, IconDownload, IconPrint } from '../utils/icons.js'
 
 const THUMB_SIZE = 36
 
@@ -81,24 +83,6 @@ function printBatch(batch, userName) {
   setTimeout(() => w.print(), 400)
 }
 
-const STATUS_CONFIG = {
-  pending: { label: 'Pending', bg: 'rgba(56,189,248,0.1)', color: '#38bdf8' },
-  in_progress: { label: 'In Progress', bg: 'rgba(251,191,36,0.12)', color: '#fbbf24' },
-  completed: { label: 'Completed', bg: 'rgba(0,230,118,0.12)', color: '#00e676' },
-  received: { label: 'Received', bg: 'rgba(0,230,118,0.12)', color: '#00e676' },
-}
-
-const TAB_STYLE = {
-  padding: '7px 18px',
-  borderRadius: 8,
-  fontSize: 12,
-  fontWeight: 600,
-  cursor: 'pointer',
-  border: '1px solid var(--ro-border)',
-  fontFamily: '"DM Sans"',
-  transition: 'all 0.15s',
-}
-
 const BTN = {
   padding: '7px 14px',
   borderRadius: 8,
@@ -107,6 +91,55 @@ const BTN = {
   cursor: 'pointer',
   fontFamily: '"DM Sans"',
   border: 'none',
+}
+
+function batchStatusBadge(status, hasIssues) {
+  if ((status === 'completed' || status === 'received') && hasIssues) {
+    return { label: 'Issue', className: 'st-status-badge st-status-badge--issue' }
+  }
+  if (status === 'completed' || status === 'received') {
+    return { label: 'Received', className: 'st-status-badge st-status-badge--received' }
+  }
+  if (status === 'in_progress') {
+    return { label: 'Active', className: 'st-status-badge st-status-badge--active' }
+  }
+  return { label: 'Pending', className: 'st-status-badge st-status-badge--pending' }
+}
+
+function emptyStateCopy(tab, isExec, myShop) {
+  if (tab === 'issues') {
+    return {
+      icon: CheckCircle2,
+      title: 'No transfer issues',
+      hint: 'All transfers are processing correctly.',
+      hintClass: 'st-empty__hint--success',
+      showCta: false,
+    }
+  }
+  if (tab === 'history') {
+    return {
+      icon: Clock,
+      title: 'No completed transfers yet',
+      hint: 'Completed transfers will appear here.',
+      showCta: false,
+    }
+  }
+  if (tab === 'outgoing') {
+    return {
+      icon: ArrowLeftRight,
+      title: 'No outgoing transfers',
+      hint: myShop ? `No products being sent from ${myShop} yet.` : 'No outgoing store transfers yet.',
+      showCta: true,
+    }
+  }
+  return {
+    icon: ArrowLeftRight,
+    title: isExec ? 'No active transfers' : 'No incoming transfers',
+    hint: isExec
+      ? 'Create a new transfer to move products between Ring Mall and Village.'
+      : (myShop ? `No products incoming to ${myShop} yet.` : 'No incoming store transfers yet.'),
+    showCta: true,
+  }
 }
 
 function flattenItems(items) {
@@ -445,41 +478,90 @@ function ReceivingPanel({ batch, onUpdate, onCompleted, onSkuClick }) {
   )
 }
 
-function renderItemRow(it, idx, photoMap, onSkuClick) {
-  const thumbUrl = photoMap?.[it.skuCode] || null
+function renderItemRow(it, idx, onSkuClick, fromShop, toShop) {
   const clickable = !!onSkuClick
-  const nameStyle = {
-    padding: '8px 14px', fontSize: 12, color: 'var(--ro-text)', fontWeight: 600,
-    ...(clickable ? { cursor: 'pointer' } : {}),
-  }
   const handleClick = clickable ? (e) => { e.stopPropagation(); onSkuClick(it.skuCode) } : undefined
   if (it.sizeBreakdown && it.sizeBreakdown.length > 0) {
     return (
-      <tr key={idx}>
-        <td style={{ padding: '8px 10px', width: THUMB_SIZE + 16 }}><Thumb src={thumbUrl} onClick={handleClick} /></td>
-        <td style={{ padding: '8px 14px', fontSize: 11, color: 'var(--ro-text-dim)', fontFamily: '"DM Sans"' }}>{it.skuCode}</td>
-        <td style={nameStyle} onClick={handleClick}>{it.productName}</td>
-        <td style={{ padding: '8px 14px', fontSize: 12, color: 'var(--ro-text)' }}>{it.totalQty ?? it.quantity}</td>
-        <td style={{ padding: '8px 14px' }}>
-          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+      <tr key={idx} className="ot-batch-table__row">
+        <td className="ot-batch-table__sku">{it.skuCode}</td>
+        <td className={`ot-batch-table__product${clickable ? ' ot-batch-table__product--link' : ''}`} onClick={handleClick}>{toTitleCase(it.productName)}</td>
+        <td className="ot-batch-table__qty">{it.totalQty ?? it.quantity}</td>
+        <td className="ot-batch-table__sizes">
+          <div className="ot-batch-table__size-pills">
             {it.sizeBreakdown.map((b) => (
-              <span key={b.size} style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: 'var(--ro-fill-muted)', color: 'var(--ro-text)', fontFamily: '"DM Sans"', fontWeight: 600 }}>
-                {b.size} <span style={{ color: 'var(--ro-text-dim)' }}>×{b.qty}</span>
+              <span key={b.size} className="ot-batch-table__size-pill">
+                {b.size} <span className="ot-batch-table__size-qty">×{b.qty}</span>
               </span>
             ))}
           </div>
         </td>
+        <td className="st-batch-table__route">{fromShop}</td>
+        <td className="st-batch-table__route">{toShop}</td>
       </tr>
     )
   }
   return (
-    <tr key={idx}>
-      <td style={{ padding: '8px 10px', width: THUMB_SIZE + 16 }}><Thumb src={thumbUrl} onClick={handleClick} /></td>
-      <td style={{ padding: '8px 14px', fontSize: 11, color: 'var(--ro-text-dim)', fontFamily: '"DM Sans"' }}>{it.skuCode}</td>
-      <td style={nameStyle} onClick={handleClick}>{it.productName}</td>
-      <td style={{ padding: '8px 14px', fontSize: 12, color: 'var(--ro-text)' }}>{it.quantity}</td>
-      <td style={{ padding: '8px 14px', fontSize: 11, color: 'var(--ro-text-dim)' }}>{it.sizes || '—'}</td>
+    <tr key={idx} className="ot-batch-table__row">
+      <td className="ot-batch-table__sku">{it.skuCode}</td>
+      <td className={`ot-batch-table__product${clickable ? ' ot-batch-table__product--link' : ''}`} onClick={handleClick}>{toTitleCase(it.productName)}</td>
+      <td className="ot-batch-table__qty">{it.quantity}</td>
+      <td className="ot-batch-table__sizes">{it.sizes || '—'}</td>
+      <td className="st-batch-table__route">{fromShop}</td>
+      <td className="st-batch-table__route">{toShop}</td>
     </tr>
+  )
+}
+
+function renderMobileItem(it, idx, onSkuClick, fromShop, toShop) {
+  const clickable = !!onSkuClick
+  const handleClick = clickable ? (e) => { e.stopPropagation(); onSkuClick(it.skuCode) } : undefined
+  const qty = it.totalQty ?? it.quantity ?? 0
+  const sizes = it.sizeBreakdown?.length
+    ? it.sizeBreakdown.map((b) => `${b.size}×${b.qty}`).join(', ')
+    : (it.sizes || '—')
+  return (
+    <div key={idx} className="st-mobile-item">
+      <div className="st-mobile-item__top">
+        <span
+          className={`st-mobile-item__product${clickable ? ' st-mobile-item__product--link' : ''}`}
+          onClick={handleClick}
+        >
+          {toTitleCase(it.productName)}
+        </span>
+        <span className="st-mobile-item__qty">{qty}</span>
+      </div>
+      <div className="st-mobile-item__meta">{it.skuCode} · {sizes}</div>
+      <div className="st-mobile-item__route">
+        <span>{fromShop}</span>
+        <span className="st-mobile-item__arrow" aria-hidden>→</span>
+        <span>{toShop}</span>
+      </div>
+    </div>
+  )
+}
+
+function StoreTransferTable({ batch, onSkuClick }) {
+  return (
+    <>
+      <div className="transfer-batch-table-wrap ot-batch-table-wrap st-batch-table-wrap">
+        <table className="ot-batch-table st-batch-table">
+          <thead>
+            <tr>
+              {['SKU', 'Product', 'Qty', 'Sizes', 'From', 'To'].map((h) => (
+                <th key={h}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {batch.items.map((it, idx) => renderItemRow(it, idx, onSkuClick, batch.fromShop, batch.toShop))}
+          </tbody>
+        </table>
+      </div>
+      <div className="st-mobile-item-list">
+        {batch.items.map((it, idx) => renderMobileItem(it, idx, onSkuClick, batch.fromShop, batch.toShop))}
+      </div>
+    </>
   )
 }
 
@@ -533,32 +615,16 @@ function CompletedSummary({ batch, getUserName, expanded: forceExpanded, onSkuCl
       </div>
 
       {!hasVerificationData && (
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 8 }}>
-            <thead>
-              <tr>
-                {['', 'SKU', 'Product', 'Qty', 'Sizes'].map((h) => (
-                  <th key={h || '_img'} style={{
-                    textAlign: 'left', padding: '6px 10px', fontSize: 9, fontWeight: 700,
-                    color: 'var(--ro-text-muted)', textTransform: 'uppercase', letterSpacing: '0.8px',
-                    borderBottom: '1px solid var(--ro-border)',
-                    ...(h === '' ? { width: THUMB_SIZE + 16 } : {}),
-                  }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {batch.items.map((it, idx) => renderItemRow(it, idx, photoMap, onSkuClick))}
-            </tbody>
-          </table>
-          <div style={{ fontSize: 10, color: 'var(--ro-text-muted)', fontStyle: 'italic', padding: '4px 10px' }}>
+        <>
+          <StoreTransferTable batch={batch} onSkuClick={onSkuClick} />
+          <div className="st-completed-note">
             Completed before item-level verification was available.
           </div>
-        </div>
+        </>
       )}
 
       {hasVerificationData && (forceExpanded || allItems.length <= 20) && (
-        <div style={{ overflowX: 'auto' }}>
+        <div className="transfer-batch-table-wrap">
           <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 8 }}>
             <thead>
               <tr>
@@ -650,15 +716,10 @@ function ExecIssueSummary({ issues, getUserName }) {
   }
 
   return (
-    <div style={{
-      background: 'rgba(255,85,85,0.04)', border: '1px solid rgba(255,85,85,0.15)',
-      borderRadius: 14, padding: '16px 20px', marginBottom: 16,
-    }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-        <AlertTriangle size={18} style={{ color: '#ff5555' }} />
-        <span style={{ fontSize: 14, fontWeight: 700, color: '#ff5555', fontFamily: '"DM Sans"' }}>
-          Missing Items Overview
-        </span>
+    <div className="st-issue-overview">
+      <div className="st-issue-overview__head">
+        <AlertTriangle size={18} className="st-issue-overview__icon" aria-hidden />
+        <span className="st-issue-overview__title">Missing Items Overview</span>
       </div>
       <div style={{ display: 'flex', gap: 20, marginBottom: 14, flexWrap: 'wrap' }}>
         <div style={{ textAlign: 'center' }}>
@@ -675,7 +736,7 @@ function ExecIssueSummary({ issues, getUserName }) {
         </div>
       </div>
       {allMissingItems.length > 0 && (
-        <div style={{ overflowX: 'auto' }}>
+        <div className="transfer-batch-table-wrap">
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr>
@@ -744,7 +805,6 @@ export function StoreTransfers() {
   const addNotification = useStore((s) => s.addNotification)
   const users = useStore((s) => s.users)
   const activeUser = useStore((s) => s.activeUser)
-  const photoMap = useStore((s) => s.photoMap)
   const myShop = activeUser?.shop || ''
   const isExec = activeUser?.role === 'executive'
 
@@ -801,264 +861,187 @@ export function StoreTransfers() {
 
   const tabs = isExec
     ? [
-        { key: 'incoming', label: `Active (${incoming.length})`, color: '#38bdf8' },
-        { key: 'issues', label: `Issues (${issues.length})`, color: '#ff5555' },
-        { key: 'history', label: `History (${history.length})`, color: '#00e676' },
+        { key: 'incoming', label: 'Active', count: incoming.length },
+        { key: 'issues', label: 'Issues', count: issues.length },
+        { key: 'history', label: 'History', count: history.length },
       ]
     : [
-        { key: 'incoming', label: `Incoming (${incoming.length})`, color: '#38bdf8' },
-        { key: 'outgoing', label: `Outgoing (${outgoing.length})`, color: '#c084fc' },
-        { key: 'history', label: `History (${history.length})`, color: '#00e676' },
+        { key: 'incoming', label: 'Incoming', count: incoming.length },
+        { key: 'outgoing', label: 'Outgoing', count: outgoing.length },
+        { key: 'history', label: 'History', count: history.length },
       ]
 
   const visible = tab === 'incoming' ? incoming : tab === 'outgoing' ? outgoing : tab === 'issues' ? issues : history
+  const emptyCopy = emptyStateCopy(tab, isExec, myShop)
+  const EmptyIcon = emptyCopy.icon
 
   return (
-    <div style={{ maxWidth: 700 }}>
+    <div className="store-transfers-page outlet-transfers-page">
       {toast && <SuccessToast message={toast} onDismiss={() => setToast(null)} />}
 
-      <div style={{ marginBottom: 20 }}>
-        <h2 style={{ fontFamily: '"DM Sans"', fontSize: 22, letterSpacing: '2px', color: 'var(--ro-heading)', margin: 0 }}>
-          STORE TRANSFERS
-        </h2>
-        <p style={{ fontSize: 12, color: 'var(--ro-text-muted)', margin: '4px 0 0' }}>
-          Products being moved between retail shops. Each day's transfers per destination are grouped into one batch.
-        </p>
-      </div>
+      <p className="ot-page-subtitle page-hero-mobile-hide">
+        Products being moved between retail shops. Each day&apos;s transfers per destination are grouped into one batch.
+      </p>
 
-      <button
-        type="button"
-        onClick={() => navigate('/new-transfer')}
-        style={{
-          display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 16px',
-          borderRadius: 8, border: 'none', background: '#ff3333', color: '#fff',
-          fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: '"DM Sans"', marginBottom: 16,
-        }}
-      >
-        <Truck size={14} /> New Transfer
+      <button type="button" className="ot-new-transfer-btn st-new-transfer-btn" onClick={() => navigate('/new-transfer')}>
+        <IconPlus size={14} strokeWidth={2} className="ot-new-transfer-btn__icon" />
+        New Transfer
       </button>
 
-      <div style={{ display: 'flex', gap: 8, marginBottom: 18, flexWrap: 'wrap' }}>
+      <div className="st-transfer-tabs">
         {tabs.map((t) => (
           <button
             key={t.key}
             type="button"
+            className={`st-transfer-tab${tab === t.key ? ' is-active' : ''}`}
             onClick={() => { setTab(t.key); setExpanded(null) }}
-            style={{
-              ...TAB_STYLE,
-              background: tab === t.key ? `${t.color}18` : 'transparent',
-              color: tab === t.key ? t.color : 'var(--ro-text-muted)',
-              borderColor: tab === t.key ? `${t.color}33` : 'var(--ro-border)',
-            }}
           >
-            {t.key === 'history' && <History size={12} style={{ marginRight: 4, verticalAlign: 'middle' }} />}
-            {t.label}
+            <span className="st-transfer-tab__label">{t.label}</span>
+            <span className="st-transfer-tab__count"> ({t.count})</span>
           </button>
         ))}
       </div>
 
-      {isExec && tab === 'issues' && issues.length > 0 && (
-        <ExecIssueSummary issues={issues} getUserName={getUserName} />
-      )}
+      <div className="st-transfer-panel">
+        {isExec && tab === 'issues' && issues.length > 0 && (
+          <ExecIssueSummary issues={issues} getUserName={getUserName} />
+        )}
 
-      {visible.length === 0 && (
-        <div
-          style={{
-            textAlign: 'center', padding: 48, background: 'var(--ro-surface)',
-            border: '1px solid var(--ro-border)', borderRadius: 14, color: 'var(--ro-text-muted)', fontSize: 14,
-          }}
-        >
-          {tab === 'issues'
-            ? 'No transfers with missing items.'
-            : tab === 'history'
-              ? 'No completed transfers yet.'
-              : `No ${tab} store transfers${myShop ? ` for ${myShop}` : ''} yet.`}
-        </div>
-      )}
+        {visible.length === 0 ? (
+          <div className="st-empty">
+            <EmptyIcon className="st-empty__icon" size={32} strokeWidth={1.5} aria-hidden />
+            <p className="st-empty__title">{emptyCopy.title}</p>
+            <p className={`st-empty__hint${emptyCopy.hintClass ? ` ${emptyCopy.hintClass}` : ''}`}>{emptyCopy.hint}</p>
+            {emptyCopy.showCta ? (
+              <button type="button" className="ot-new-transfer-btn st-empty__cta" onClick={() => navigate('/new-transfer')}>
+                <IconPlus size={14} strokeWidth={2} className="ot-new-transfer-btn__icon" />
+                New Transfer
+              </button>
+            ) : null}
+          </div>
+        ) : (
+          <div className="ot-batch-list">
+            {visible.map((batch) => {
+              const isExpanded = expanded === batch.id || (tab === 'issues' && expanded === null)
+              const status = batch.status || 'pending'
+              const totalUnits = batch.items.reduce((s, i) => s + (i.totalQty ?? i.quantity ?? 0), 0)
+              const isIncoming = isExec ? true : batch.toShop === myShop
+              const isInProgress = status === 'in_progress'
+              const isCompleted = status === 'completed' || status === 'received'
+              const isPending = status === 'pending'
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-        {visible.map((batch) => {
-          const isExpanded = expanded === batch.id || (tab === 'issues' && expanded === null)
-          const status = batch.status || 'pending'
-          const sc = STATUS_CONFIG[status] || STATUS_CONFIG.pending
-          const totalUnits = batch.items.reduce((s, i) => s + (i.totalQty ?? i.quantity ?? 0), 0)
-          const isIncoming = isExec ? true : batch.toShop === myShop
-          const directionLabel = isExec
-            ? `${batch.fromShop} → ${batch.toShop}`
-            : (isIncoming ? `From ${batch.fromShop}` : `To ${batch.toShop}`)
-          const accentColor = isIncoming ? '#38bdf8' : '#c084fc'
-          const isInProgress = status === 'in_progress'
-          const isCompleted = status === 'completed' || status === 'received'
-          const isPending = status === 'pending'
+              const statuses = batch.item_statuses || {}
+              const statusEntries = Object.values(statuses)
+              const hasVerification = isCompleted && statusEntries.length > 0 && statusEntries.some((v) => v.status)
+              const completedReceived = hasVerification
+                ? statusEntries.reduce((s, v) => s + (v.received ?? 0), 0)
+                : (isCompleted ? totalUnits : 0)
+              const completedMissing = hasVerification
+                ? statusEntries.reduce((s, v) => s + (v.missing ?? 0), 0)
+                : 0
+              const hasIssues = completedMissing > 0
+              const badge = batchStatusBadge(status, hasIssues)
 
-          const statuses = batch.item_statuses || {}
-          const statusEntries = Object.values(statuses)
-          const hasVerification = isCompleted && statusEntries.length > 0 && statusEntries.some((v) => v.status)
-          const completedReceived = hasVerification
-            ? statusEntries.reduce((s, v) => s + (v.received ?? 0), 0)
-            : (isCompleted ? totalUnits : 0)
-          const completedMissing = hasVerification
-            ? statusEntries.reduce((s, v) => s + (v.missing ?? 0), 0)
-            : 0
-          const hasIssues = completedMissing > 0
-
-          let borderColor = 'var(--ro-border)'
-          if (isPending) borderColor = `${accentColor}2e`
-          else if (isInProgress) borderColor = 'rgba(251,191,36,0.2)'
-          else if (isCompleted && hasIssues) borderColor = 'rgba(255,85,85,0.25)'
-          else if (isCompleted) borderColor = 'rgba(0,230,118,0.1)'
-
-          return (
-            <div
-              key={batch.id}
-              style={{
-                background: 'var(--ro-surface)',
-                border: `1px solid ${borderColor}`,
-                borderRadius: 14, overflow: 'hidden',
-              }}
-            >
-              <div
-                onClick={() => setExpanded(isExpanded ? null : batch.id)}
-                style={{ padding: '16px 18px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 14 }}
-              >
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ro-text)', marginBottom: 3 }}>
-                    {directionLabel} — {formatDate(batch.createdAt)}
-                  </div>
-                  <div style={{ fontSize: 11, color: 'var(--ro-text-muted)' }}>
-                    {batch.items.length} products · {totalUnits} units · by {getUserName(batch.createdBy)}
-                    {batch.assignedTo && <span> · assigned to {getUserName(batch.assignedTo)}</span>}
-                  </div>
-                  {batch.note && (
-                    <div style={{ fontSize: 10, color: 'var(--ro-text-dim)', marginTop: 2, fontStyle: 'italic' }}>{batch.note}</div>
-                  )}
-                  {isCompleted && (tab === 'history' || tab === 'issues') && (
-                    <div style={{ fontSize: 10, marginTop: 4, display: 'flex', gap: 12, alignItems: 'center' }}>
-                      {hasVerification ? (
-                        <>
-                          <span style={{ color: hasIssues ? '#fbbf24' : '#00e676' }}>{completedReceived} received</span>
-                          {hasIssues && (
-                            <span style={{ color: '#ff5555', display: 'flex', alignItems: 'center', gap: 3, fontWeight: 700 }}>
-                              <AlertTriangle size={11} /> {completedMissing} missing
-                            </span>
+              return (
+                <div key={batch.id} className={`ot-batch-card st-batch-card${tab === 'issues' && hasIssues ? ' st-batch-card--issue' : ''}`}>
+                  <div
+                    className="ot-batch-card__head"
+                    onClick={() => setExpanded(isExpanded ? null : batch.id)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        setExpanded(isExpanded ? null : batch.id)
+                      }
+                    }}
+                    role="button"
+                    tabIndex={0}
+                  >
+                    <div className="ot-batch-card__info">
+                      <div className="ot-batch-card__title">Transfer — {formatDate(batch.createdAt)}</div>
+                      <div className="ot-batch-card__meta">
+                        {batch.items.length} products · {totalUnits} units · by {getUserName(batch.createdBy)}
+                        {batch.assignedTo && <span> · assigned to {getUserName(batch.assignedTo)}</span>}
+                        {!isExec && (
+                          <span> · {isIncoming ? `from ${batch.fromShop}` : `to ${batch.toShop}`}</span>
+                        )}
+                      </div>
+                      {batch.note && <div className="ot-batch-card__note">{batch.note}</div>}
+                      {isCompleted && (tab === 'history' || tab === 'issues') && (
+                        <div className="st-batch-card__summary">
+                          {hasVerification ? (
+                            <>
+                              <span className={hasIssues ? 'st-batch-card__summary-warn' : 'st-batch-card__summary-ok'}>
+                                {completedReceived} received
+                              </span>
+                              {hasIssues && (
+                                <span className="st-batch-card__summary-missing">
+                                  <AlertTriangle size={11} /> {completedMissing} missing
+                                </span>
+                              )}
+                            </>
+                          ) : (
+                            <span className="st-batch-card__summary-muted">{totalUnits} units — no verification data</span>
                           )}
-                        </>
-                      ) : (
-                        <span style={{ color: 'var(--ro-text-dim)' }}>{totalUnits} units — no verification data</span>
+                        </div>
                       )}
-                      {batch.receivedAt && <span style={{ color: 'var(--ro-text-muted)' }}>{formatDate(batch.receivedAt)}</span>}
                     </div>
-                  )}
-                </div>
-                <span
-                  style={{
-                    fontSize: 9, fontWeight: 700, textTransform: 'uppercase',
-                    padding: '3px 8px', borderRadius: 4, whiteSpace: 'nowrap',
-                    background: (isCompleted && hasIssues) ? 'rgba(255,85,85,0.12)' : sc.bg,
-                    color: (isCompleted && hasIssues) ? '#ff5555' : sc.color,
-                  }}
-                >
-                  {(isCompleted && hasIssues) ? 'Has Issues' : sc.label}
-                </span>
-                <ChevronDown
-                  size={16}
-                  style={{ color: 'var(--ro-text-muted)', transform: isExpanded ? 'rotate(180deg)' : '', transition: 'transform 0.2s', flexShrink: 0 }}
-                />
-              </div>
-
-              {isExpanded && (
-                <div style={{ borderTop: '1px solid var(--ro-border)' }}>
-                  {(isPending || (!isInProgress && !isCompleted)) && (
-                    <div style={{ overflowX: 'auto' }}>
-                      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                        <thead>
-                          <tr>
-                            {['', 'SKU', 'Product', 'Qty', 'Sizes'].map((h) => (
-                              <th
-                                key={h || '_img'}
-                                style={{
-                                  textAlign: 'left', padding: '8px 14px', fontSize: 9, fontWeight: 700,
-                                  color: 'var(--ro-text-muted)', textTransform: 'uppercase', letterSpacing: '0.8px',
-                                  borderBottom: '1px solid var(--ro-border)',
-                                  ...(h === '' ? { width: THUMB_SIZE + 16 } : {}),
-                                }}
-                              >
-                                {h}
-                              </th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {batch.items.map((it, idx) => renderItemRow(it, idx, photoMap, handleSkuClick))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-
-                  {isInProgress && isIncoming && tab !== 'history' && (
-                    <ReceivingPanel
-                      batch={batch}
-                      onUpdate={handleTransferUpdate}
-                      onCompleted={handleTransferCompleted}
-                      onSkuClick={handleSkuClick}
-                    />
-                  )}
-
-                  {isInProgress && !isIncoming && (
-                    <div style={{ overflowX: 'auto' }}>
-                      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                        <thead>
-                          <tr>
-                            {['', 'SKU', 'Product', 'Qty', 'Sizes'].map((h) => (
-                              <th key={h || '_img'} style={{ textAlign: 'left', padding: '8px 14px', fontSize: 9, fontWeight: 700, color: 'var(--ro-text-muted)', textTransform: 'uppercase', letterSpacing: '0.8px', borderBottom: '1px solid var(--ro-border)', ...(h === '' ? { width: THUMB_SIZE + 16 } : {}) }}>{h}</th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody>{batch.items.map((it, idx) => renderItemRow(it, idx, photoMap, handleSkuClick))}</tbody>
-                      </table>
-                    </div>
-                  )}
-
-                  {isCompleted && <CompletedSummary batch={batch} getUserName={getUserName} expanded={tab === 'history'} onSkuClick={handleSkuClick} />}
-
-                  <div style={{ display: 'flex', gap: 8, padding: '12px 18px', borderTop: '1px solid var(--ro-border)', flexWrap: 'wrap' }}>
-                    {isPending && isIncoming && (
-                      <button
-                        type="button"
-                        onClick={() => handleMarkReceived(batch)}
-                        style={{ ...BTN, background: '#fbbf24', color: '#09090e' }}
-                      >
-                        <PackageCheck size={13} style={{ marginRight: 4, verticalAlign: 'middle' }} />
-                        Mark as Received
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => downloadCSV(batch)}
-                      style={{ ...BTN, border: '1px solid var(--ro-border-hover)', background: 'none', color: 'var(--ro-text-dim)' }}
-                    >
-                      <Download size={12} style={{ marginRight: 4, verticalAlign: 'middle' }} />
-                      CSV
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => printBatch(batch, getUserName(batch.createdBy))}
-                      style={{ ...BTN, border: '1px solid var(--ro-border-hover)', background: 'none', color: 'var(--ro-text-dim)' }}
-                    >
-                      <Printer size={12} style={{ marginRight: 4, verticalAlign: 'middle' }} />
-                      PDF / Print
-                    </button>
-                    {batch.receivedAt && (
-                      <span style={{ fontSize: 10, color: 'var(--ro-text-muted)', marginLeft: 'auto', alignSelf: 'center' }}>
-                        Received {formatDate(batch.receivedAt)}
-                      </span>
-                    )}
+                    <span className={badge.className}>{badge.label}</span>
+                    <span className={`ot-batch-card__chevron${isExpanded ? ' ot-batch-card__chevron--expanded' : ''}`} aria-hidden>
+                      ▼
+                    </span>
                   </div>
+
+                  {isExpanded && (
+                    <div className="ot-batch-card__body">
+                      {(isPending || (!isInProgress && !isCompleted)) && (
+                        <StoreTransferTable batch={batch} onSkuClick={handleSkuClick} />
+                      )}
+
+                      {isInProgress && isIncoming && tab !== 'history' && (
+                        <ReceivingPanel
+                          batch={batch}
+                          onUpdate={handleTransferUpdate}
+                          onCompleted={handleTransferCompleted}
+                          onSkuClick={handleSkuClick}
+                        />
+                      )}
+
+                      {isInProgress && !isIncoming && (
+                        <StoreTransferTable batch={batch} onSkuClick={handleSkuClick} />
+                      )}
+
+                      {isCompleted && (
+                        <CompletedSummary batch={batch} getUserName={getUserName} expanded={tab === 'history'} onSkuClick={handleSkuClick} />
+                      )}
+
+                      <div className="ot-batch-card__footer transfer-batch-actions">
+                        {isPending && isIncoming && (
+                          <button type="button" className="ot-mark-received-btn" onClick={() => handleMarkReceived(batch)}>
+                            Mark as Received
+                          </button>
+                        )}
+                        <button type="button" className="ot-export-btn" onClick={() => downloadCSV(batch)}>
+                          <IconDownload size={12} strokeWidth={1.75} className="ot-export-btn__icon" />
+                          CSV
+                        </button>
+                        <button type="button" className="ot-export-btn" onClick={() => printBatch(batch, getUserName(batch.createdBy))}>
+                          <IconPrint size={12} strokeWidth={1.75} className="ot-export-btn__icon" />
+                          PDF / Print
+                        </button>
+                        {batch.receivedAt && (
+                          <span className="ot-batch-card__received">
+                            <span className="ot-batch-card__received-dot" aria-hidden>●</span>
+                            Received {formatDate(batch.receivedAt)}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
-          )
-        })}
+              )
+            })}
+          </div>
+        )}
       </div>
 
       {detailSku && (() => {

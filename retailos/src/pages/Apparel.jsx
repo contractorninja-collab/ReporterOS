@@ -1,12 +1,26 @@
-import { useState, useMemo } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { useStore } from '../store/useStore'
 import { getSellThrough, getLifecycleStatus } from '../utils/lifecycle'
 import { aggregateSkus } from '../utils/aggregateSkus'
 import KpiCard from '../components/KpiCard'
 import { IconApparel } from '../utils/icons.js'
 import { isExecutive } from '../utils/roles.js'
+import { toTitleCase } from '../utils/textFormat.js'
+import * as api from '../api/client'
 
 const CATS = ['All', 'Tops', 'Bottoms', 'Outerwear', 'Underwear']
+const PRODUCT_TYPE_FILTERS = [
+  { key: 'all', label: 'All types' },
+  { key: 'tshirt', label: 'T-shirts' },
+  { key: 'shorts', label: 'Shorts' },
+  { key: 'pants', label: 'Pants' },
+  { key: 'skirt', label: 'Skirts' },
+  { key: 'hoodie', label: 'Hoodies' },
+  { key: 'jacket', label: 'Jackets' },
+  { key: 'dress', label: 'Dresses' },
+  { key: 'swimwear', label: 'Swimwear' },
+  { key: 'other', label: 'Other' },
+]
 
 const categories = [
   {
@@ -76,17 +90,91 @@ function matchesApparelSubcategory(sku, catFilter) {
   }
 }
 
+function productTypeFromText(sku) {
+  const hay = `${sku.product_name || ''} ${sku.category || ''} ${sku.sku || ''}`.toLowerCase()
+  if (/short|sho\b|sh\b/.test(hay)) return 'shorts'
+  if (/skirt|\bski\b/.test(hay)) return 'skirt'
+  if (/pant|trouser|jogger|legging|tight/.test(hay)) return 'pants'
+  if (/hoodie|hoody|sweater|sweatshirt|crew|crw|fleece|ft hd/.test(hay)) return 'hoodie'
+  if (/jacket|coat|track jacket|windbreaker|bomber|gilet|vest/.test(hay)) return 'jacket'
+  if (/dress|\bdre\b/.test(hay)) return 'dress'
+  if (/swim|breaker/.test(hay)) return 'swimwear'
+  if (/tee|shirt|t-shirt|tshirt|top|polo|tank/.test(hay)) return 'tshirt'
+  return 'other'
+}
+
+function productTypeForSku(sku, productTypeMap) {
+  return productTypeMap?.[sku.sku]?.product_type || productTypeFromText(sku)
+}
+
+function sellThroughThresholdClass(pct) {
+  const n = Number(pct) || 0
+  if (n >= 40) return 'catalog-threshold--good'
+  if (n >= 20) return 'catalog-threshold--mid'
+  return 'catalog-threshold--bad'
+}
+
+function catalogCardSlug(name) {
+  return String(name || '')
+    .toLowerCase()
+    .replace(/&/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
+}
+
 export function Apparel() {
   const [catFilter, setCatFilter] = useState('All')
+  const [typeFilter, setTypeFilter] = useState('all')
+  const [productTypeMap, setProductTypeMap] = useState({})
+  const [isClassifying, setIsClassifying] = useState(false)
+  const [classificationStatus, setClassificationStatus] = useState('')
   const skus = useStore((s) => s.skus)
   const activeUser = useStore((s) => s.activeUser)
   const exec = isExecutive(activeUser)
 
+  useEffect(() => {
+    let cancelled = false
+    api.fetchProductTypeLabels()
+      .then((labels) => {
+        if (!cancelled && labels && typeof labels === 'object') setProductTypeMap(labels)
+      })
+      .catch(() => {
+        if (!cancelled) setProductTypeMap({})
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
   const products = useMemo(() => aggregateSkus(skus), [skus])
 
   const apparelSkus = products
-    .filter((s) => String(s.category || '').toLowerCase() === 'apparel')
+    .filter((s) => {
+      const cat = String(s.category || '').toLowerCase()
+      return cat === 'apparel' || cat === 'app'
+    })
     .filter((s) => matchesApparelSubcategory(s, catFilter))
+    .filter((s) => typeFilter === 'all' || productTypeForSku(s, productTypeMap) === typeFilter)
+
+  const classifyMissingTypes = async () => {
+    if (isClassifying) return
+    setIsClassifying(true)
+    setClassificationStatus('')
+    try {
+      const result = await api.classifyProductTypesBulk({ limit: 10 })
+      if (result?.labels) setProductTypeMap(result.labels)
+      const processed = Number(result?.processed) || 0
+      setClassificationStatus(
+        result?.status === 'missing_api_key'
+          ? `No OpenAI key found. Used cached/fallback labels for ${processed} SKU(s).`
+          : `Classified ${processed} SKU(s).`,
+      )
+    } catch (e) {
+      setClassificationStatus(e?.message || 'Classification failed')
+    } finally {
+      setIsClassifying(false)
+    }
+  }
 
   let sellSum = 0
   let slowMovers = 0
@@ -137,8 +225,6 @@ export function Apparel() {
     return { c, count, avg, atRisk }
   })
 
-  const maxCategoryAvg = Math.max(0, ...categoryCardStats.map((x) => x.avg))
-
   const largestCategoryName = useMemo(() => {
     if (!categoryCardStats.length) return '—'
     const top = categoryCardStats.reduce((a, b) => (b.count > a.count ? b : a))
@@ -147,234 +233,164 @@ export function Apparel() {
 
   return (
     <div
+      className="catalog-page"
       data-sku-count={products.length}
       data-apparel-count={n}
       data-apparel-avg-sellthrough={avgSellThrough}
       data-apparel-slow-movers={slowMovers}
     >
-      {/* SECTION 1 — Header with category pills */}
-      <div
-        className="fade-up delay-1"
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          marginBottom: '14px',
-          flexWrap: 'wrap',
-          gap: '12px',
-        }}
-      >
-        <div
-          style={{
-            fontFamily: '"DM Sans"',
-            fontSize: '16px',
-            letterSpacing: '2px',
-            color: 'var(--ro-heading)',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-          }}
-        >
-          <div
-            style={{
-              width: '6px',
-              height: '6px',
-              borderRadius: '50%',
-              background: '#c084fc',
-              animation: 'blink 2s infinite',
-            }}
-          />
-          APPAREL CATALOG
-        </div>
-
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', alignItems: 'center' }}>
+      <div className="fade-up delay-1 catalog-page-header">
+        <div className="catalog-filter-chips">
           {CATS.map((c) => {
             const active = catFilter === c
             return (
               <button
                 key={c}
                 type="button"
+                className={`catalog-filter-chip${active ? ' is-active' : ''}`}
                 onClick={() => setCatFilter(c)}
-                style={{
-                  padding: '5px 12px',
-                  borderRadius: '8px',
-                  fontSize: '11px',
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                  fontFamily: '"DM Sans"',
-                  border: active ? '1px solid rgba(192,132,252,0.35)' : '1px solid var(--ro-border)',
-                  background: active ? 'rgba(192,132,252,0.12)' : 'var(--ro-surface-elevated)',
-                  color: active ? '#c084fc' : 'var(--ro-text-dim)',
-                  transition: 'all 0.18s',
-                }}
               >
                 {c}
               </button>
             )
           })}
+          {PRODUCT_TYPE_FILTERS.map((t) => {
+            const active = typeFilter === t.key
+            return (
+              <button
+                key={t.key}
+                type="button"
+                className={`catalog-filter-chip${active ? ' is-active' : ''}`}
+                onClick={() => setTypeFilter(t.key)}
+              >
+                {t.label}
+              </button>
+            )
+          })}
+          {exec && (
+            <button
+              type="button"
+              className="catalog-filter-chip catalog-filter-chip--action"
+              onClick={classifyMissingTypes}
+              disabled={isClassifying}
+            >
+              {isClassifying ? 'Classifying...' : 'AI classify'}
+            </button>
+          )}
         </div>
       </div>
+      {classificationStatus && (
+        <div className="catalog-classify-status">{classificationStatus}</div>
+      )}
 
-      {/* SECTION 2 — 4 KPI cards */}
-      <div
-        className="fade-up delay-2"
-        style={{
-          display: 'grid',
-          gridTemplateColumns: exec ? 'repeat(4, 1fr)' : 'repeat(3, 1fr)',
-          gap: '12px',
-          marginBottom: '22px',
-        }}
-      >
+      <div className={`fade-up delay-2 catalog-kpi-grid${exec ? '' : ' catalog-kpi-grid--3'}`}>
         <KpiCard
-          label="Total Apparel SKUs"
+          className="catalog-kpi-tile catalog-kpi-tile--total"
+          label="Total SKUs"
           value={n}
           sub={catFilter === 'All' ? 'All categories' : catFilter}
-          accentColor="#c084fc"
+          accentColor="#60A5FA"
         />
         {exec ? (
           <>
             <KpiCard
-              label="Avg Sell-Through"
+              className={`catalog-kpi-tile catalog-kpi-tile--sellthrough ${sellThroughThresholdClass(avgSellThrough)}`}
+              label="Avg sell-through"
               value={n ? `${avgSellThrough}%` : '—'}
               sub="Filtered range"
-              accentColor="#00e676"
+              accentColor="#34D399"
             />
             <KpiCard
-              label="Female Bestseller"
+              className="catalog-kpi-tile catalog-kpi-tile--highlight"
+              label="Female bestseller"
               value={femaleBestsellerPct != null ? `${femaleBestsellerPct}%` : '—'}
               sub="Top F sell-through"
-              accentColor="#f472b6"
+              accentColor="#FBBF24"
             />
           </>
         ) : (
           <KpiCard
+            className="catalog-kpi-tile catalog-kpi-tile--highlight catalog-kpi-tile--compact-value"
             label="Largest group"
             value={largestCategoryName}
             sub="By SKU count in filter"
-            accentColor="#a78bfa"
+            accentColor="#FBBF24"
           />
         )}
         <KpiCard
-          label="Slow Movers"
+          className="catalog-kpi-tile catalog-kpi-tile--alert"
+          label="Slow movers"
           value={slowMovers}
           sub="Aging + risk"
-          accentColor="#ff3333"
+          accentColor="#F87171"
         />
       </div>
 
-      {/* SECTION 3 — Category breakdown cards (3 columns) */}
-      <div
-        className="fade-up delay-3"
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(3, 1fr)',
-          gap: '12px',
-          marginBottom: '22px',
-        }}
-      >
-        {categoryCardStats.map(({ c, count, avg, atRisk }) => {
-          const isTopPerformer = avg === maxCategoryAvg && maxCategoryAvg > 0
-          return (
-            <div
-              key={c.name}
-              style={{
-                background: 'var(--ro-surface)',
-                border: isTopPerformer
-                  ? '1px solid rgba(192,132,252,0.45)'
-                  : '1px solid var(--ro-border)',
-                borderRadius: '13px',
-                overflow: 'hidden',
-                cursor: 'pointer',
-                transition: 'all 0.18s',
-                boxShadow: isTopPerformer ? '0 0 0 1px rgba(192,132,252,0.15)' : undefined,
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.transform = 'translateY(-3px)'
-                e.currentTarget.style.borderColor = isTopPerformer
-                  ? 'rgba(192,132,252,0.55)'
-                  : 'var(--ro-border-hover)'
-                e.currentTarget.style.boxShadow = '0 12px 30px rgba(0,0,0,0.3)'
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.transform = ''
-                e.currentTarget.style.borderColor = isTopPerformer
-                  ? 'rgba(192,132,252,0.45)'
-                  : 'var(--ro-border)'
-                e.currentTarget.style.boxShadow = isTopPerformer ? '0 0 0 1px rgba(192,132,252,0.15)' : ''
-              }}
-            >
+      {n === 0 ? (
+        <div className="catalog-empty fade-up delay-3">
+          <IconApparel className="catalog-empty__icon" size={32} strokeWidth={1.5} aria-hidden />
+          <p className="catalog-empty__title">No brands found</p>
+          <p className="catalog-empty__hint">Try selecting a different filter above.</p>
+        </div>
+      ) : (
+        <div className="fade-up delay-3 catalog-card-grid catalog-card-grid--3">
+          {categoryCardStats.map(({ c, count, avg, atRisk }) => {
+            const thresholdClass = sellThroughThresholdClass(avg)
+            const cardSlug = catalogCardSlug(c.name)
+            const cardInitial = String(c.name || '?').charAt(0).toUpperCase()
+            return (
               <div
-                style={{
-                  height: '110px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontSize: '46px',
-                  background: c.gradient,
-                }}
+                key={c.name}
+                className="catalog-card"
+                data-card={cardSlug}
               >
-                <IconApparel size={40} strokeWidth={1.5} color="var(--ro-heading)" />
-              </div>
+                <div className="catalog-card__header" data-card={cardSlug}>
+                  <span className="catalog-card__initial" aria-hidden="true">{cardInitial}</span>
+                </div>
 
-              <div style={{ padding: '13px' }}>
-                <div
-                  style={{
-                    fontFamily: '"DM Sans"',
-                    fontSize: '17px',
-                    letterSpacing: '1.5px',
-                    color: 'var(--ro-heading)',
-                    marginBottom: '2px',
-                  }}
-                >
-                  {c.name}
-                </div>
-                <div style={{ fontSize: '11px', color: 'var(--ro-text-muted)', marginBottom: '4px' }}>
-                  {count} SKUs · Apparel
-                </div>
-                <div style={{ fontSize: '10px', color: 'var(--ro-text-muted)', marginBottom: '8px' }}>{c.desc}</div>
-                {exec ? (
-                  <>
-                    <div style={{ height: '4px', background: 'var(--ro-surface-elevated)', borderRadius: '2px', overflow: 'hidden' }}>
-                      <div
-                        style={{
-                          height: '100%',
-                          borderRadius: '2px',
-                          background: c.barColor,
-                          width: `${avg}%`,
-                        }}
-                      />
-                    </div>
-                    <div
-                      style={{
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        marginTop: '8px',
-                        fontSize: '10px',
-                        color: 'var(--ro-text-muted)',
-                      }}
-                    >
-                      <span>{avg}% avg sell-through</span>
-                      <span style={{ color: atRisk > 5 ? '#ff3333' : '#fbbf24' }}>{atRisk} at risk</span>
-                    </div>
-                  </>
-                ) : (
-                  <div
-                    style={{
-                      display: 'flex',
-                      justifyContent: 'flex-end',
-                      marginTop: '8px',
-                      fontSize: '10px',
-                      color: 'var(--ro-text-muted)',
-                    }}
-                  >
-                    <span style={{ color: atRisk > 5 ? '#ff3333' : '#fbbf24' }}>{atRisk} at risk</span>
+                <div className="catalog-card__body">
+                  <div className="catalog-card__name">{toTitleCase(c.name)}</div>
+                  <div className="catalog-card__meta">
+                    {count} SKUs · Apparel
                   </div>
-                )}
+                  <div className="catalog-card__desc">{c.desc}</div>
+                  {exec ? (
+                    <>
+                      <div className="catalog-card__bar">
+                        <div
+                          className={`catalog-card__bar-fill ${thresholdClass}`}
+                          style={{ width: `${avg}%` }}
+                        />
+                      </div>
+                      <div className="catalog-card__stats">
+                        <div className="catalog-stat-chip">
+                          <span className={`catalog-stat-chip__val ${thresholdClass}`}>{avg}%</span>
+                          <span className="catalog-stat-chip__label">avg sell-through</span>
+                        </div>
+                        <div className="catalog-stat-chip catalog-stat-chip--right">
+                          <span className={`catalog-stat-chip__val${atRisk > 0 ? ' catalog-stat-chip__val--risk' : ' catalog-stat-chip__val--zero'}`}>
+                            {atRisk}
+                          </span>
+                          <span className="catalog-stat-chip__label">at risk</span>
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="catalog-card__stats">
+                      <div className="catalog-stat-chip catalog-stat-chip--right catalog-stat-chip--solo">
+                        <span className={`catalog-stat-chip__val${atRisk > 0 ? ' catalog-stat-chip__val--risk' : ' catalog-stat-chip__val--zero'}`}>
+                          {atRisk}
+                        </span>
+                        <span className="catalog-stat-chip__label">at risk</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
-            </div>
-          )
-        })}
-      </div>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }

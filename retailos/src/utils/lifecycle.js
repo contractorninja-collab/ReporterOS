@@ -34,14 +34,28 @@ export function getDaysInStore(importDate) {
 }
 
 /**
+ * Short display date for import lines (matches ProductDetailModal arrival formatting).
+ * @param {string|Date|null|undefined} value
+ * @returns {string}
+ */
+export function formatShortImportDate(value) {
+  if (value == null || value === '') return '—'
+  const d = value instanceof Date ? value : new Date(value)
+  if (Number.isNaN(d.getTime())) return '—'
+  return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+}
+
+/**
  * Get sell-through percentage.
- * @param {number} soldQty - Units sold
- * @param {number} totalQty - Total units
+ * @param {number} netQtySold - Signed net units sold for this SKU (pre-calculated; returns negative; do not re-sum rows here)
+ * @param {number} totalQtyImported - Total quantity from the import/stock record (denominator; unchanged)
  * @returns {number} 0–100
  */
-export function getSellThrough(soldQty, totalQty) {
-  if (totalQty <= 0) return 0
-  return Math.min(100, (soldQty / totalQty) * 100)
+export function getSellThrough(netQtySold, totalQtyImported) {
+  const total = Number(totalQtyImported) || 0
+  if (total <= 0) return 0
+  const net = Math.max(0, Number(netQtySold) || 0)
+  return Math.min(100, (net / total) * 100)
 }
 
 /**

@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Product Lookup — Filter Toolbar Preview</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: #09090e;
+    font-family: "DM Sans", system-ui, sans-serif;
+    color: #e4e4f0;
+    min-height: 100vh;
+    padding: 40px 32px;
+  }
+
+  .page-heading {
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 3px;
+    color: #fff;
+    margin-bottom: 20px;
+    text-transform: uppercase;
+  }
+
+  .pl-filter-shell {
+    background: #111117;
+    border: 1px solid rgba(255,255,255,0.075);
+    border-radius: 18px;
+    overflow: visible;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.22), 0 18px 48px rgba(0,0,0,0.22);
+    max-width: 1080px;
+  }
+
+  .pl-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 14px;
+    flex-wrap: wrap;
+  }
+
+  .pl-mode-group {
+    display: inline-flex;
+    background: rgba(0,0,0,0.22);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 999px;
+    padding: 3px;
+    gap: 2px;
+  }
+  .pl-mode-btn {
+    padding: 6px 14px;
+    border-radius: 999px;
+    border: none;
+    background: transparent;
+    color: rgba(144,144,170,0.78);
+    font-family: inherit;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    letter-spacing: 0.02em;
+  }
+  .pl-mode-btn.is-active {
+    background: linear-gradient(135deg, rgba(192,132,252,0.28), rgba(56,189,248,0.14));
+    color: #c084fc;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.22);
+  }
+
+  .pl-search-wrap {
+    flex: 1;
+    min-width: 220px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(0,0,0,0.2);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 999px;
+    padding: 0 6px 0 14px;
+  }
+  .pl-search-icon { color: rgba(144,144,170,0.5); font-size: 13px; }
+  .pl-search-input {
+    flex: 1;
+    background: transparent; border: none; outline: none;
+    color: #e4e4f0; font: inherit; font-size: 12px; padding: 9px 0;
+  }
+  .pl-search-input::placeholder { color: rgba(144,144,170,0.4); }
+  .pl-search-go {
+    padding: 6px 14px;
+    border-radius: 999px; border: none;
+    background: linear-gradient(135deg, #c084fc, #38bdf8);
+    color: #09090e; font: inherit; font-size: 11px; font-weight: 700;
+    cursor: pointer;
+  }
+
+  .pl-menus {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .pl-menu { position: relative; }
+  .pl-menu__trigger {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 7px 12px 7px 13px;
+    border-radius: 10px;
+    border: 1px solid rgba(255,255,255,0.075);
+    background: rgba(255,255,255,0.045);
+    color: #e4e4f0;
+    font: inherit; font-size: 11px; font-weight: 600;
+    cursor: pointer;
+  }
+  .pl-menu__label {
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+    color: rgba(144,144,170,0.7);
+  }
+  .pl-menu__caret {
+    width: 6px; height: 6px;
+    border-right: 1.5px solid #9090aa;
+    border-bottom: 1.5px solid #9090aa;
+    transform: translateY(-1px) rotate(45deg);
+    transition: transform 140ms ease, border-color 140ms ease;
+  }
+  .pl-menu.has-value .pl-menu__trigger {
+    border-color: rgba(56,189,248,0.45);
+    background: linear-gradient(135deg, rgba(56,189,248,0.14), rgba(56,189,248,0.04));
+  }
+  .pl-menu.has-value .pl-menu__label,
+  .pl-menu.has-value .pl-menu__value { color: #38bdf8; }
+  .pl-menu.has-value .pl-menu__caret { border-color: #38bdf8; }
+
+  .pl-menu--teal.has-value .pl-menu__trigger {
+    border-color: rgba(45,212,191,0.45);
+    background: linear-gradient(135deg, rgba(45,212,191,0.14), rgba(45,212,191,0.04));
+  }
+  .pl-menu--teal.has-value .pl-menu__label,
+  .pl-menu--teal.has-value .pl-menu__value { color: #2dd4bf; }
+  .pl-menu--teal.has-value .pl-menu__caret { border-color: #2dd4bf; }
+
+  .pl-menu.is-open .pl-menu__caret { transform: translateY(2px) rotate(225deg); }
+
+  .pl-menu__panel {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    min-width: 180px;
+    padding: 6px;
+    background: #17171f;
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 12px;
+    box-shadow: 0 20px 48px rgba(0,0,0,0.5);
+    z-index: 50;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .pl-menu__option {
+    display: flex; align-items: center; gap: 9px;
+    padding: 7px 10px;
+    border-radius: 8px;
+    border: none; background: transparent;
+    color: #9090aa;
+    font: inherit; font-size: 12px;
+    cursor: pointer; text-align: left;
+  }
+  .pl-menu__option:hover { background: rgba(255,255,255,0.05); color: #e4e4f0; }
+  .pl-menu__option.is-selected { background: rgba(56,189,248,0.1); color: #38bdf8; }
+  .pl-menu__option-dot {
+    width: 6px; height: 6px; border-radius: 999px;
+    background: rgba(144,144,170,0.3);
+  }
+  .pl-menu__option.is-selected .pl-menu__option-dot {
+    background: currentColor;
+    box-shadow: 0 0 0 3px rgba(56,189,248,0.18);
+  }
+
+  .pl-ai-btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 7px 12px;
+    border-radius: 10px;
+    border: 1px solid rgba(192,132,252,0.34);
+    background: linear-gradient(135deg, rgba(192,132,252,0.2), rgba(236,72,153,0.08));
+    color: #c084fc;
+    font: inherit; font-size: 11px; font-weight: 700;
+    cursor: pointer;
+    letter-spacing: 0.04em;
+  }
+  .pl-ai-btn__icon { font-size: 10px; }
+
+  .pl-active-bar {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 14px;
+    border-top: 1px solid rgba(255,255,255,0.05);
+    background: rgba(255,255,255,0.022);
+    flex-wrap: wrap;
+  }
+  .pl-active-bar__label {
+    font-size: 9px; font-weight: 800; letter-spacing: 0.14em;
+    text-transform: uppercase; color: rgba(144,144,170,0.7);
+  }
+  .pl-active-bar__pills {
+    display: flex; align-items: center; gap: 6px; flex-wrap: wrap; flex: 1;
+  }
+  .pl-active-pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 4px 4px 4px 10px;
+    border-radius: 999px;
+    border: 1px solid rgba(56,189,248,0.38);
+    background: linear-gradient(135deg, rgba(56,189,248,0.16), rgba(56,189,248,0.05));
+    font-size: 11px; font-weight: 600;
+  }
+  .pl-active-pill--teal {
+    border-color: rgba(45,212,191,0.38);
+    background: linear-gradient(135deg, rgba(45,212,191,0.16), rgba(45,212,191,0.05));
+  }
+  .pl-active-pill--teal .pl-active-pill__value { color: #2dd4bf; }
+  .pl-active-pill__group {
+    font-size: 9px; font-weight: 800; letter-spacing: 0.12em;
+    text-transform: uppercase; color: rgba(144,144,170,0.85);
+  }
+  .pl-active-pill__value { color: #38bdf8; }
+  .pl-active-pill__x {
+    width: 18px; height: 18px;
+    display: inline-flex; align-items: center; justify-content: center;
+    border-radius: 999px; border: none;
+    background: rgba(255,255,255,0.07);
+    color: #9090aa; font-size: 13px; line-height: 1; cursor: pointer;
+  }
+  .pl-active-bar__clear {
+    margin-left: auto;
+    padding: 5px 10px;
+    border-radius: 999px;
+    border: 1px solid rgba(255,255,255,0.08);
+    background: transparent;
+    color: #9090aa;
+    font: inherit; font-size: 10px; font-weight: 700;
+    letter-spacing: 0.06em; text-transform: uppercase;
+    cursor: pointer;
+  }
+
+  .note {
+    margin-top: 24px;
+    font-size: 11px;
+    color: rgba(144,144,170,0.45);
+    max-width: 1080px;
+  }
+</style>
+</head>
+<body>
+
+<div class="page-heading">Product Lookup — toolbar preview</div>
+
+<div class="pl-filter-shell">
+
+  <div class="pl-toolbar">
+    <div class="pl-mode-group">
+      <button class="pl-mode-btn" type="button">Search</button>
+      <button class="pl-mode-btn is-active" type="button">All inventory</button>
+    </div>
+
+    <div class="pl-search-wrap">
+      <span class="pl-search-icon">⌕</span>
+      <input class="pl-search-input" type="text" placeholder="Name or SKU…" />
+      <button class="pl-search-go" type="button">Go</button>
+    </div>
+
+    <div class="pl-menus">
+
+      <!-- Brand: default -->
+      <div class="pl-menu">
+        <button class="pl-menu__trigger" type="button">
+          <span class="pl-menu__label">Brand</span>
+          <span class="pl-menu__value">All</span>
+          <span class="pl-menu__caret"></span>
+        </button>
+      </div>
+
+      <!-- Category: with value -->
+      <div class="pl-menu has-value">
+        <button class="pl-menu__trigger" type="button">
+          <span class="pl-menu__label">Category</span>
+          <span class="pl-menu__value">Footwear</span>
+          <span class="pl-menu__caret"></span>
+        </button>
+      </div>
+
+      <!-- Type: open -->
+      <div class="pl-menu pl-menu--teal has-value is-open">
+        <button class="pl-menu__trigger" type="button">
+          <span class="pl-menu__label">Type</span>
+          <span class="pl-menu__value">Shoes</span>
+          <span class="pl-menu__caret"></span>
+        </button>
+        <div class="pl-menu__panel">
+          <button class="pl-menu__option" type="button"><span class="pl-menu__option-dot"></span><span>All types</span></button>
+          <button class="pl-menu__option" type="button"><span class="pl-menu__option-dot"></span><span>T-shirts</span></button>
+          <button class="pl-menu__option" type="button"><span class="pl-menu__option-dot"></span><span>Shorts</span></button>
+          <button class="pl-menu__option is-selected" type="button"><span class="pl-menu__option-dot"></span><span>Shoes</span></button>
+          <button class="pl-menu__option" type="button"><span class="pl-menu__option-dot"></span><span>Skirts</span></button>
+          <button class="pl-menu__option" type="button"><span class="pl-menu__option-dot"></span><span>Pants</span></button>
+          <button class="pl-menu__option" type="button"><span class="pl-menu__option-dot"></span><span>Hoodies</span></button>
+        </div>
+      </div>
+
+      <!-- Gender: default -->
+      <div class="pl-menu">
+        <button class="pl-menu__trigger" type="button">
+          <span class="pl-menu__label">Gender</span>
+          <span class="pl-menu__value">All</span>
+          <span class="pl-menu__caret"></span>
+        </button>
+      </div>
+
+      <button class="pl-ai-btn" type="button">
+        <span class="pl-ai-btn__icon">✦</span>
+        <span>AI</span>
+      </button>
+    </div>
+  </div>
+
+  <div class="pl-active-bar">
+    <span class="pl-active-bar__label">Active</span>
+    <div class="pl-active-bar__pills">
+      <span class="pl-active-pill">
+        <span class="pl-active-pill__group">Category</span>
+        <span class="pl-active-pill__value">Footwear</span>
+        <button class="pl-active-pill__x" type="button">×</button>
+      </span>
+      <span class="pl-active-pill pl-active-pill--teal">
+        <span class="pl-active-pill__group">Type</span>
+        <span class="pl-active-pill__value">Shoes</span>
+        <button class="pl-active-pill__x" type="button">×</button>
+      </span>
+      <button class="pl-active-bar__clear" type="button">Clear all</button>
+    </div>
+  </div>
+</div>
+
+<p class="note">Preview only — zero logic changes. Each dropdown shows the current selection inline. Active filters appear as removable pills below.</p>
+
+</body>
+</html>

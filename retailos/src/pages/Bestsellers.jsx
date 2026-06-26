@@ -1,11 +1,15 @@
 import { useMemo, useState, useEffect, useCallback } from 'react'
+import { createPortal } from 'react-dom'
 import { useStore } from '../store/useStore'
 import { isExecutive } from '../utils/roles'
-import { getSellThrough, getDaysInStore, getLifecycleStatus, STATUS_COLORS } from '../utils/lifecycle'
+import { getDaysInStore, getLifecycleStatus, STATUS_COLORS } from '../utils/lifecycle'
 import { aggregateSkus } from '../utils/aggregateSkus'
+import { normalizeGenderCodeForFilter } from '../utils/gender.js'
+import { filterSkusByActiveSeason, isSeasonFilterActive } from '../utils/seasons.js'
 import ProductCard from '../components/ProductCard'
 import ProductDetailModal from '../components/ProductDetailModal'
 import StatusChip from '../components/StatusChip'
+import BrandSelect from '../components/BrandSelect.jsx'
 import { fetchSalesBySku } from '../api/client.js'
 import {
   IconFootwear,
@@ -16,15 +20,25 @@ import {
   IconSlowMover,
   IconWarning,
   IconDisplay,
-  IconCalendar,
+  IconDownload,
+  IconSliders,
+  IconChevronDown,
   IconTag,
 } from '../utils/icons.js'
 
-const CATEGORY_FILTERS = ['All', 'Footwear', 'Apparel', 'K Kids']
+const CATEGORY_FILTERS = ['All', 'Footwear', 'Apparel', 'Accessories']
+const GENDER_FILTERS = [
+  { key: 'All', label: 'All Genders' },
+  { key: 'M', label: 'Male' },
+  { key: 'F', label: 'Female' },
+  { key: 'K', label: 'Kids' },
+  { key: 'U', label: 'Unisex' },
+]
 
 const TIME_RANGES = [
   { key: 'all', label: 'All Time' },
   { key: 'today', label: 'Today' },
+  { key: 'yesterday', label: 'Yesterday' },
   { key: '7d', label: 'Last 7 Days' },
   { key: '2w', label: 'Last 2 Weeks' },
   { key: 'month', label: 'This Month' },
@@ -41,6 +55,7 @@ function computeSinceDate(key) {
   const now = new Date()
   switch (key) {
     case 'today': return now.toISOString().slice(0, 10)
+    case 'yesterday': { const d = new Date(now); d.setDate(d.getDate() - 1); return d.toISOString().slice(0, 10) }
     case '7d': { const d = new Date(now); d.setDate(d.getDate() - 7); return d.toISOString().slice(0, 10) }
     case '2w': { const d = new Date(now); d.setDate(d.getDate() - 14); return d.toISOString().slice(0, 10) }
     case 'month': return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
@@ -54,6 +69,11 @@ function computePreviousPeriod(key, customFrom, customTo) {
     case 'today': {
       const d = new Date(now); d.setDate(d.getDate() - 1)
       return { since: d.toISOString().slice(0, 10), until: d.toISOString().slice(0, 10) }
+    }
+    case 'yesterday': {
+      const d = new Date(now); d.setDate(d.getDate() - 2)
+      const day = d.toISOString().slice(0, 10)
+      return { since: day, until: day }
     }
     case '7d': {
       const s = new Date(now); s.setDate(s.getDate() - 14)
@@ -88,6 +108,7 @@ function computePreviousPeriod(key, customFrom, customTo) {
 function periodWeeks(key, customFrom, customTo) {
   switch (key) {
     case 'today': return 1 / 7
+    case 'yesterday': return 1 / 7
     case '7d': return 1
     case '2w': return 2
     case 'month': {
@@ -105,23 +126,52 @@ function periodWeeks(key, customFrom, customTo) {
   }
 }
 
+function categoryNorm(cat) {
+  return String(cat ?? '')
+    .trim()
+    .toLowerCase()
+}
+
 function matchesCategory(sku, filter) {
   if (filter === 'All') return true
-  if (filter === 'Footwear') return (sku.category || '') === 'Footwear'
-  if (filter === 'Apparel') return (sku.category || '') === 'Apparel'
-  if (filter === 'K Kids') return (sku.gender || '').toUpperCase().startsWith('K')
+  const cat = categoryNorm(sku.category)
+  if (filter === 'Footwear') return cat === 'footwear'
+  if (filter === 'Apparel') return cat === 'apparel'
+  if (filter === 'Accessories') return cat === 'accessories'
   return true
 }
 
-const PILL = {
-  padding: '5px 11px', borderRadius: 20, fontSize: 11, fontWeight: 600,
-  cursor: 'pointer', transition: 'all 0.13s', fontFamily: '"DM Sans"',
+function matchesGender(sku, filter) {
+  if (filter === 'All') return true
+  return normalizeGenderCodeForFilter(sku.gender) === filter
 }
-const PILL_ON = { background: 'rgba(255,51,51,0.1)', border: '1px solid rgba(255,51,51,0.25)', color: '#ff3333' }
-const PILL_OFF = { background: 'var(--ro-surface-elevated)', border: '1px solid var(--ro-border)', color: 'var(--ro-text-muted)' }
-const TOGGLE_ON = { background: 'rgba(56,189,248,0.1)', border: '1px solid rgba(56,189,248,0.25)', color: '#38bdf8' }
-const TOGGLE_OFF = { background: 'var(--ro-surface-elevated)', border: '1px solid var(--ro-border)', color: 'var(--ro-text-muted)' }
-const GREEN_ON = { background: 'rgba(0,230,118,0.1)', border: '1px solid rgba(0,230,118,0.25)', color: '#00e676' }
+
+function normalizedBrand(brand) {
+  const b = String(brand ?? '').trim()
+  return b || 'Unknown'
+}
+
+function matchesBrand(sku, filter) {
+  if (filter === 'All') return true
+  return normalizedBrand(sku.brand) === filter
+}
+
+function hasPositivePeriodSales(sku, useEventSales) {
+  if (!useEventSales) return true
+  return (Number(sku._periodSold) || 0) > 0
+}
+
+/** Products eligible for the sold ranking (period sales for exec, lifetime for shop). */
+function hasSoldForRanking(sku, hasEventSales) {
+  if (hasEventSales) return (Number(sku._periodSold) || 0) > 0
+  return (Number(sku.sold_quantity) || 0) > 0
+}
+
+function rankSubtitle(mode) {
+  if (mode === 'revenue') return 'Ranked by revenue'
+  if (mode === 'qty_sold') return 'Ranked by units sold'
+  return 'Ranked by % sell-through'
+}
 
 function fmt(n) {
   if (n >= 1000) return `${(n / 1000).toFixed(1)}k`
@@ -129,6 +179,24 @@ function fmt(n) {
 }
 
 const LOW_STOCK_THRESHOLD = 5
+
+function unitsImported(sku, skuImportTotals) {
+  return Number(skuImportTotals?.[sku.sku]) || Number(sku.quantity) || 0
+}
+
+function sellThroughPct(sku, hasEventSales, skuImportTotals) {
+  const imported = unitsImported(sku, skuImportTotals)
+  if (imported <= 0) return 0
+  const sold = hasEventSales
+    ? (Number(sku._periodSold) || 0)
+    : (Number(sku.sold_quantity) || 0)
+  return (sold / imported) * 100
+}
+
+function cardDisplaySku(sku, skuImportTotals) {
+  const imported = unitsImported(sku, skuImportTotals)
+  return imported > 0 ? { ...sku, quantity: imported } : sku
+}
 
 // ── Mini SVG Charts ──────────────────────────────────────────────────────────
 
@@ -198,39 +266,33 @@ function DonutChart({ segments, size = 80, label }) {
   )
 }
 
-// ── Delta Arrow ──────────────────────────────────────────────────────────────
-
-function DeltaBadge({ prevRank, currentRank }) {
-  if (prevRank == null) return <span style={{ fontSize: 9, color: 'var(--ro-text-muted)', fontFamily: '"DM Sans"' }}>NEW</span>
-  const diff = prevRank - currentRank
-  if (diff === 0) return <span style={{ fontSize: 9, color: 'var(--ro-text-muted)', fontFamily: '"DM Sans"' }}>=</span>
-  const up = diff > 0
-  return (
-    <span style={{ fontSize: 9, fontWeight: 700, fontFamily: '"DM Sans"', color: up ? '#00e676' : '#ff3333', display: 'inline-flex', alignItems: 'center', gap: 2 }}>
-      {up ? '▲' : '▼'}{Math.abs(diff)}
-    </span>
-  )
-}
-
 // ── Main Component ───────────────────────────────────────────────────────────
 
 export function Bestsellers() {
   const skus = useStore((s) => s.skus)
+  const shipmentMeta = useStore((s) => s.shipmentMeta)
+  const activeSeason = useStore((s) => s.activeSeason)
+  const skuImportTotals = useStore((s) => s.skuImportTotals)
   const activeUser = useStore((s) => s.activeUser)
   const photoMap = useStore((s) => s.photoMap)
   const addAssignment = useStore((s) => s.addAssignment)
 
   const [categoryFilter, setCategoryFilter] = useState('All')
+  const [genderFilter, setGenderFilter] = useState('All')
+  const [brandFilter, setBrandFilter] = useState('All')
   const [timeRange, setTimeRange] = useState('all')
   const [customFrom, setCustomFrom] = useState('')
   const [customTo, setCustomTo] = useState('')
   const [rankMode, setRankMode] = useState('sell_through')
   const [limit, setLimit] = useState(10)
+  const [showAllSold, setShowAllSold] = useState(false)
   const [selectedSku, setSelectedSku] = useState(null)
   const [salesData, setSalesData] = useState(null)
   const [prevSalesData, setPrevSalesData] = useState(null)
   const [showCompare, setShowCompare] = useState(false)
   const [actionToast, setActionToast] = useState(null)
+  const [filtersOpen, setFiltersOpen] = useState(false)
+  const [logicExpanded, setLogicExpanded] = useState(false)
 
   const exec = isExecutive(activeUser)
 
@@ -242,7 +304,43 @@ export function Bestsellers() {
     }
   }, [activeUser])
 
-  const products = useMemo(() => aggregateSkus(skus), [skus])
+  useEffect(() => {
+    setShowAllSold(false)
+  }, [timeRange, categoryFilter, genderFilter, brandFilter, activeSeason, rankMode, limit])
+
+  const seasonFilteredSkus = useMemo(
+    () => filterSkusByActiveSeason(skus, activeSeason),
+    [skus, activeSeason],
+  )
+
+  const products = useMemo(
+    () => aggregateSkus(seasonFilteredSkus, shipmentMeta),
+    [seasonFilteredSkus, shipmentMeta],
+  )
+
+  const brandOptions = useMemo(() => {
+    const brands = new Set()
+    for (const p of products) {
+      if (!matchesCategory(p, categoryFilter)) continue
+      if (!matchesGender(p, genderFilter)) continue
+      brands.add(normalizedBrand(p.brand))
+    }
+    return [...brands].sort((a, b) => a.localeCompare(b))
+  }, [products, categoryFilter, genderFilter])
+
+  useEffect(() => {
+    if (brandFilter !== 'All' && !brandOptions.includes(brandFilter)) {
+      setBrandFilter('All')
+    }
+  }, [brandFilter, brandOptions])
+
+  const filteredProducts = useMemo(() => (
+    products.filter((s) => (
+      matchesCategory(s, categoryFilter) &&
+      matchesGender(s, genderFilter) &&
+      matchesBrand(s, brandFilter)
+    ))
+  ), [products, categoryFilter, genderFilter, brandFilter])
 
   const sinceDate = useMemo(() => {
     if (timeRange === 'custom') return customFrom || null
@@ -251,40 +349,99 @@ export function Bestsellers() {
 
   const untilDate = useMemo(() => {
     if (timeRange === 'custom') return customTo || null
+    if (timeRange === 'yesterday') return computeSinceDate('yesterday')
     return null
   }, [timeRange, customTo])
 
-  const needsFetch = timeRange !== 'all'
+  /** Executives: always load /sales/by-sku so all-time and period views both use signed SUMs from sales_events. */
+  const dateRangeActive = timeRange !== 'all'
+  const hasEventSales = exec && salesData !== null
 
   const fetchSales = useCallback(async () => {
-    if (!needsFetch) { setSalesData(null); setPrevSalesData(null); return }
+    if (!exec) {
+      setSalesData(null)
+      setPrevSalesData(null)
+      return
+    }
+    const today = new Date().toISOString().slice(0, 10)
     try {
-      const data = await fetchSalesBySku(sinceDate, untilDate)
+      const since = timeRange === 'all' ? '1970-01-01' : (sinceDate || '1970-01-01')
+      const until = timeRange === 'all' ? today : untilDate
+      const data = await fetchSalesBySku(since, until, activeSeason)
       const map = {}
       if (Array.isArray(data)) for (const r of data) map[r.sku] = r
       setSalesData(map)
     } catch { setSalesData(null) }
 
-    const prev = computePreviousPeriod(timeRange, customFrom, customTo)
+    const prev = timeRange === 'all' ? null : computePreviousPeriod(timeRange, customFrom, customTo)
     if (prev) {
       try {
-        const data = await fetchSalesBySku(prev.since, prev.until)
+        const data = await fetchSalesBySku(prev.since, prev.until, activeSeason)
         const map = {}
         if (Array.isArray(data)) for (const r of data) map[r.sku] = r
         setPrevSalesData(map)
       } catch { setPrevSalesData(null) }
     } else { setPrevSalesData(null) }
-  }, [needsFetch, sinceDate, untilDate, timeRange, customFrom, customTo])
+  }, [exec, timeRange, sinceDate, untilDate, customFrom, customTo, activeSeason])
 
   useEffect(() => { fetchSales() }, [fetchSales])
 
-  const isTimeLimited = needsFetch && salesData !== null
-
   const weeks = useMemo(() => periodWeeks(timeRange, customFrom, customTo), [timeRange, customFrom, customTo])
+
+  useEffect(() => {
+    if (!filtersOpen) return undefined
+    document.body.classList.add('sheet-open')
+    return () => document.body.classList.remove('sheet-open')
+  }, [filtersOpen])
+
+  const activeFilterPills = useMemo(() => {
+    const pills = []
+    if (exec) pills.push(TIME_RANGES.find((t) => t.key === timeRange)?.label ?? 'All Time')
+    pills.push(categoryFilter)
+    pills.push(GENDER_FILTERS.find((g) => g.key === genderFilter)?.label ?? 'All Genders')
+    pills.push(RANK_MODES.find((m) => m.key === rankMode)?.label ?? '% Sell-Through')
+    return pills
+  }, [exec, timeRange, categoryFilter, genderFilter, rankMode])
+
+  function resetFilters() {
+    setCategoryFilter('All')
+    setGenderFilter('All')
+    setBrandFilter('All')
+    setTimeRange('all')
+    setCustomFrom('')
+    setCustomTo('')
+    setRankMode('sell_through')
+    setLimit(10)
+    setShowCompare(false)
+  }
+
+  const timeRangeLabel = TIME_RANGES.find((t) => t.key === timeRange)?.label ?? 'All Time'
+  const seasonScopeText = isSeasonFilterActive(activeSeason)
+    ? `Showing ${activeSeason} assortment (includes carryover).`
+    : 'Showing all seasons.'
+
+  const logicBannerText = !exec ? (
+    <>
+      <strong className="bs-logic-banner__label">Shop view:</strong> {seasonScopeText} Ranked by lifetime sell-through % (sold ÷ total imported). Revenue, units sold, and time filters are available to executives.
+    </>
+  ) : (
+    <>
+      {seasonScopeText}{' '}
+      {rankMode === 'sell_through' && (
+        <>Sell-through uses sales in <strong>{timeRangeLabel}</strong> vs lifetime import.</>
+      )}
+      {rankMode === 'revenue' && (
+        <>Ranked by revenue{dateRangeActive ? ` in ${timeRangeLabel}` : ''}.</>
+      )}
+      {rankMode === 'qty_sold' && (
+        <>Ranked by units sold{dateRangeActive ? ` in ${timeRangeLabel}` : ''}.</>
+      )}
+    </>
+  )
 
   // ── Enrich products with period data ────────────────────────────────────────
   function enrichProducts(prods) {
-    if (isTimeLimited) {
+    if (hasEventSales) {
       return prods.map((s) => {
         const ev = salesData[s.sku]
         return ev
@@ -304,7 +461,7 @@ export function Bestsellers() {
     switch (rankMode) {
       case 'revenue': sorted.sort((a, b) => b._periodRevenue - a._periodRevenue); break
       case 'qty_sold': sorted.sort((a, b) => b._periodSold - a._periodSold); break
-      default: { const p = (s) => isTimeLimited ? (s.quantity > 0 ? (s._periodSold / s.quantity) * 100 : 0) : getSellThrough(s.sold_quantity, s.quantity); sorted.sort((a, b) => p(b) - p(a)) }
+      default: { const p = (s) => sellThroughPct(s, hasEventSales, skuImportTotals); sorted.sort((a, b) => p(b) - p(a)) }
     }
     return sorted
   }
@@ -314,7 +471,7 @@ export function Bestsellers() {
     switch (rankMode) {
       case 'revenue': sorted.sort((a, b) => a._periodRevenue - b._periodRevenue); break
       case 'qty_sold': sorted.sort((a, b) => a._periodSold - b._periodSold); break
-      default: { const p = (s) => isTimeLimited ? (s.quantity > 0 ? (s._periodSold / s.quantity) * 100 : 0) : getSellThrough(s.sold_quantity, s.quantity); sorted.sort((a, b) => p(a) - p(b)) }
+      default: { const p = (s) => sellThroughPct(s, hasEventSales, skuImportTotals); sorted.sort((a, b) => p(a) - p(b)) }
     }
     return sorted
   }
@@ -322,45 +479,84 @@ export function Bestsellers() {
   // ── Compute previous-period rankings for comparison ─────────────────────────
   const prevRankMap = useMemo(() => {
     if (!prevSalesData || !showCompare) return null
-    let prods = products.filter((s) => matchesCategory(s, categoryFilter))
-    prods = prods.map((s) => {
+    const prods = filteredProducts.map((s) => {
       const ev = prevSalesData[s.sku]
       return ev
         ? { ...s, _periodSold: ev.sold_qty ?? 0, _periodRevenue: ev.revenue ?? 0 }
         : { ...s, _periodSold: 0, _periodRevenue: 0 }
     })
-    const sorted = sortBest(prods)
+    const sorted = sortBest(prods.filter((s) => (Number(s._periodSold) || 0) > 0))
     const map = {}
     sorted.forEach((s, i) => { map[s.sku] = i + 1 })
     return map
-  }, [prevSalesData, showCompare, products, categoryFilter, rankMode])
+  }, [prevSalesData, showCompare, filteredProducts, rankMode, hasEventSales])
+
+  const allRankedSkus = useMemo(() => {
+    const filtered = enrichProducts(filteredProducts).filter((s) => hasSoldForRanking(s, hasEventSales))
+    return sortBest(filtered)
+  }, [filteredProducts, rankMode, hasEventSales, salesData, skuImportTotals])
 
   const rankedSkus = useMemo(() => {
-    const filtered = enrichProducts(products.filter((s) => matchesCategory(s, categoryFilter)))
-    return sortBest(filtered).slice(0, limit)
-  }, [products, categoryFilter, rankMode, limit, isTimeLimited, salesData])
+    if (showAllSold) return allRankedSkus
+    return allRankedSkus.slice(0, limit)
+  }, [allRankedSkus, showAllSold, limit])
+
+  const rankedScopeLabel = showAllSold
+    ? `All ${allRankedSkus.length} sold`
+    : `Top ${Math.min(limit, allRankedSkus.length)}`
+
+  const canExpandSoldList = allRankedSkus.length > limit
+
+  function renderShowAllSoldControl(className = '') {
+    if (allRankedSkus.length === 0) return null
+    if (!canExpandSoldList) {
+      return (
+        <span className={`bs-show-all-sold-hint${className ? ` ${className}` : ''}`}>
+          Showing all {allRankedSkus.length} sold
+        </span>
+      )
+    }
+    return (
+      <button
+        type="button"
+        className={`bs-filter-chip bs-show-all-sold-btn${showAllSold ? ' bs-filter-chip--active' : ''}${className ? ` ${className}` : ''}`}
+        onClick={() => setShowAllSold((v) => !v)}
+      >
+        Show all sold ({allRankedSkus.length})
+      </button>
+    )
+  }
 
   const slowestSkus = useMemo(() => {
     const bestSkuSet = new Set(rankedSkus.map((s) => s.sku))
     const filtered = enrichProducts(
-      products.filter((s) => matchesCategory(s, categoryFilter) && !bestSkuSet.has(s.sku))
-    )
+      filteredProducts.filter((s) => !bestSkuSet.has(s.sku))
+    ).filter((s) => hasPositivePeriodSales(s, hasEventSales))
     return sortWorst(filtered).slice(0, limit === 20 ? 10 : 5)
-  }, [products, categoryFilter, rankMode, limit, isTimeLimited, salesData, rankedSkus])
+  }, [filteredProducts, rankMode, limit, hasEventSales, salesData, rankedSkus])
 
-  const headerLabel = useMemo(() => {
-    const mode = RANK_MODES.find((m) => m.key === rankMode)?.label || '% SELL-THROUGH'
-    return `BESTSELLERS — ${mode.toUpperCase()} RANKED`
-  }, [rankMode])
+  const emptyRankedMessage = (() => {
+    if (products.length === 0 && isSeasonFilterActive(activeSeason)) {
+      return `No ${activeSeason} products match the current filters.`
+    }
+    if (hasEventSales && filteredProducts.length > 0) {
+      if (isSeasonFilterActive(activeSeason)) {
+        return `No sales in this period for ${activeSeason} assortment.`
+      }
+      return 'No SKUs recorded sales for the selected period and filters.'
+    }
+    if (!hasEventSales && filteredProducts.length > 0 && allRankedSkus.length === 0) {
+      return 'No products with sales in this assortment yet.'
+    }
+    return 'No products match the current filters.'
+  })()
 
   function getMetric(sku) {
     switch (rankMode) {
       case 'revenue': return { value: `€${fmt(sku._periodRevenue)}`, label: 'Revenue' }
       case 'qty_sold': return { value: `${sku._periodSold}`, label: 'Units Sold' }
       default: {
-        const pct = isTimeLimited
-          ? (sku.quantity > 0 ? Math.round((sku._periodSold / sku.quantity) * 100) : 0)
-          : Math.round(getSellThrough(sku.sold_quantity, sku.quantity))
+        const pct = Math.round(sellThroughPct(sku, hasEventSales, skuImportTotals))
         return { value: `${pct}%`, label: 'Sell-through' }
       }
     }
@@ -376,7 +572,7 @@ export function Bestsellers() {
   }
 
   function getRemaining(sku) {
-    return Math.max(0, (sku.quantity ?? 0) - (sku.sold_quantity ?? 0))
+    return Math.max(0, unitsImported(sku, skuImportTotals) - (Number(sku.sold_quantity) || 0))
   }
 
   // ── Brand breakdown ─────────────────────────────────────────────────────────
@@ -394,18 +590,20 @@ export function Bestsellers() {
 
   // ── Gender / Season drill-down ──────────────────────────────────────────────
   const genderSegments = useMemo(() => {
-    const counts = { M: 0, F: 0, K: 0, Other: 0 }
+    const counts = { M: 0, F: 0, K: 0, U: 0, Other: 0 }
     for (const s of rankedSkus) {
-      const g = (s.gender || '').toUpperCase()
-      if (g.startsWith('M')) counts.M++
-      else if (g.startsWith('F') || g.startsWith('W')) counts.F++
-      else if (g.startsWith('K')) counts.K++
+      const c = normalizeGenderCodeForFilter(s.gender)
+      if (c === 'U') counts.U++
+      else if (c === 'M') counts.M++
+      else if (c === 'F') counts.F++
+      else if (c === 'K') counts.K++
       else counts.Other++
     }
     return [
       { label: 'Men', value: counts.M, color: '#38bdf8' },
       { label: 'Women', value: counts.F, color: '#f472b6' },
       { label: 'Kids', value: counts.K, color: '#fbbf24' },
+      { label: 'Unisex', value: counts.U, color: '#a78bfa' },
       { label: 'Other', value: counts.Other, color: 'var(--ro-text-dim)' },
     ]
   }, [rankedSkus])
@@ -426,14 +624,13 @@ export function Bestsellers() {
   function exportCsv() {
     const header = ['Rank', 'SKU', 'Product', 'Category', 'Brand', 'Season', 'Gender', 'Qty', 'Sold', 'Remaining', 'Sell-Through %', 'Revenue', 'Days In Store', 'Velocity (units/wk)']
     const rows = rankedSkus.map((sku, i) => {
-      const pct = isTimeLimited
-        ? (sku.quantity > 0 ? Math.round((sku._periodSold / sku.quantity) * 100) : 0)
-        : Math.round(getSellThrough(sku.sold_quantity, sku.quantity))
+      const pct = Math.round(sellThroughPct(sku, hasEventSales, skuImportTotals))
       const vel = getVelocity(sku)
+      const imported = unitsImported(sku, skuImportTotals)
       return [
         i + 1, sku.sku, `"${(sku.product_name || '').replace(/"/g, '""')}"`,
         sku.category || '', sku.brand || '', sku.season || '', sku.gender || '',
-        sku.quantity, sku._periodSold, getRemaining(sku),
+        imported, sku._periodSold, getRemaining(sku),
         pct, (sku._periodRevenue || 0).toFixed(2),
         getDaysInStore(sku.import_date), vel ?? '',
       ].join(',')
@@ -479,101 +676,180 @@ export function Bestsellers() {
   }
 
   return (
-    <div>
+    <div className="bestsellers-page">
       {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, flexWrap: 'wrap', gap: 8 }} className="fade-up delay-1">
-        <div style={{ fontFamily: '"DM Sans"', fontSize: 16, letterSpacing: '2px', color: 'var(--ro-heading)', display: 'flex', alignItems: 'center', gap: 8 }}>
-          <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#ff8800', animation: 'blink 2s infinite' }} />
-          {headerLabel}
+      <div className="bs-page-header fade-up delay-1">
+        <div className="bs-page-header__main page-hero-mobile-hide">
+          <h1 className="bs-page-header__title">Bestsellers</h1>
+          <p className="bs-page-header__subtitle">{rankSubtitle(rankMode)}</p>
         </div>
+        <p className="bs-page-header__subtitle bs-page-header__subtitle--mobile">{rankSubtitle(rankMode)}</p>
         {exec && (
-          <button type="button" onClick={exportCsv}
-            style={{ ...PILL, ...TOGGLE_OFF, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-            <IconCalendar size={12} strokeWidth={1.5} /> Export CSV
-          </button>
+          <>
+            <button type="button" className="bs-export-btn bs-export-btn--desktop" onClick={exportCsv}>
+              <IconDownload size={14} strokeWidth={1.5} aria-hidden />
+              Export CSV
+            </button>
+            <button type="button" className="bs-export-btn bs-export-btn--mobile" onClick={exportCsv} aria-label="Export CSV">
+              <IconDownload size={14} strokeWidth={1.5} aria-hidden />
+              <span className="bs-export-btn__label">Export</span>
+            </button>
+          </>
         )}
       </div>
 
-      {/* Time-range pills (executives only — managers use full-history sell-through) */}
+      {/* Mobile filter summary + drawer trigger */}
+      <div className="bs-mobile-filters fade-up delay-1">
+        <div className="bs-mobile-filter-bar">
+          <button type="button" className="bs-mobile-filter-trigger" onClick={() => setFiltersOpen(true)}>
+            <IconSliders size={14} strokeWidth={1.75} aria-hidden />
+            Filters
+          </button>
+          <div className="bs-mobile-filter-pills">
+            {activeFilterPills.map((pill) => (
+              <span key={pill} className="bs-mobile-filter-pill">{pill}</span>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {!exec && (
+        <p className="bs-manager-note fade-up delay-1">
+          Rankings use <strong>sell-through %</strong> on your full inventory history (no revenue or period sales).
+        </p>
+      )}
+
+      <div className="bs-filters-desktop">
+      {/* Time-range pills (executives only) */}
       {exec ? (
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }} className="fade-up delay-1">
+        <div className="bs-filter-row fade-up delay-1">
           {TIME_RANGES.map((t) => (
-            <div key={t.key} onClick={() => setTimeRange(t.key)} style={{ ...PILL, ...(timeRange === t.key ? PILL_ON : PILL_OFF) }}>
+            <button
+              key={t.key}
+              type="button"
+              className={`bs-filter-chip${timeRange === t.key ? ' bs-filter-chip--active' : ''}`}
+              onClick={() => setTimeRange(t.key)}
+            >
               {t.label}
-            </div>
+            </button>
           ))}
         </div>
-      ) : (
-        <div style={{ fontSize: 11, color: 'var(--ro-text-muted)', marginBottom: 10, lineHeight: 1.45 }} className="fade-up delay-1">
-          Rankings use <strong style={{ color: 'var(--ro-text-dim)' }}>sell-through %</strong> on your full inventory history (no revenue or period sales).
-        </div>
-      )}
+      ) : null}
 
       {/* Custom date picker */}
       {exec && timeRange === 'custom' && (
-        <div style={{ display: 'flex', gap: 8, marginBottom: 10, alignItems: 'center', flexWrap: 'wrap' }} className="fade-up delay-1">
-          <label style={{ fontSize: 11, color: 'var(--ro-text-dim)' }}>From</label>
-          <input type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)}
-            style={{ background: 'var(--ro-surface-elevated)', border: '1px solid var(--ro-border-hover)', borderRadius: 6, color: 'var(--ro-text)', padding: '4px 8px', fontSize: 11, fontFamily: '"DM Sans"', outline: 'none' }} />
-          <label style={{ fontSize: 11, color: 'var(--ro-text-dim)' }}>To</label>
-          <input type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)}
-            style={{ background: 'var(--ro-surface-elevated)', border: '1px solid var(--ro-border-hover)', borderRadius: 6, color: 'var(--ro-text)', padding: '4px 8px', fontSize: 11, fontFamily: '"DM Sans"', outline: 'none' }} />
+        <div className="bs-custom-dates fade-up delay-1">
+          <label className="bs-custom-dates__label">From</label>
+          <input type="date" className="bs-custom-dates__input" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)} />
+          <label className="bs-custom-dates__label">To</label>
+          <input type="date" className="bs-custom-dates__input" value={customTo} onChange={(e) => setCustomTo(e.target.value)} />
         </div>
       )}
 
-      {/* Category pills + Rank mode + Top N toggle + Compare toggle */}
-      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10, alignItems: 'center' }} className="fade-up delay-1">
-        {CATEGORY_FILTERS.map((f) => (
-          <div key={f} onClick={() => setCategoryFilter(f)} style={{ ...PILL, ...(categoryFilter === f ? PILL_ON : PILL_OFF) }}>
-            {f}
-          </div>
-        ))}
-
-        <div style={{ width: 1, height: 22, background: 'var(--ro-fill-muted)', margin: '0 6px' }} />
-
-        {(exec ? RANK_MODES : RANK_MODES.filter((m) => m.key === 'sell_through')).map((m) => (
-          <div key={m.key} onClick={() => exec && setRankMode(m.key)} style={{ ...PILL, ...(rankMode === m.key ? TOGGLE_ON : TOGGLE_OFF) }}>
-            {m.label}
-          </div>
-        ))}
-
-        <div style={{ width: 1, height: 22, background: 'var(--ro-fill-muted)', margin: '0 6px' }} />
-
-        <div onClick={() => setLimit(limit === 10 ? 20 : 10)} style={{ ...PILL, ...(limit === 20 ? TOGGLE_ON : TOGGLE_OFF) }}>
-          Top {limit}
+      {/* Category + Gender + Brand */}
+      <div className="bs-filter-row bs-filter-row--split fade-up delay-1">
+        <div className="bs-filter-group">
+          {CATEGORY_FILTERS.map((f) => (
+            <button
+              key={f}
+              type="button"
+              className={`bs-filter-chip${categoryFilter === f ? ' bs-filter-chip--active' : ''}`}
+              onClick={() => setCategoryFilter(f)}
+            >
+              {f}
+            </button>
+          ))}
         </div>
+        <div className="bs-filter-divider" aria-hidden />
+        <div className="bs-filter-group">
+          {GENDER_FILTERS.map((g) => (
+            <button
+              key={g.key}
+              type="button"
+              className={`bs-filter-chip${genderFilter === g.key ? ' bs-filter-chip--active' : ''}`}
+              onClick={() => setGenderFilter(g.key)}
+            >
+              {g.label}
+            </button>
+          ))}
+        </div>
+        <BrandSelect
+          className="bestsellers-brand-filter"
+          value={brandFilter}
+          onChange={setBrandFilter}
+          allValue="All"
+          allLabel="All Brands"
+          options={brandOptions.map((brand) => ({ value: brand, label: brand }))}
+        />
+      </div>
 
-        {exec && needsFetch && (
+      {/* Sort metric + Top N + Compare */}
+      <div className="bs-filter-row fade-up delay-1">
+        {(exec ? RANK_MODES : RANK_MODES.filter((m) => m.key === 'sell_through')).map((m) => (
+          <button
+            key={m.key}
+            type="button"
+            className={`bs-filter-chip${rankMode === m.key ? ' bs-filter-chip--active' : ''}`}
+            onClick={() => exec && setRankMode(m.key)}
+          >
+            {m.label}
+          </button>
+        ))}
+        <div className="bs-filter-divider" aria-hidden />
+        <button
+          type="button"
+          className={`bs-filter-chip${limit === 20 ? ' bs-filter-chip--active' : ''}`}
+          onClick={() => setLimit(limit === 10 ? 20 : 10)}
+        >
+          Top {limit}
+        </button>
+        {canExpandSoldList && (
           <>
-            <div style={{ width: 1, height: 22, background: 'var(--ro-fill-muted)', margin: '0 6px' }} />
-            <div onClick={() => setShowCompare(!showCompare)} style={{ ...PILL, ...(showCompare ? GREEN_ON : TOGGLE_OFF), display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-              <IconTrendUp size={12} strokeWidth={1.5} /> vs Prev
-            </div>
+            <div className="bs-filter-divider" aria-hidden />
+            {renderShowAllSoldControl()}
           </>
         )}
+        {exec && dateRangeActive && (
+          <>
+            <div className="bs-filter-divider" aria-hidden />
+            <button
+              type="button"
+              className={`bs-filter-chip bs-filter-chip--icon${showCompare ? ' bs-filter-chip--active' : ''}`}
+              onClick={() => setShowCompare(!showCompare)}
+            >
+              <IconTrendUp size={12} strokeWidth={1.5} aria-hidden />
+              vs Prev
+            </button>
+          </>
+        )}
+      </div>
       </div>
 
       {/* Info banner */}
-      <div style={{ background: 'var(--ro-surface-elevated)', border: '1px solid var(--ro-border)', borderRadius: 10, padding: '10px 14px', marginBottom: 16, fontSize: 11, color: 'var(--ro-text-dim)', lineHeight: 1.6 }} className="fade-up delay-1">
-        {!exec ? (
-          <><strong style={{ color: 'var(--ro-text)' }}>Shop view:</strong> Top products are ranked by sell-through % only. Revenue, units sold, and time filters are available to executives.</>
-        ) : (
-          <>
-            {rankMode === 'sell_through' && (
-              <><strong style={{ color: 'var(--ro-text)' }}>Bestseller Logic:</strong> Rank uses % sell-through — not raw quantity. A 3-unit apparel item at 67% ranks above a 40-pair shoe at 20%.</>
-            )}
-            {rankMode === 'revenue' && (
-              <><strong style={{ color: 'var(--ro-text)' }}>Revenue Ranked:</strong> Products are sorted by total revenue generated{isTimeLimited ? ' in the selected period' : ''}. Best earners appear first.</>
-            )}
-            {rankMode === 'qty_sold' && (
-              <><strong style={{ color: 'var(--ro-text)' }}>Qty Sold Ranked:</strong> Products are sorted by total units sold{isTimeLimited ? ' in the selected period' : ''}. Highest volume movers appear first.</>
-            )}
-          </>
-        )}
+      <div className={`bs-logic-banner fade-up delay-1${logicExpanded ? ' bs-logic-banner--expanded' : ''}`}>
+        <button
+          type="button"
+          className="bs-logic-banner__toggle"
+          onClick={() => setLogicExpanded((v) => !v)}
+          aria-expanded={logicExpanded}
+        >
+          <span>ℹ️ Bestseller logic</span>
+          <IconChevronDown size={14} strokeWidth={2} aria-hidden className="bs-logic-banner__chevron" />
+        </button>
+        <span className="bs-logic-banner__icon bs-logic-banner__icon--desktop" aria-hidden>ℹ</span>
+        <div className="bs-logic-banner__text">
+          {logicBannerText}
+        </div>
       </div>
 
-      {/* Product card grid */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12, marginBottom: 22 }} className="fade-up delay-2">
+      {canExpandSoldList && (
+        <div className="bs-show-all-sold-row bs-show-all-sold-row--mobile fade-up delay-2">
+          {renderShowAllSoldControl()}
+        </div>
+      )}
+
+      {/* Product card grid — responsive columns (see .bestsellers-product-grid in index.css) */}
+      <div className="fade-up delay-2 bestsellers-product-grid">
         {rankedSkus.map((sku, i) => {
           const m = getMetric(sku)
           const vel = getVelocity(sku)
@@ -582,31 +858,34 @@ export function Bestsellers() {
           return (
             <ProductCard
               key={sku.id ?? sku.sku}
-              sku={sku}
+              className="bestsellers-product-card"
+              sku={cardDisplaySku(sku, skuImportTotals)}
               rank={i + 1}
               metric={m.value}
               metricLabel={m.label}
               velocity={vel}
               lowStock={lowStock}
               hideSalesCounts={!exec}
-              delta={showCompare && prevRankMap ? <DeltaBadge prevRank={prevRankMap[sku.sku] ?? null} currentRank={i + 1} /> : null}
+              showDayOverlay
+              showBrandPill
+              rankTrend={showCompare && prevRankMap ? { prevRank: prevRankMap[sku.sku] ?? null, currentRank: i + 1 } : null}
               onClick={() => setSelectedSku(sku)}
             />
           )
         })}
         {rankedSkus.length === 0 && (
           <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: 40, color: 'var(--ro-text-muted)', fontSize: 13 }}>
-            No products match the current filters.
+            {emptyRankedMessage}
           </div>
         )}
       </div>
 
       {/* Analytics Row — Brand Breakdown + Gender + Season */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 22 }} className="fade-up delay-2">
+      <div className="fade-up delay-2 bestsellers-analytics-row">
         {/* Brand breakdown */}
         <div style={{ background: 'var(--ro-surface)', border: '1px solid var(--ro-border)', borderRadius: 13, padding: 16 }}>
           <div style={{ fontFamily: '"DM Sans"', fontSize: 11, letterSpacing: '1.5px', color: 'var(--ro-text-muted)', textTransform: 'uppercase', marginBottom: 10 }}>
-            Brand Distribution (Top {limit})
+            Brand Distribution ({rankedScopeLabel})
           </div>
           <HorizontalBarChart items={brandBreakdown} maxValue={Math.max(...brandBreakdown.map((b) => b.value), 1)} />
           {brandBreakdown.length === 0 && <div style={{ fontSize: 11, color: 'var(--ro-text-muted)' }}>No brand data</div>}
@@ -648,11 +927,10 @@ export function Bestsellers() {
           <tbody>
             {slowestSkus.map((sku, i) => {
               const thumbUrl = photoMap[sku.sku]
-              const pct = isTimeLimited
-                ? (sku.quantity > 0 ? Math.round((sku._periodSold / sku.quantity) * 100) : 0)
-                : Math.round(getSellThrough(sku.sold_quantity, sku.quantity))
+              const imported = unitsImported(sku, skuImportTotals)
+              const pct = Math.round(sellThroughPct(sku, hasEventSales, skuImportTotals))
               const days = getDaysInStore(sku.import_date)
-              const status = getLifecycleStatus(sku.import_date, sku.sold_quantity, sku.quantity)
+              const status = getLifecycleStatus(sku.import_date, sku.sold_quantity, imported)
               const rankColors = ['#ff3333', '#ff8800', '#fbbf24']
               const slowCount = slowestSkus.length
               const rankLabels = Array.from({ length: slowCount }, (_, j) => j === 0 ? '#1 worst' : `#${j + 1}`)
@@ -725,16 +1003,146 @@ export function Bestsellers() {
       )}
 
       {selectedSku && (() => {
-        const st = getLifecycleStatus(selectedSku.import_date, selectedSku.sold_quantity, selectedSku.quantity)
+        const imported = unitsImported(selectedSku, skuImportTotals)
+        const st = getLifecycleStatus(selectedSku.import_date, selectedSku.sold_quantity, imported)
         return (
           <ProductDetailModal
-            sku={selectedSku}
+            sku={cardDisplaySku(selectedSku, skuImportTotals)}
             status={st}
             statusData={{ color: STATUS_COLORS[st] || 'var(--ro-text-dim)', colorBg: `${STATUS_COLORS[st] || '#64748b'}18` }}
             onClose={() => setSelectedSku(null)}
           />
         )
       })()}
+
+      {filtersOpen && createPortal(
+        <div className="bs-filter-drawer-root">
+          <div className="bs-filter-drawer-overlay" onClick={() => setFiltersOpen(false)} aria-hidden="true" />
+          <div className="bs-filter-drawer-sheet" role="dialog" aria-modal aria-label="Filters">
+            <div className="bs-filter-drawer-handle" aria-hidden="true" />
+            <h2 className="bs-filter-drawer__title">Filters</h2>
+
+            {exec && (
+              <div className="bs-filter-drawer__section">
+                <div className="bs-filter-drawer__section-label">Time period</div>
+                <div className="bs-filter-drawer__chips">
+                  {TIME_RANGES.map((t) => (
+                    <button
+                      key={t.key}
+                      type="button"
+                      className={`bs-filter-chip${timeRange === t.key ? ' bs-filter-chip--active' : ''}`}
+                      onClick={() => setTimeRange(t.key)}
+                    >
+                      {t.label}
+                    </button>
+                  ))}
+                </div>
+                {timeRange === 'custom' && (
+                  <div className="bs-custom-dates bs-custom-dates--drawer">
+                    <label className="bs-custom-dates__label">From</label>
+                    <input type="date" className="bs-custom-dates__input" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)} />
+                    <label className="bs-custom-dates__label">To</label>
+                    <input type="date" className="bs-custom-dates__input" value={customTo} onChange={(e) => setCustomTo(e.target.value)} />
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="bs-filter-drawer__section">
+              <div className="bs-filter-drawer__section-label">Category</div>
+              <div className="bs-filter-drawer__chips">
+                {CATEGORY_FILTERS.map((f) => (
+                  <button
+                    key={f}
+                    type="button"
+                    className={`bs-filter-chip${categoryFilter === f ? ' bs-filter-chip--active' : ''}`}
+                    onClick={() => setCategoryFilter(f)}
+                  >
+                    {f}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="bs-filter-drawer__section">
+              <div className="bs-filter-drawer__section-label">Gender</div>
+              <div className="bs-filter-drawer__chips">
+                {GENDER_FILTERS.map((g) => (
+                  <button
+                    key={g.key}
+                    type="button"
+                    className={`bs-filter-chip${genderFilter === g.key ? ' bs-filter-chip--active' : ''}`}
+                    onClick={() => setGenderFilter(g.key)}
+                  >
+                    {g.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="bs-filter-drawer__section">
+              <div className="bs-filter-drawer__section-label">Brand</div>
+              <BrandSelect
+                className="brand-select-wrapper--drawer"
+                value={brandFilter}
+                onChange={setBrandFilter}
+                allValue="All"
+                allLabel="All Brands"
+                options={brandOptions.map((brand) => ({ value: brand, label: brand }))}
+              />
+            </div>
+
+            <div className="bs-filter-drawer__section">
+              <div className="bs-filter-drawer__section-label">Sort by</div>
+              <div className="bs-filter-drawer__chips">
+                {(exec ? RANK_MODES : RANK_MODES.filter((m) => m.key === 'sell_through')).map((m) => (
+                  <button
+                    key={m.key}
+                    type="button"
+                    className={`bs-filter-chip${rankMode === m.key ? ' bs-filter-chip--active' : ''}`}
+                    onClick={() => exec && setRankMode(m.key)}
+                  >
+                    {m.label}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  className={`bs-filter-chip${limit === 20 ? ' bs-filter-chip--active' : ''}`}
+                  onClick={() => setLimit(limit === 10 ? 20 : 10)}
+                >
+                  Top {limit}
+                </button>
+                {canExpandSoldList ? renderShowAllSoldControl() : null}
+                {exec && dateRangeActive && (
+                  <button
+                    type="button"
+                    className={`bs-filter-chip bs-filter-chip--icon${showCompare ? ' bs-filter-chip--active' : ''}`}
+                    onClick={() => setShowCompare(!showCompare)}
+                  >
+                    <IconTrendUp size={12} strokeWidth={1.5} aria-hidden />
+                    vs Prev
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <button type="button" className="bs-filter-drawer__apply" onClick={() => setFiltersOpen(false)}>
+              Apply filters
+            </button>
+            <button
+              type="button"
+              className="bs-filter-drawer__reset"
+              onClick={() => {
+                resetFilters()
+                setFiltersOpen(false)
+              }}
+            >
+              Reset
+            </button>
+          </div>
+        </div>,
+        document.body,
+      )}
     </div>
   )
 }

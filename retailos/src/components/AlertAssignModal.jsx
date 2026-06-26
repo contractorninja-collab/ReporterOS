@@ -1,4 +1,5 @@
 import { useMemo, useState, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import useStore from '../store/useStore.js'
 import { isExecutive } from '../utils/roles.js'
 import { ALERT_ASSIGN_SHOPS, getAssignableUsersForAlertShop, defaultAlertShopForUser } from '../utils/alertAssignees.js'
@@ -44,6 +45,12 @@ export function AlertAssignModal({ alert, onClose, onConfirm }) {
     if (!assignable.length) setAssigneeId('')
   }, [assignable, assigneeId])
 
+  useEffect(() => {
+    if (!alert) return undefined
+    document.body.classList.add('sheet-open')
+    return () => document.body.classList.remove('sheet-open')
+  }, [alert])
+
   if (!alert) return null
 
   const handleConfirm = () => {
@@ -52,18 +59,11 @@ export function AlertAssignModal({ alert, onClose, onConfirm }) {
     onConfirm({ userId: assigneeId, shop: u?.shop || shop })
   }
 
-  return (
-    <div
-      role="dialog"
-      aria-modal
-      style={{
-        position: 'fixed', inset: 0, zIndex: 5000,
-        background: S.overlay, display: 'flex', alignItems: 'center', justifyContent: 'center',
-        padding: 16,
-      }}
-      onClick={onClose}
-    >
+  return createPortal(
+    <div className="alert-assign-root" role="dialog" aria-modal>
+      <div className="alert-assign-overlay" onClick={onClose} aria-hidden="true" />
       <div
+        className="alert-assign-modal"
         onClick={(e) => e.stopPropagation()}
         style={{
           width: 'min(400px, 100%)',
@@ -74,19 +74,21 @@ export function AlertAssignModal({ alert, onClose, onConfirm }) {
           fontFamily: DM,
         }}
       >
-        <div style={{ fontSize: 13, fontWeight: 700, color: S.text, marginBottom: 6 }}>
+        <div className="alert-assign-sheet-handle" aria-hidden="true" />
+        <div className="alert-assign-modal__title" style={{ fontSize: 13, fontWeight: 700, color: S.text, marginBottom: 6 }}>
           Assign alert
         </div>
-        <div style={{ fontSize: 11, color: S.muted, marginBottom: 16, lineHeight: 1.4 }}>
+        <div className="alert-assign-modal__product" style={{ fontSize: 11, color: S.muted, marginBottom: 16, lineHeight: 1.4 }}>
           {alert.productName} — {alert.skuCode}
         </div>
 
         {isExec && (
-          <div style={{ marginBottom: 12 }}>
-            <label style={{ display: 'block', fontSize: 9, fontWeight: 700, color: S.muted, textTransform: 'uppercase', letterSpacing: '1px', marginBottom: 6 }}>
+          <div className="alert-assign-modal__field" style={{ marginBottom: 12 }}>
+            <label className="alert-assign-modal__field-label" style={{ display: 'block', fontSize: 9, fontWeight: 700, color: S.muted, textTransform: 'uppercase', letterSpacing: '1px', marginBottom: 6 }}>
               Shop
             </label>
             <select
+              className="alert-assign-modal__select"
               value={shop}
               onChange={(e) => setShop(e.target.value)}
               style={{
@@ -108,17 +110,18 @@ export function AlertAssignModal({ alert, onClose, onConfirm }) {
         )}
 
         {isExec && (
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, fontSize: 11, color: S.text, cursor: 'pointer' }}>
+          <label className="alert-assign-modal__override" style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, fontSize: 11, color: S.text, cursor: 'pointer' }}>
             <input type="checkbox" checked={showAllUsers} onChange={(e) => setShowAllUsers(e.target.checked)} style={{ accentColor: S.blue }} />
             Show all users (override shift)
           </label>
         )}
 
-        <div style={{ marginBottom: 16 }}>
-          <label style={{ display: 'block', fontSize: 9, fontWeight: 700, color: S.muted, textTransform: 'uppercase', letterSpacing: '1px', marginBottom: 6 }}>
+        <div className="alert-assign-modal__field" style={{ marginBottom: 16 }}>
+          <label className="alert-assign-modal__field-label" style={{ display: 'block', fontSize: 9, fontWeight: 700, color: S.muted, textTransform: 'uppercase', letterSpacing: '1px', marginBottom: 6 }}>
             Assign to
           </label>
           <select
+            className="alert-assign-modal__select"
             value={assigneeId}
             onChange={(e) => setAssigneeId(e.target.value)}
             style={{
@@ -150,9 +153,10 @@ export function AlertAssignModal({ alert, onClose, onConfirm }) {
           )}
         </div>
 
-        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+        <div className="alert-assign-modal__actions" style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
           <button
             type="button"
+            className="alert-assign-modal__btn-cancel"
             onClick={onClose}
             style={{
               padding: '8px 14px',
@@ -170,6 +174,7 @@ export function AlertAssignModal({ alert, onClose, onConfirm }) {
           </button>
           <button
             type="button"
+            className="alert-assign-modal__btn-confirm"
             onClick={handleConfirm}
             disabled={!assigneeId}
             style={{
@@ -188,6 +193,7 @@ export function AlertAssignModal({ alert, onClose, onConfirm }) {
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }

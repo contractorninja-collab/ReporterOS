@@ -1,10 +1,12 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useMemo } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { Bell, PackageCheck, AlertTriangle, CheckCircle, Truck, Clock, LogIn, LogOut, UserCheck, Sun, Moon } from 'lucide-react'
+import { Bell, PackageCheck, AlertTriangle, CheckCircle, Truck, Clock, LogIn, LogOut, UserCheck, Sun, Moon, Plus, ChevronDown, Tag } from 'lucide-react'
 import { IconSearch } from '../utils/icons.js'
 import useStore from '../store/useStore.js'
+import { localDateKey } from '../utils/saleList.js'
 import { isExecutive } from '../utils/roles.js'
 import { applyThemeToDocument, readStoredTheme } from '../themeStorage.js'
+import { buildSeasonSwitcherList, normalizeSeasonInput } from '../utils/seasons.js'
 
 const ROLE_COLORS = { manager: '#38bdf8', executive: '#c084fc', outlet: '#fbbf24' }
 
@@ -16,6 +18,7 @@ const NOTIF_ICONS = {
   shift_clock_in: LogIn,
   shift_clock_out: LogOut,
   alert_assigned: UserCheck,
+  sale_pct_changed: Tag,
 }
 const NOTIF_COLORS = {
   transfer_created: '#c084fc',
@@ -25,6 +28,7 @@ const NOTIF_COLORS = {
   shift_clock_in: '#00e676',
   shift_clock_out: 'var(--ro-text-dim)',
   alert_assigned: '#ff3333',
+  sale_pct_changed: '#c084fc',
 }
 
 function timeAgo(iso) {
@@ -60,22 +64,25 @@ function useVisibleNotifications() {
 }
 
 function NotificationDropdown({ onClose }) {
+  const navigate = useNavigate()
   const notifications = useVisibleNotifications()
   const markNotificationRead = useStore((s) => s.markNotificationRead)
   const markAllNotificationsRead = useStore((s) => s.markAllNotificationsRead)
-  const ref = useRef(null)
+  const saleChangeReports = useStore((s) => s.saleChangeReports)
 
-  useEffect(() => {
-    const handler = (e) => {
-      if (ref.current && !ref.current.contains(e.target)) onClose()
+  function handleNotificationClick(n) {
+    if (!n.read) markNotificationRead(n.id)
+    if (n.type === 'sale_pct_changed' && n.relatedId) {
+      const report = saleChangeReports.find((r) => r.id === n.relatedId)
+      const date = report ? localDateKey(report.createdAt) : null
+      navigate(date ? `/markdown?tab=changes&date=${encodeURIComponent(date)}` : '/markdown?tab=changes')
+      onClose?.()
     }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [onClose])
+  }
 
   return (
     <div
-      ref={ref}
+      className="notification-dropdown-panel"
       style={{
         position: 'absolute', top: '100%', right: 0, marginTop: 8,
         width: 340, maxHeight: 420, overflowY: 'auto',
@@ -109,7 +116,7 @@ function NotificationDropdown({ onClose }) {
           return (
             <div
               key={n.id}
-              onClick={() => { if (!n.read) markNotificationRead(n.id) }}
+              onClick={() => handleNotificationClick(n)}
               style={{
                 display: 'flex', gap: 10, padding: '10px 16px', cursor: 'pointer',
                 borderBottom: '1px solid var(--ro-border)',
@@ -147,6 +154,7 @@ function NotificationBell() {
   const unreadCount = visible.filter((n) => !n.read).length
   const prevCount = useRef(unreadCount)
   const [ringing, setRinging] = useState(false)
+  const containerRef = useRef(null)
 
   useEffect(() => {
     if (unreadCount > prevCount.current) {
@@ -161,20 +169,31 @@ function NotificationBell() {
     prevCount.current = unreadCount
   }, [unreadCount])
 
+  useEffect(() => {
+    if (!open) return
+    const closeIfOutside = (e) => {
+      if (containerRef.current && !containerRef.current.contains(e.target)) {
+        setOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', closeIfOutside)
+    document.addEventListener('touchstart', closeIfOutside, { passive: true })
+    return () => {
+      document.removeEventListener('mousedown', closeIfOutside)
+      document.removeEventListener('touchstart', closeIfOutside)
+    }
+  }, [open])
+
   return (
-    <div style={{ position: 'relative' }}>
+    <div ref={containerRef} style={{ position: 'relative' }}>
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className={ringing ? 'bell-ring' : ''}
-        style={{
-          position: 'relative', display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-          width: 34, height: 34, borderRadius: 8, border: '1px solid var(--ro-border)',
-          background: open ? 'rgba(56,189,248,0.08)' : 'var(--ro-surface-elevated)',
-          cursor: 'pointer', padding: 0, transformOrigin: 'top center',
-        }}
+        aria-expanded={open}
+        aria-haspopup="true"
+        className={`topbar-icon-btn topbar-bell-btn${ringing ? ' bell-ring' : ''}`}
       >
-        <Bell size={16} style={{ color: unreadCount > 0 ? '#38bdf8' : 'var(--ro-text-dim)' }} />
+        <Bell size={16} strokeWidth={1.5} />
         {unreadCount > 0 && (
           <span className={ringing ? 'badge-pop' : ''} style={{
             position: 'absolute', top: -4, right: -4, minWidth: 16, height: 16,
@@ -206,27 +225,13 @@ function ThemeToggle() {
   return (
     <button
       type="button"
-      className="topbar-theme-toggle"
+      className="topbar-icon-btn topbar-theme-toggle"
       onClick={() => {
         const next = light ? 'dark' : 'light'
         applyThemeToDocument(next)
         setLight(next === 'light')
       }}
       aria-label={light ? 'Switch to dark theme' : 'Switch to light theme'}
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        width: 34,
-        height: 30,
-        padding: 0,
-        borderRadius: 8,
-        border: '1px solid var(--ro-border-hover)',
-        background: 'var(--ro-surface-elevated)',
-        color: 'var(--ro-text-dim)',
-        cursor: 'pointer',
-        flexShrink: 0,
-      }}
     >
       {light ? <Moon size={16} strokeWidth={1.5} /> : <Sun size={16} strokeWidth={1.5} />}
     </button>
@@ -304,61 +309,106 @@ export function Topbar() {
   const [searchInput, setSearchInput] = useState('')
   const activeSeason = useStore((s) => s.activeSeason)
   const setActiveSeason = useStore((s) => s.setActiveSeason)
+  const addExtraSeason = useStore((s) => s.addExtraSeason)
+  const skus = useStore((s) => s.skus)
+  const extraSeasons = useStore((s) => s.extraSeasons)
   const activeUser = useStore((s) => s.activeUser)
   const setActiveUser = useStore((s) => s.setActiveUser)
   const execUser = isExecutive(activeUser)
 
+  const [seasonAddOpen, setSeasonAddOpen] = useState(false)
+  const [seasonDraft, setSeasonDraft] = useState('')
+  const [userMenuOpen, setUserMenuOpen] = useState(false)
+  const userMenuRef = useRef(null)
+
+  const seasonSwitcherList = useMemo(
+    () => buildSeasonSwitcherList(skus, extraSeasons, activeSeason),
+    [skus, extraSeasons, activeSeason],
+  )
+
   const titleMap = {
-    '/': { title: 'DASHBOARD', crumb: 'RetailOS / Overview / Dashboard' },
-    '/smart-alerts': { title: 'SMART ALERTS', crumb: 'RetailOS / Overview / Smart Alerts' },
-    '/lifecycle': { title: 'SKU LIFECYCLE', crumb: 'RetailOS / Overview / Lifecycle' },
-    '/bestsellers': { title: 'BESTSELLERS', crumb: 'RetailOS / Overview / Bestsellers' },
-    '/strategy': { title: 'ROTATION STRATEGY', crumb: 'RetailOS / Overview / Strategy' },
-    '/reports': { title: 'REPORTS', crumb: 'RetailOS / Data / Reports' },
-    '/lookup': { title: 'PRODUCT LOOKUP', crumb: 'RetailOS / Data / Product lookup' },
-    '/buy-planning': { title: 'BUY PLANNING', crumb: 'RetailOS / Data / Buy Planning' },
-    '/import': { title: 'IMPORT CSV', crumb: 'RetailOS / Data / Import' },
-    '/photos': { title: 'PRODUCT PHOTOS', crumb: 'RetailOS / Data / Photos' },
-    '/catalog/footwear': { title: 'FOOTWEAR CATALOG', crumb: 'RetailOS / Catalog / Footwear' },
-    '/catalog/apparel': { title: 'APPAREL CATALOG', crumb: 'RetailOS / Catalog / Apparel' },
-    '/catalog/accessories': { title: 'ACCESSORIES', crumb: 'RetailOS / Catalog / Accessories' },
-    '/tasks': { title: 'MY TASKS', crumb: 'RetailOS / Workflow / My Tasks' },
-    '/new-transfer': { title: 'NEW TRANSFER', crumb: 'RetailOS / Workflow / New Transfer' },
-    '/outlet': { title: 'OUTLET TRANSFERS', crumb: 'RetailOS / Workflow / Outlet Transfers' },
-    '/transfers': { title: 'STORE TRANSFERS', crumb: 'RetailOS / Workflow / Store Transfers' },
-    '/users': { title: 'USER MANAGEMENT', crumb: 'RetailOS / Workflow / Users' },
-    '/shift-board': { title: 'SHIFT BOARD', crumb: 'RetailOS / Workflow / Shift Board' },
+    '/': { title: 'Dashboard', titleVariant: 'sentence' },
+    '/smart-alerts': { title: 'SMART ALERTS' },
+    '/lifecycle': { title: 'SKU Lifecycle', titleVariant: 'sentence' },
+    '/bestsellers': { title: 'Bestsellers', titleVariant: 'sentence' },
+    '/reports': { title: 'Reports', titleVariant: 'sentence' },
+    '/activity-log': { title: 'Activity Log', titleVariant: 'sentence' },
+    '/lookup': { title: 'Product Lookup', titleVariant: 'sentence' },
+    '/buy-planning': { title: 'BUY PLANNING' },
+    '/import': { title: 'IMPORT CSV' },
+    '/photos': { title: 'Product Photos', titleVariant: 'sentence' },
+    '/catalog/footwear': { title: 'Footwear Catalog', titleVariant: 'sentence' },
+    '/catalog/apparel': { title: 'Apparel Catalog', titleVariant: 'sentence' },
+    '/catalog/accessories': { title: 'Accessories Catalog', titleVariant: 'sentence' },
+    '/tasks': { title: 'My Tasks', titleVariant: 'sentence' },
+    '/new-transfer': { title: 'New Transfer', titleVariant: 'sentence' },
+    '/outlet': { title: 'Outlet Transfers', titleVariant: 'sentence' },
+    '/transfers': { title: 'Store Transfers', titleVariant: 'sentence' },
+    '/markdown': { title: 'Sale Lists', titleVariant: 'sentence' },
+    '/new-markdown': { title: 'NEW SALE LIST' },
+    '/bin': { title: 'Recycle bin', titleVariant: 'sentence' },
+    '/users': { title: 'User Management', titleVariant: 'sentence' },
+    '/shift-board': { title: 'Shift Board', titleVariant: 'sentence' },
   }
-  const current = titleMap[location.pathname] || { title: 'RETAILOS', crumb: 'RetailOS' }
+  const current = titleMap[location.pathname] || { title: 'RETAILOS' }
+
+  const handleAddSeason = () => {
+    if (!normalizeSeasonInput(seasonDraft)) return
+    addExtraSeason(seasonDraft)
+    setSeasonDraft('')
+    setSeasonAddOpen(false)
+  }
+
+  useEffect(() => {
+    if (!userMenuOpen) return
+    const closeIfOutside = (e) => {
+      if (userMenuRef.current && !userMenuRef.current.contains(e.target)) {
+        setUserMenuOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', closeIfOutside)
+    document.addEventListener('touchstart', closeIfOutside, { passive: true })
+    return () => {
+      document.removeEventListener('mousedown', closeIfOutside)
+      document.removeEventListener('touchstart', closeIfOutside)
+    }
+  }, [userMenuOpen])
 
   return (
-    <>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
-        <div style={{ fontFamily: '"DM Sans"', fontSize: '19px', letterSpacing: '2px', color: 'var(--ro-heading)', whiteSpace: 'nowrap' }}>
-          {current.title}
+    <div
+      className="topbar-root"
+      style={{
+        flex: 1,
+        minWidth: 0,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: 8,
+      }}
+    >
+      <div className="topbar-page-title" style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0, flex: 1, overflow: 'hidden' }}>
+        <div
+          className={`topbar-page-title__text${current.titleVariant === 'sentence' ? ' topbar-page-title__text--sentence' : ''}${current.mobileTitle ? ' topbar-page-title__text--responsive' : ''}`}
+        >
+          {current.mobileTitle ? (
+            <>
+              <span className="topbar-page-title__text-full">{current.title}</span>
+              <span className="topbar-page-title__text-short">{current.mobileTitle}</span>
+            </>
+          ) : (
+            current.title
+          )}
         </div>
-        <div className="topbar-crumb" style={{ fontSize: '11px', color: 'var(--ro-text-muted)' }}>{current.crumb}</div>
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+      <div className="topbar-actions" style={{ display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0 }}>
         {execUser && (
-          <div
-            className="topbar-desktop-only"
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '7px',
-              background: 'var(--ro-surface-elevated)',
-              border: '1px solid var(--ro-border)',
-              borderRadius: '8px',
-              padding: '6px 11px',
-              width: '210px',
-            }}
-          >
-            <span style={{ color: 'var(--ro-text-muted)', fontSize: '13px' }}>
-              <IconSearch size={13} strokeWidth={1.5} />
+          <div className="topbar-search-wrap topbar-desktop-only">
+            <span className="topbar-search-icon" aria-hidden>
+              <IconSearch size={14} strokeWidth={1.5} />
             </span>
             <input
+              className="topbar-search-input"
               type="text"
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
@@ -369,135 +419,208 @@ export function Topbar() {
                 navigate(path)
               }}
               placeholder="Search SKU, product, barcode…"
-              style={{
-                background: 'none',
-                border: 'none',
-                outline: 'none',
-                color: 'var(--ro-text)',
-                fontSize: '12px',
-                fontFamily: '"DM Sans"',
-                width: '100%',
-              }}
             />
           </div>
         )}
 
-        {['SS26', 'FW26', 'All'].map((s) => (
-          <div
-            key={s}
-            className="topbar-desktop-only"
-            onClick={() => setActiveSeason(s)}
-            style={{
-              padding: '5px 11px',
-              borderRadius: '20px',
-              fontSize: '11px',
-              fontWeight: 600,
-              cursor: 'pointer',
-              transition: 'all 0.13s',
-              background: activeSeason === s ? 'rgba(255,51,51,0.1)' : 'var(--ro-surface-elevated)',
-              border:
-                activeSeason === s
-                  ? '1px solid rgba(255,51,51,0.25)'
-                  : '1px solid var(--ro-border)',
-              color: activeSeason === s ? '#ff3333' : 'var(--ro-text-muted)',
-            }}
-          >
-            {s}
-          </div>
-        ))}
+        <div className="topbar-season-switcher">
+          {seasonSwitcherList.map((s) => (
+            <div
+              key={s}
+              className={`topbar-season-chip${activeSeason === s ? ' topbar-season-chip--active' : ''}`}
+              onClick={() => setActiveSeason(s)}
+            >
+              {s}
+            </div>
+          ))}
+          {execUser && (
+            <>
+              {!seasonAddOpen ? (
+                <button
+                  type="button"
+                  className="topbar-season-add-toggle"
+                  onClick={() => setSeasonAddOpen(true)}
+                  aria-label="Add season"
+                  title="Add season"
+                >
+                  <Plus size={14} strokeWidth={1.5} />
+                </button>
+              ) : (
+                <div className="topbar-season-add-inline" style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                  <input
+                    type="text"
+                    value={seasonDraft}
+                    onChange={(e) => setSeasonDraft(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') handleAddSeason()
+                      if (e.key === 'Escape') {
+                        setSeasonAddOpen(false)
+                        setSeasonDraft('')
+                      }
+                    }}
+                    placeholder="e.g. SS27"
+                    autoFocus
+                    style={{
+                      width: 72,
+                      padding: '4px 8px',
+                      borderRadius: 8,
+                      border: '1px solid var(--ro-border)',
+                      background: 'var(--ro-surface-elevated)',
+                      color: 'var(--ro-text)',
+                      fontSize: 11,
+                      fontFamily: '"DM Sans"',
+                    }}
+                  />
+                  <button
+                    type="button"
+                    className="topbar-season-add-submit"
+                    onClick={handleAddSeason}
+                    style={{
+                      padding: '4px 10px',
+                      borderRadius: 8,
+                      border: '1px solid rgba(255,51,51,0.25)',
+                      background: 'rgba(255,51,51,0.1)',
+                      color: '#ff3333',
+                      fontSize: 10,
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      fontFamily: '"DM Sans"',
+                    }}
+                  >
+                    Add
+                  </button>
+                  <button
+                    type="button"
+                    className="topbar-season-add-cancel"
+                    onClick={() => {
+                      setSeasonAddOpen(false)
+                      setSeasonDraft('')
+                    }}
+                    style={{
+                      padding: '4px 8px',
+                      borderRadius: 8,
+                      border: '1px solid var(--ro-border)',
+                      background: 'transparent',
+                      color: 'var(--ro-text-muted)',
+                      fontSize: 10,
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      fontFamily: '"DM Sans"',
+                    }}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              )}
+            </>
+          )}
+        </div>
 
         <ThemeToggle />
         <ShiftButton />
         <NotificationBell />
 
         {activeUser && (
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8,
-              background: 'var(--ro-surface-elevated)',
-              border: '1px solid var(--ro-border)',
-              borderRadius: 8,
-              padding: '5px 10px',
-            }}
-          >
-            <div
-              style={{
-                width: 6,
-                height: 6,
-                borderRadius: '50%',
-                background: ROLE_COLORS[activeUser.role] || 'var(--ro-text-dim)',
-                flexShrink: 0,
-              }}
-            />
-            <span style={{ fontSize: 11, color: 'var(--ro-text)', fontWeight: 600, whiteSpace: 'nowrap' }}>
-              {activeUser.name}
-            </span>
-            <button
-              type="button"
-              onClick={() => setActiveUser(null)}
-              style={{
-                fontSize: 10,
-                color: 'var(--ro-text-muted)',
-                background: 'none',
-                border: 'none',
-                cursor: 'pointer',
-                fontFamily: '"DM Sans"',
-                padding: '2px 4px',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              Switch
-            </button>
-          </div>
+          <>
+            <div className="topbar-user-desktop">
+              <span className="topbar-user-desktop__dot" aria-hidden />
+              <span className="topbar-user-desktop__name">{activeUser.name}</span>
+              <button
+                type="button"
+                className="topbar-user-desktop__switch"
+                onClick={() => setActiveUser(null)}
+              >
+                Switch
+              </button>
+            </div>
+
+            <div ref={userMenuRef} className="topbar-user-mobile" style={{ position: 'relative' }}>
+              <button
+                type="button"
+                onClick={() => setUserMenuOpen((v) => !v)}
+                aria-expanded={userMenuOpen}
+                aria-haspopup="menu"
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  padding: '5px 10px',
+                  borderRadius: 8,
+                  border: '1px solid var(--ro-border)',
+                  background: 'var(--ro-surface-elevated)',
+                  cursor: 'pointer',
+                  fontFamily: '"DM Sans"',
+                  fontSize: 11,
+                  fontWeight: 600,
+                  color: 'var(--ro-text)',
+                }}
+              >
+                <span
+                  style={{
+                    width: 6,
+                    height: 6,
+                    borderRadius: '50%',
+                    background: ROLE_COLORS[activeUser.role] || 'var(--ro-text-dim)',
+                    flexShrink: 0,
+                  }}
+                />
+                You
+                <ChevronDown size={14} style={{ color: 'var(--ro-text-muted)', flexShrink: 0 }} aria-hidden />
+              </button>
+              {userMenuOpen && (
+                <div
+                  role="menu"
+                  style={{
+                    position: 'absolute',
+                    top: '100%',
+                    right: 0,
+                    marginTop: 6,
+                    minWidth: 140,
+                    padding: '6px 0',
+                    background: 'var(--ro-surface-elevated)',
+                    border: '1px solid var(--ro-border-hover)',
+                    borderRadius: 10,
+                    boxShadow: 'var(--ro-dropdown-shadow)',
+                    zIndex: 1000,
+                  }}
+                >
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      setActiveUser(null)
+                      setUserMenuOpen(false)
+                    }}
+                    style={{
+                      display: 'block',
+                      width: '100%',
+                      textAlign: 'left',
+                      padding: '8px 14px',
+                      fontSize: 12,
+                      fontWeight: 600,
+                      fontFamily: '"DM Sans"',
+                      color: 'var(--ro-text)',
+                      background: 'none',
+                      border: 'none',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Log out
+                  </button>
+                </div>
+              )}
+            </div>
+          </>
         )}
 
         <button
           type="button"
-          className="topbar-desktop-only"
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: '6px',
-            padding: '7px 13px',
-            borderRadius: '8px',
-            fontSize: '12px',
-            fontWeight: 600,
-            cursor: 'pointer',
-            border: '1px solid var(--ro-border)',
-            background: 'var(--ro-surface-elevated)',
-            color: 'var(--ro-text-dim)',
-            fontFamily: '"DM Sans"',
-            whiteSpace: 'nowrap',
-          }}
-        >
-          Export
-        </button>
-
-        <button
-          type="button"
-          className="topbar-desktop-only"
+          className="topbar-desktop-only topbar-import-csv"
           onClick={() => navigate('/import')}
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: '6px',
-            padding: '7px 13px',
-            borderRadius: '8px',
-            fontSize: '12px',
-            fontWeight: 600,
-            cursor: 'pointer',
-            border: 'none',
-            background: '#ff3333',
-            color: '#fff',
-            fontFamily: '"DM Sans"',
-            whiteSpace: 'nowrap',
-          }}
         >
-          + Import CSV
+          Import CSV
         </button>
       </div>
-    </>
+    </div>
   )
 }

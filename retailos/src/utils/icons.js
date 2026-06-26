@@ -2,7 +2,6 @@ export {
   Zap as IconDashboard,
   RefreshCw as IconLifecycle,
   Flame as IconHot,
-  Target as IconStrategy,
   BarChart3 as IconReports,
   Search as IconSearch,
   ClipboardList as IconPlanning,
@@ -52,4 +51,10 @@ export {
   ImageOff as IconImageOff,
   XCircle as IconXCircle,
   LayoutGrid as IconDisplay,
+  History as IconHistory,
+  BadgePercent as IconSale,
+  SlidersHorizontal as IconSliders,
+  MoreHorizontal as IconMore,
+  Download as IconDownload,
+  ShoppingCart as IconCart,
 } from 'lucide-react'

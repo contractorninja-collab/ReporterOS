@@ -1,20 +1,38 @@
 import { useMemo, useState } from 'react'
 import useStore from '../store/useStore.js'
+import { IconPlanning } from '../utils/icons.js'
 
-const STATUS_CFG = {
-  pending: { label: 'Pending', color: '#ff8800', bg: 'rgba(255,136,0,0.10)' },
-  in_progress: { label: 'In Progress', color: '#38bdf8', bg: 'rgba(56,189,248,0.10)' },
-  done: { label: 'Done', color: '#00e676', bg: 'rgba(0,230,118,0.10)' },
+const STATUS_LABEL = {
+  pending: 'Pending',
+  in_progress: 'In Progress',
+  done: 'Done',
 }
-const TYPE_ICONS = {
-  sale: '',
-  markdown: '',
-  reorder: '',
-  display_move: '',
-  outlet_move: '',
-  photo_needed: '',
-  store_transfer: '',
-  alert_action: '',
+
+const EMPTY_HINT = {
+  all: 'You have no assigned tasks.',
+  pending: 'No pending tasks.',
+  in_progress: 'Nothing in progress.',
+  done: 'No completed tasks yet.',
+}
+
+const TABS = [
+  { key: 'all', label: 'All' },
+  { key: 'pending', label: 'Pending' },
+  { key: 'in_progress', label: 'In Progress' },
+  { key: 'done', label: 'Done' },
+]
+
+function formatTaskType(type) {
+  return String(type || '')
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (c) => c.toUpperCase())
+}
+
+function priorityBadgeClass(priority) {
+  const p = String(priority || '').toLowerCase()
+  if (p === 'high') return 'mt-task-badge--priority-high'
+  if (p === 'medium') return 'mt-task-badge--priority-medium'
+  return 'mt-task-badge--priority-low'
 }
 
 export function MyTasks() {
@@ -60,147 +78,111 @@ export function MyTasks() {
     updateAssignment(task.id, changes)
   }
 
+  const taskDescription = (task) => {
+    if (task.note) return task.note
+    const action = formatTaskType(task.type)
+    return task.shop ? `${action} — ${task.shop}` : action
+  }
+
   return (
-    <div style={{ maxWidth: 700 }}>
-      <div style={{ marginBottom: 20 }}>
-        <h2 style={{ fontFamily: '"DM Sans"', fontSize: 22, letterSpacing: '2px', color: 'var(--ro-heading)', margin: 0 }}>
-          MY TASKS
-        </h2>
-        <p style={{ fontSize: 12, color: 'var(--ro-text-muted)', margin: '4px 0 0' }}>
+    <div className="my-tasks-page">
+      <div className="mt-page-header">
+        <p className="mt-page-subtitle">
           Assignments for {activeUser?.name || 'you'}. Mark them as you work.
         </p>
       </div>
 
-      <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap' }}>
-        {[
-          { key: 'all', label: 'All' },
-          { key: 'pending', label: 'Pending' },
-          { key: 'in_progress', label: 'In Progress' },
-          { key: 'done', label: 'Done' },
-        ].map((f) => (
+      <div className="mt-task-tabs">
+        {TABS.map((f) => (
           <button
             key={f.key}
             type="button"
+            className={`mt-task-tab${filter === f.key ? ' is-active' : ''}`}
             onClick={() => setFilter(f.key)}
-            style={{
-              padding: '6px 14px',
-              borderRadius: 20,
-              fontSize: 11,
-              fontWeight: 600,
-              cursor: 'pointer',
-              fontFamily: '"DM Sans"',
-              border: filter === f.key ? '1px solid rgba(255,51,51,0.25)' : '1px solid var(--ro-border)',
-              background: filter === f.key ? 'rgba(255,51,51,0.1)' : 'var(--ro-surface-elevated)',
-              color: filter === f.key ? '#ff3333' : 'var(--ro-text-dim)',
-            }}
           >
-            {f.label} ({counts[f.key]})
+            <span className="mt-task-tab__label">{f.label}</span>
+            <span className="mt-task-tab__count"> ({counts[f.key]})</span>
           </button>
         ))}
       </div>
 
-      {myTasks.length === 0 && (
-        <div
-          style={{
-            textAlign: 'center',
-            padding: 48,
-            background: 'var(--ro-surface)',
-            border: '1px solid var(--ro-border)',
-            borderRadius: 14,
-            color: 'var(--ro-text-muted)',
-            fontSize: 14,
-          }}
-        >
-          No tasks{filter !== 'all' ? ` with status "${STATUS_CFG[filter]?.label || filter}"` : ''}.
-        </div>
-      )}
-
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-        {myTasks.map((t) => {
-          const cfg = STATUS_CFG[t.status] || STATUS_CFG.pending
-          const ns = nextStatus(t.status)
-          const nsCfg = ns ? STATUS_CFG[ns] : null
-          return (
-            <div
-              key={t.id}
-              style={{
-                background: 'var(--ro-surface)',
-                border: '1px solid var(--ro-border)',
-                borderRadius: 14,
-                padding: '16px 18px',
-                display: 'flex',
-                gap: 14,
-                alignItems: 'flex-start',
-              }}
-            >
-              <div style={{ fontSize: 22, flexShrink: 0, marginTop: 2 }}>
-                {TYPE_ICONS[t.type] || ''}
-              </div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                  <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--ro-text)' }}>
-                    {t.productName}
-                  </span>
-                  <span
-                    style={{
-                      fontSize: 9,
-                      fontWeight: 700,
-                      textTransform: 'uppercase',
-                      padding: '2px 7px',
-                      borderRadius: 4,
-                      background: cfg.bg,
-                      color: cfg.color,
-                    }}
-                  >
-                    {cfg.label}
-                  </span>
-                </div>
-                <div style={{ fontSize: 11, color: 'var(--ro-text-muted)', fontFamily: '"DM Sans"', marginBottom: 4 }}>
-                  {t.skuCode}
-                </div>
-                <div style={{ fontSize: 11, color: 'var(--ro-text-dim)', marginBottom: 2 }}>
-                  <strong style={{ color: 'var(--ro-text)' }}>Action:</strong>{' '}
-                  {t.type.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())}
-                  {t.shop ? ` — ${t.shop}` : ''}
-                </div>
-                {t.note && (
-                  <div style={{ fontSize: 11, color: 'var(--ro-text-dim)', fontStyle: 'italic' }}>
-                    &quot;{t.note}&quot;
-                  </div>
-                )}
-                <div style={{ fontSize: 10, color: 'var(--ro-text-muted)', marginTop: 4 }}>
-                  Assigned by {getUserName(t.assignedBy)} — {new Date(t.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}
-                  {t.completedAt && (
-                    <span style={{ color: '#00e676', marginLeft: 8 }}>
-                      Completed {new Date(t.completedAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}
-                    </span>
-                  )}
-                </div>
-              </div>
-              {nsCfg && (
-                <button
-                  type="button"
-                  onClick={() => handleAdvance(t)}
-                  style={{
-                    padding: '7px 14px',
-                    borderRadius: 8,
-                    fontSize: 11,
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                    border: 'none',
-                    background: nsCfg.bg,
-                    color: nsCfg.color,
-                    fontFamily: '"DM Sans"',
-                    whiteSpace: 'nowrap',
-                    flexShrink: 0,
-                  }}
+      <div className="mt-task-panel">
+        {myTasks.length === 0 ? (
+          <div className="mt-task-empty">
+            <IconPlanning className="mt-task-empty__icon" size={36} strokeWidth={1.5} aria-hidden />
+            <p className="mt-task-empty__title">No tasks yet</p>
+            <p className="mt-task-empty__hint">{EMPTY_HINT[filter] || EMPTY_HINT.all}</p>
+          </div>
+        ) : (
+          <div className="mt-task-list">
+            {myTasks.map((t) => {
+              const status = t.status || 'pending'
+              const ns = nextStatus(status)
+              const isDone = status === 'done'
+              return (
+                <article
+                  key={t.id}
+                  className={`mt-task-card mt-task-card--${status}${isDone ? ' mt-task-card--completed' : ''}`}
                 >
-                  {ns === 'in_progress' ? 'Start' : 'Done'}
-                </button>
-              )}
-            </div>
-          )
-        })}
+                  <div className="mt-task-card__body">
+                    <div className="mt-task-card__head">
+                      <h3 className="mt-task-card__title">{t.productName}</h3>
+                      <span className={`mt-task-badge mt-task-badge--status mt-task-badge--status-${status}`}>
+                        {STATUS_LABEL[status] || STATUS_LABEL.pending}
+                      </span>
+                    </div>
+                    <p className="mt-task-card__desc">{taskDescription(t)}</p>
+                    {t.skuCode ? (
+                      <p className="mt-task-card__sku">{t.skuCode}</p>
+                    ) : null}
+                    <div className="mt-task-card__meta">
+                      <span>Assigned by {getUserName(t.assignedBy)}</span>
+                      {t.dueDate ? (
+                        <span>
+                          Due{' '}
+                          {new Date(t.dueDate).toLocaleDateString('en-GB', {
+                            day: 'numeric',
+                            month: 'short',
+                            year: 'numeric',
+                          })}
+                        </span>
+                      ) : null}
+                      {t.priority ? (
+                        <span className={`mt-task-badge ${priorityBadgeClass(t.priority)}`}>
+                          {String(t.priority).charAt(0).toUpperCase() + String(t.priority).slice(1)}
+                        </span>
+                      ) : null}
+                    </div>
+                    {t.completedAt ? (
+                      <p className="mt-task-card__completed">
+                        Completed{' '}
+                        {new Date(t.completedAt).toLocaleDateString('en-GB', {
+                          day: 'numeric',
+                          month: 'short',
+                          year: 'numeric',
+                        })}
+                      </p>
+                    ) : null}
+                  </div>
+                  <div className="mt-task-card__actions">
+                    {ns ? (
+                      <button
+                        type="button"
+                        className={ns === 'done' ? 'mt-task-card__done-btn' : 'mt-task-card__start-btn'}
+                        onClick={() => handleAdvance(t)}
+                      >
+                        {ns === 'done' ? 'Mark as done' : 'Start'}
+                      </button>
+                    ) : null}
+                    <button type="button" className="mt-task-card__details">
+                      View details
+                    </button>
+                  </div>
+                </article>
+              )
+            })}
+          </div>
+        )}
       </div>
     </div>
   )

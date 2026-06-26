@@ -1,20 +1,39 @@
-import { useState, useRef, useId, useMemo } from 'react'
+import { useState, useRef, useId, useMemo, useEffect } from 'react'
 import { useStore } from '../store/useStore'
-import { parseCSV } from '../utils/csvParser'
 import {
-  buildReportingTemplateCsv,
-  REPORTING_TEMPLATE_FILE_NAME,
-  buildNewArrivalsTemplateCsv,
-  NEW_ARRIVALS_TEMPLATE_FILE_NAME,
-} from '../utils/csvImportSpec'
+  parseCSV,
+  sumIntakeInvestmentPreview,
+  mergeDuplicateSkuSizeRows,
+  validateReportingRow,
+  skuSizeKey,
+  reportingLineRevenueFromRow,
+  classifyReportingMovement,
+} from '../utils/csvParser'
 import { buildSnapshot } from '../utils/salesSnapshots'
+import { importStatusBadgeClass } from '../utils/statusBadge.js'
+import { normalizeBarcodeValue } from '../utils/barcodeFormat.js'
 import * as api from '../api/client'
-import { IconPackage, IconImport, IconFolder, IconClock } from '../utils/icons.js'
+import { IconPackage, IconImport, IconFolder, IconClock, IconDownload, IconLifecycle, IconDelete } from '../utils/icons.js'
+
+/**
+ * Match reporting row to catalog: exact sku+size first, then sku+blank size, then any row with same sku.
+ */
+function findExistingSkuRow(existingMap, allSkus, sku, size) {
+  const k = skuSizeKey(sku, size)
+  if (existingMap.has(k)) return existingMap.get(k)
+  const kEmpty = skuSizeKey(sku, '')
+  if (existingMap.has(kEmpty)) return existingMap.get(kEmpty)
+  const want = String(sku ?? '').trim()
+  for (const s of allSkus) {
+    if (String(s.sku ?? '').trim() === want) return s
+  }
+  return null
+}
 
 /** Mirrors csvParser.validateRow — required fields for New Arrivals Intake */
 function isValidSkuRow(row) {
   if (!row || typeof row !== 'object') return false
-  const barcode = (row.barcode ?? '').toString().trim()
+  const barcode = normalizeBarcodeValue(row.barcode).trim()
   const sku = (row.sku ?? '').toString().trim()
   const productName = (row.product_name ?? '').toString().trim()
   const importDate = row.import_date
@@ -24,55 +43,89 @@ function isValidSkuRow(row) {
     importDate instanceof Date
       ? !Number.isNaN(importDate.getTime())
       : importDate != null && String(importDate).trim() !== ''
+  const g = (row.gender ?? '').toString().trim()
+  const validGender = g === 'M' || g === 'F' || g === 'K' || g === 'U'
   return (
     barcode !== '' &&
     sku !== '' &&
     productName !== '' &&
     hasValidDate &&
     !Number.isNaN(qty) &&
-    qty >= 0
+    qty >= 0 &&
+    validGender
   )
 }
 
-/** Reporting Import validation — requires barcode, sku, sold_quantity */
 function isValidReportingRow(row) {
-  if (!row || typeof row !== 'object') return false
-  const barcode = (row.barcode ?? '').toString().trim()
-  const sku = (row.sku ?? '').toString().trim()
-  const soldQty = row.sold_quantity
-  const sq = typeof soldQty === 'number' ? soldQty : parseInt(soldQty, 10)
-  return barcode !== '' && sku !== '' && !Number.isNaN(sq) && sq >= 0
+  return validateReportingRow(row)
+}
+
+function formatSaleDateDdMmYy(d) {
+  if (!(d instanceof Date) || Number.isNaN(d.getTime())) return '—'
+  const dd = String(d.getDate()).padStart(2, '0')
+  const mm = String(d.getMonth() + 1).padStart(2, '0')
+  const yy = String(d.getFullYear()).slice(-2)
+  return `${dd}.${mm}.${yy}`
+}
+
+/** YYYY-MM-DD in local time (matches sale_date calendar day). */
+function toIsoDateLocal(d) {
+  if (!(d instanceof Date) || Number.isNaN(d.getTime())) return null
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
 }
 
 const INTAKE_FIELD_PILLS = [
-  { label: 'barcode', color: '#00e676' },
-  { label: 'sku', color: '#38bdf8' },
-  { label: 'product_name', color: '#c084fc' },
-  { label: 'size', color: '#ff8800' },
-  { label: 'price_tag', color: '#eab308' },
-  { label: 'cost_price', color: '#fb923c' },
-  { label: 'quantity', color: '#00e676' },
-  { label: 'import_date', color: '#ff3333' },
-  { label: 'gender [M/F/K]', color: '#38bdf8' },
-  { label: 'season [SS26/FW26]', color: '#c084fc' },
-  { label: 'category', color: '#2dd4bf' },
-  { label: 'brand', color: '#f472b6' },
+  { label: 'barcode', required: true },
+  { label: 'sku', required: true },
+  { label: 'product_name', required: true },
+  { label: 'size', required: true },
+  { label: 'price_tag', required: true },
+  { label: 'cost_price', required: true },
+  { label: 'quantity', required: true },
+  { label: 'import_date', required: true },
+  { label: 'gender [Male | Female | Kids | Unisex only]', required: true },
+  { label: 'season [SS26/FW26]', required: true },
+  { label: 'category', required: true },
+  { label: 'brand', required: true },
 ]
 
 const REPORTING_FIELD_PILLS = [
-  { label: 'barcode', color: '#00e676' },
-  { label: 'sku', color: '#38bdf8' },
-  { label: 'size', color: '#ff8800' },
-  { label: 'price_sold', color: '#fbbf24' },
-  { label: 'sold_quantity', color: '#ff3333' },
+  { label: 'barcode', required: true },
+  { label: 'sku', required: true },
+  { label: 'size', required: true },
+  { label: 'price_sold', required: true },
+  { label: 'sold_quantity', required: true },
+  { label: 'sale_date (DD.MM.YY)', required: true },
+  { label: 'transaction_type [optional: SALE | RETURN]', required: false },
 ]
 
-const PLACEHOLDER_IMPORT_ROWS = [
-  { id: 'ph-1', filename: 'ss26_footwear_batch2.csv', date: '2026-03-18', count: 47, status: 'imported' },
-  { id: 'ph-2', filename: 'ss26_apparel_march.csv', date: '2026-03-12', count: 31, status: 'imported' },
-  { id: 'ph-3', filename: 'ss26_accessories.csv', date: '2026-03-05', count: 18, status: 'imported' },
-  { id: 'ph-4', filename: 'fw25_archive_export.csv', date: '2026-01-10', count: 166, status: 'archived' },
-]
+function formatImportDate(date) {
+  if (!date) return '—'
+  const d = new Date(date)
+  if (Number.isNaN(d.getTime())) return String(date)
+  const datePart = d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+  const timePart = d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+  return `${datePart}, ${timePart}`
+}
+
+function importStatusLabel(status) {
+  switch (status) {
+    case 'archived':
+      return 'Archived'
+    case 'processing':
+      return 'Processing'
+    case 'failed':
+      return 'Failed'
+    case 'imported':
+    case 'success':
+      return 'Success'
+    default:
+      return status ? String(status) : '—'
+  }
+}
 
 const S = {
   surface: 'var(--ro-surface)',
@@ -83,35 +136,19 @@ const S = {
   accent: '#ff3333',
 }
 
-const tileShell = {
-  position: 'relative',
-  background: 'var(--ro-surface)',
-  border: '1px solid var(--ro-border)',
-  borderRadius: '13px',
-  padding: '18px',
-}
+const IMPORT_COST_AUDIT_TOLERANCE = 1
 
 function FieldPillList({ pills }) {
   return (
-    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '14px' }}>
+    <div className="import-field-pills">
       {pills.map((f) => (
-        <div
+        <span
           key={f.label}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '5px',
-            background: 'var(--ro-surface-elevated)',
-            border: '1px solid var(--ro-border)',
-            borderRadius: '6px',
-            padding: '3px 9px',
-            fontSize: '10px',
-            color: 'var(--ro-text)',
-          }}
+          className={`import-field-pill${f.required ? ' import-field-pill--required' : ' import-field-pill--optional'}`}
         >
-          <div style={{ width: '5px', height: '5px', borderRadius: '50%', background: f.color }} />
+          <span className="import-field-pill__dot" aria-hidden="true" />
           {f.label}
-        </div>
+        </span>
       ))}
     </div>
   )
@@ -123,42 +160,32 @@ function ImportUploadTile({
   emoji,
   fieldPills,
   fileInputRef,
-  uploadHot,
+  isDragging,
+  isHover,
   loading,
   error,
   onDownloadTemplate,
   onFile,
 }) {
   const fileInputId = useId()
+  const dropzoneClass = [
+    'import-dropzone',
+    isDragging ? 'import-dropzone--drag' : isHover ? 'import-dropzone--hover' : '',
+  ]
+    .filter(Boolean)
+    .join(' ')
+
   return (
-    <div className="import-tile-shell" style={tileShell}>
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '8px',
-          marginBottom: '8px',
-        }}
-      >
-        <span style={{ fontSize: '18px', lineHeight: 1 }}>{emoji}</span>
-        <span
-          style={{
-            fontFamily: '"DM Sans"',
-            fontSize: '13px',
-            letterSpacing: '2px',
-            color: 'var(--ro-text)',
-            fontWeight: 600,
-          }}
-        >
-          {title}
-        </span>
+    <div className="import-upload-section">
+      <div className="import-upload-section__head">
+        <span className="import-upload-section__icon">{emoji}</span>
+        <span className="import-upload-section__title">{title}</span>
       </div>
-      {subtitle && (
-        <p style={{ fontSize: '11px', color: S.text2, margin: '0 0 14px 0', lineHeight: 1.45 }}>{subtitle}</p>
-      )}
+      {subtitle && <p className="import-upload-section__desc">{subtitle}</p>}
 
       <label
         htmlFor={fileInputId}
+        className={dropzoneClass}
         tabIndex={0}
         onKeyDown={(e) => {
           if (e.key === 'Enter' || e.key === ' ') {
@@ -192,27 +219,15 @@ function ImportUploadTile({
         }}
         onMouseEnter={() => onFile.setHover(true)}
         onMouseLeave={() => onFile.setHover(false)}
-        style={{
-          display: 'block',
-          border: `2px dashed ${uploadHot ? '#ff3333' : 'var(--ro-border)'}`,
-          borderRadius: '12px',
-          padding: '22px 16px',
-          textAlign: 'center',
-          cursor: 'pointer',
-          transition: 'all 0.2s',
-          marginBottom: '14px',
-          background: uploadHot ? 'rgba(255,51,51,0.03)' : 'transparent',
-          userSelect: 'none',
-        }}
       >
-        <div style={{ pointerEvents: 'none' }}>
-          <div style={{ fontSize: '26px', marginBottom: '8px' }}>
+        <div className="import-dropzone__inner">
+          <div className="import-dropzone__icon">
             <IconFolder size={28} strokeWidth={1.5} />
           </div>
-          <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--ro-text)', marginBottom: '3px' }}>
+          <div className="import-dropzone__label">
             {loading ? 'Parsing...' : 'Drop your CSV here or click to browse'}
           </div>
-          <div style={{ fontSize: '11px', color: 'var(--ro-text-muted)' }}>Supports .csv · Max 50MB</div>
+          <div className="import-dropzone__hint">Supports .csv · Max 50MB</div>
         </div>
       </label>
       <input
@@ -228,31 +243,13 @@ function ImportUploadTile({
         }}
       />
 
-      {error && (
-        <p style={{ color: S.accent, fontSize: '12px', marginTop: '-6px', marginBottom: '12px' }}>{error}</p>
-      )}
+      {error && <p className="import-upload-section__error">{error}</p>}
 
-      <div style={{ fontSize: '11px', color: 'var(--ro-text-muted)', marginBottom: '8px' }}>CSV columns:</div>
+      <div className="import-field-pills-label">CSV columns:</div>
       <FieldPillList pills={fieldPills} />
 
-      <button
-        type="button"
-        onClick={onDownloadTemplate}
-        style={{
-          display: 'inline-flex',
-          alignItems: 'center',
-          gap: '6px',
-          padding: '7px 13px',
-          borderRadius: '8px',
-          fontSize: '11px',
-          fontWeight: 600,
-          cursor: 'pointer',
-          background: 'var(--ro-surface-elevated)',
-          color: 'var(--ro-text-dim)',
-          border: '1px solid var(--ro-border)',
-          fontFamily: '"DM Sans"',
-        }}
-      >
+      <button type="button" className="import-template-btn" onClick={onDownloadTemplate}>
+        <IconDownload size={14} strokeWidth={1.75} className="import-template-btn__icon" />
         Download template
       </button>
     </div>
@@ -274,8 +271,11 @@ function PreviewSection({
   const validRows = pendingSkus.filter((s) => rowValidator(s))
   const validCount = validRows.length
   const invalidCount = pendingSkus.length - validCount
+  const mergedForStats = validRows.length
+    ? mergeDuplicateSkuSizeRows(validRows, { allowSignedSold: isReporting })
+    : []
   const distinctProductCount = new Set(validRows.map((s) => s.sku)).size
-  const totalUnitsCount = validRows.reduce((sum, s) => sum + (Number(s.quantity) || 0), 0)
+  const totalUnitsCount = mergedForStats.reduce((sum, s) => sum + (Number(s.quantity) || 0), 0)
 
   const unrecognizedSkuSet = isReporting && knownSkuCodes
     ? new Set(validRows.filter((s) => !knownSkuCodes.has(s.sku)).map((s) => s.sku))
@@ -284,8 +284,11 @@ function PreviewSection({
     ? validRows.filter((s) => knownSkuCodes.has(s.sku)).length
     : validCount
 
+  const intakeInvestmentPreview =
+    !isReporting && validCount > 0 ? sumIntakeInvestmentPreview(mergedForStats) : null
+
   const headers = isReporting
-    ? ['SKU', 'Sizes', 'Price Sold', 'Sold Qty']
+    ? ['SKU', 'Sizes', 'Price Sold Total', 'Sold Qty']
     : ['SKU', 'Product', 'Sizes', 'Total Qty', 'Tag', 'Category', 'Brand']
 
   return (
@@ -294,33 +297,58 @@ function PreviewSection({
         className="import-preview-header"
         style={{
           display: 'flex',
-          alignItems: 'center',
+          alignItems: 'flex-start',
           justifyContent: 'space-between',
           marginBottom: '12px',
           flexWrap: 'wrap',
           gap: '10px',
         }}
       >
-        <h3
-          style={{
-            fontFamily: '"DM Sans"',
-            fontSize: '14px',
-            letterSpacing: '2px',
-            color: S.muted,
-            margin: 0,
-            fontWeight: 600,
-          }}
-        >
-          {label} — {distinctProductCount} product{distinctProductCount === 1 ? '' : 's'}, {totalUnitsCount} units
-          <span style={{ marginLeft: '8px', color: S.text2, fontWeight: 400 }}>
-            ({pendingSkus.length} size row{pendingSkus.length === 1 ? '' : 's'})
-          </span>
-          {invalidCount > 0 && (
-            <span style={{ marginLeft: '8px', color: S.accent, fontWeight: 400 }}>
-              · {invalidCount} invalid
+        <div style={{ flex: '1 1 auto', minWidth: 0 }}>
+          <h3
+            style={{
+              fontFamily: '"DM Sans"',
+              fontSize: '14px',
+              letterSpacing: '2px',
+              color: S.muted,
+              margin: 0,
+              fontWeight: 600,
+            }}
+          >
+            {label} — {distinctProductCount} product{distinctProductCount === 1 ? '' : 's'}, {totalUnitsCount} units
+            <span style={{ marginLeft: '8px', color: S.text2, fontWeight: 400 }}>
+              ({pendingSkus.length} size row{pendingSkus.length === 1 ? '' : 's'})
             </span>
+            {invalidCount > 0 && (
+              <span style={{ marginLeft: '8px', color: S.accent, fontWeight: 400 }}>
+                · {invalidCount} invalid
+              </span>
+            )}
+          </h3>
+          {intakeInvestmentPreview != null && (
+            <div
+              className="import-preview-investment"
+              style={{
+                marginTop: '8px',
+                fontSize: '12px',
+                letterSpacing: '0.04em',
+                color: '#fb923c',
+                fontWeight: 600,
+                fontFamily: '"DM Sans", sans-serif',
+              }}
+            >
+              Σ Investment (preview): €
+              {intakeInvestmentPreview.toLocaleString(undefined, {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })}{' '}
+              <span style={{ fontWeight: 400, color: S.text2, fontSize: '11px' }}>
+                — quantity × unit cost; columns <code style={{ fontSize: '10px' }}>cost_price</code> or{' '}
+                <code style={{ fontSize: '10px' }}>line_total</code> (row amount ÷ qty)
+              </span>
+            </div>
           )}
-        </h3>
+        </div>
         <div style={{ display: 'flex', gap: '8px' }}>
           <button
             type="button"
@@ -365,8 +393,8 @@ function PreviewSection({
       {validCount === 0 && pendingSkus.length > 0 && (
         <p style={{ fontSize: '12px', color: S.accent, marginBottom: '12px', marginTop: 0 }}>
           {isReporting
-            ? 'No valid rows — Confirm import stays disabled until barcode, sku, and quantity are filled on each row.'
-            : 'No valid rows — Confirm import stays disabled until barcode, sku, product_name, import_date, and quantity are filled on each row.'}
+            ? 'No valid rows — Confirm import stays disabled until barcode, sku, sold_quantity, and sale_date (DD.MM.YY) are filled on each row.'
+            : 'No valid rows — Confirm import stays disabled until barcode, sku, product_name, import_date, quantity, and gender (Male, Female, Kids, or Unisex only) are filled on each row.'}
         </p>
       )}
 
@@ -466,7 +494,12 @@ function PreviewSection({
                   })
                 }
                 const g = grouped.get(key)
-                g.sizes.push({ size: row.size, qty: Number(row.quantity) || 0, sold: Number(row.sold_quantity) || 0 })
+                g.sizes.push({
+                  size: row.size,
+                  qty: Number(row.quantity) || 0,
+                  sold: Number(row.sold_quantity) || 0,
+                  saleLabel: isReporting ? formatSaleDateDdMmYy(row.sale_date) : '',
+                })
                 g.totalQty += Number(row.quantity) || 0
                 g.totalSold += Number(row.sold_quantity) || 0
                 if (!rowValidator(row)) g.hasInvalid = true
@@ -523,7 +556,11 @@ function PreviewSection({
                             fontFamily: "'DM Sans', sans-serif",
                           }}
                         >
-                          {sz.size} <span style={{ color: S.text2 }}>×{sz.qty}</span>
+                          {sz.size}{' '}
+                          <span style={{ color: S.text2 }}>
+                            ×{isReporting ? sz.sold : sz.qty}
+                            {isReporting && sz.saleLabel && sz.saleLabel !== '—' ? ` · ${sz.saleLabel}` : ''}
+                          </span>
                         </span>
                       ))}
                     </div>
@@ -576,16 +613,32 @@ function formatImportError(err) {
   return err.message || 'Import failed'
 }
 
+async function assertProductLookupCostMatchesLedger() {
+  const [ledgerAudit, productReport] = await Promise.all([
+    api.fetchImportCostAudit(),
+    api.fetchProductReport(''),
+  ])
+  const ledgerTotal = Number(ledgerAudit?.ledgerInvestment) || 0
+  const productLookupTotal = Number(productReport?.totals?.totalInvestment) || 0
+  const diff = Math.abs(ledgerTotal - productLookupTotal)
+  if (diff > IMPORT_COST_AUDIT_TOLERANCE) {
+    throw new Error(
+      `Product Lookup cost audit failed: import ledger €${ledgerTotal.toFixed(2)} but Product Lookup shows €${productLookupTotal.toFixed(2)}.`,
+    )
+  }
+}
+
 export function ImportCSV() {
-  const addSkus = useStore((s) => s.addSkus)
+  const importSkusBatch = useStore((s) => s.importSkusBatch)
+  const setSkus = useStore((s) => s.setSkus)
   const addImportRecord = useStore((s) => s.addImportRecord)
   const deleteImport = useStore((s) => s.deleteImport)
   const importHistory = useStore((s) => s.importHistory)
-  const photoMap = useStore((s) => s.photoMap)
-  const addAssignment = useStore((s) => s.addAssignment)
+  const addAssignments = useStore((s) => s.addAssignments)
   const addSalesSnapshot = useStore((s) => s.addSalesSnapshot)
   const refreshSkuImportTotals = useStore((s) => s.refreshSkuImportTotals)
   const refreshWeeklySales = useStore((s) => s.refreshWeeklySales)
+  const refreshImportHistory = useStore((s) => s.refreshImportHistory)
   const activeUser = useStore((s) => s.activeUser)
   const users = useStore((s) => s.users)
   const skus = useStore((s) => s.skus)
@@ -593,6 +646,8 @@ export function ImportCSV() {
   const knownSkuCodes = useMemo(() => new Set(skus.map((s) => s.sku)), [skus])
 
   const [deletingId, setDeletingId] = useState(null)
+  const [reprocessingId, setReprocessingId] = useState(null)
+  const [reprocessConfirmRow, setReprocessConfirmRow] = useState(null)
 
   const fileInputIntakeRef = useRef(null)
   const fileInputReportingRef = useRef(null)
@@ -618,14 +673,23 @@ export function ImportCSV() {
   /** Shown after a successful confirm — cleared on next upload or dismiss */
   const [successBanner, setSuccessBanner] = useState(null)
 
+  useEffect(() => {
+    refreshImportHistory()
+  }, [refreshImportHistory])
+
   function runValidation(skus) {
     const errors = []
     skus.forEach((sku, i) => {
       if (!isValidSkuRow(sku)) {
+        const g = (sku.gender ?? '').toString().trim()
+        const genderOk = g === 'M' || g === 'F' || g === 'K' || g === 'U'
+        const reason = !genderOk
+          ? 'gender must be exactly Male, Female, Kids, or Unisex (no other values)'
+          : 'Missing required fields (barcode, sku, product_name, import_date, quantity)'
         errors.push({
           row: i + 1,
           sku: sku.sku || '(blank)',
-          reason: 'Missing required fields (barcode, sku, product_name, import_date, quantity)',
+          reason,
         })
       }
     })
@@ -639,7 +703,7 @@ export function ImportCSV() {
         errors.push({
           row: i + 1,
           sku: sku.sku || '(blank)',
-          reason: 'Missing required fields (barcode, sku, quantity)',
+          reason: 'Missing or invalid fields (barcode, sku, sold_quantity, sale_date as DD.MM.YY)',
         })
       }
     })
@@ -720,72 +784,127 @@ export function ImportCSV() {
     }
   }
 
-  function commitImport(validSkus, pendingFile) {
-    const importId = crypto.randomUUID?.() ?? `imp-${Date.now()}-${Math.random().toString(36).slice(2)}`
+  async function commitImport(validSkus, pendingFile, options = {}) {
+    const {
+      importKind = 'intake',
+      presetImportId = null,
+      attachImportIdToSkus = importKind === 'intake',
+      persistSkus = true,
+      persistImportHistory = importKind === 'intake',
+      summaryUnits,
+      summaryLabel,
+    } = options
+    const importId = presetImportId || crypto.randomUUID?.() || `imp-${Date.now()}-${Math.random().toString(36).slice(2)}`
     const normalized = validSkus.map((s) => ({
       ...s,
-      _importId: importId,
+      _importId: attachImportIdToSkus ? importId : null,
       import_date: s.import_date instanceof Date ? s.import_date.toISOString() : s.import_date,
     }))
-    addSkus(normalized)
-    addImportRecord({
-      id: importId,
-      filename: pendingFile?.name || 'import.csv',
-      date: new Date().toISOString(),
-      count: validSkus.length,
-      productCount: new Set(validSkus.map((s) => s.sku)).size,
-      totalUnits: validSkus.reduce((sum, s) => sum + (Number(s.quantity) || 0), 0),
+    const merged = mergeDuplicateSkuSizeRows(normalized, {
+      allowSignedSold: importKind === 'reporting',
     })
-
-    const uniqueSkuCodes = [...new Set(normalized.map((s) => s.sku))]
-    const currentPhotoMap = useStore.getState().photoMap
-    const manager = users.find((u) => u.role === 'manager') || users[0]
-    for (const code of uniqueSkuCodes) {
-      if (!currentPhotoMap[code]) {
-        const product = normalized.find((s) => s.sku === code)
-        addAssignment({
-          type: 'photo_needed',
-          skuCode: code,
-          productName: product?.product_name || code,
-          assignedTo: manager?.id || '',
-          assignedBy: activeUser?.id || '',
-          shop: manager?.shop || '',
-          status: 'pending',
-          note: 'No product photo — please upload one',
-        })
+    let seasonRollover = null
+    if (persistSkus) {
+      seasonRollover = await importSkusBatch(merged)
+    }
+    if (importKind === 'intake' && persistSkus) {
+      const expectedTotal = sumIntakeInvestmentPreview(merged)
+      const audit = await api.fetchImportCostAudit({ importId, expectedTotal })
+      const diff = Math.abs(Number(audit?.difference) || 0)
+      if (diff > IMPORT_COST_AUDIT_TOLERANCE) {
+        throw new Error(
+          `Import cost audit failed: preview €${expectedTotal.toFixed(2)} but saved ledger €${Number(audit?.ledgerInvestment || 0).toFixed(2)}.`,
+        )
       }
     }
+    if (persistImportHistory) {
+      await addImportRecord({
+        id: importId,
+        filename: pendingFile?.name || 'import.csv',
+        date: new Date().toISOString(),
+        count: merged.length,
+        productCount: new Set(merged.map((s) => s.sku)).size,
+        totalUnits: summaryUnits ?? merged.reduce((sum, s) => sum + (Number(s.quantity) || 0), 0),
+      })
+    }
+    if (pendingFile) {
+      const csvText = await pendingFile.text()
+      await api.postImportCsvFile({
+        importId,
+        filename: pendingFile.name || 'import.csv',
+        csvText,
+      })
+    }
+    if (importKind === 'intake' && persistSkus && persistImportHistory) {
+      await assertProductLookupCostMatchesLedger()
+    }
 
-    const allSkus = useStore.getState().skus
-    addSalesSnapshot(buildSnapshot(allSkus))
+    if (persistSkus) {
+      const uniqueSkuCodes = [...new Set(merged.map((s) => s.sku))]
+      const skuFirstRow = new Map()
+      for (const s of merged) {
+        if (!skuFirstRow.has(s.sku)) skuFirstRow.set(s.sku, s)
+      }
+      const currentPhotoMap = useStore.getState().photoMap
+      const manager = users.find((u) => u.role === 'manager') || users[0]
+      const photoTasks = []
+      for (const code of uniqueSkuCodes) {
+        if (!currentPhotoMap[code]) {
+          const product = skuFirstRow.get(code)
+          photoTasks.push({
+            type: 'photo_needed',
+            skuCode: code,
+            productName: product?.product_name || code,
+            assignedTo: manager?.id || '',
+            assignedBy: activeUser?.id || '',
+            shop: manager?.shop || '',
+            status: 'pending',
+            note: 'No product photo — please upload one',
+          })
+        }
+      }
+      if (photoTasks.length > 0) addAssignments(photoTasks)
 
-    const distinctProducts = new Set(normalized.map((s) => s.sku)).size
-    const totalUnits = normalized.reduce((sum, s) => sum + (Number(s.quantity) || 0), 0)
+      const allSkus = useStore.getState().skus
+      addSalesSnapshot(buildSnapshot(allSkus))
+    }
+
+    const distinctProducts = new Set(merged.map((s) => s.sku)).size
+    const totalUnits = merged.reduce((sum, s) => sum + (Number(s.quantity) || 0), 0)
 
     return {
-      count: validSkus.length,
+      count: merged.length,
       distinctProducts,
-      totalUnits,
+      totalUnits: summaryUnits ?? totalUnits,
+      totalUnitsLabel: summaryLabel ?? 'total units',
       filename: pendingFile?.name || 'import.csv',
+      seasonRollover,
     }
   }
 
-  function handleConfirmIntake() {
+  async function handleConfirmIntake() {
     const validSkus = pendingSkusIntake.filter((s) => isValidSkuRow(s))
     if (validSkus.length === 0) {
-      setErrorIntake('No valid rows to import. Fix the highlighted rows or required fields (barcode, sku, product_name, import_date, quantity).')
+      setErrorIntake(
+        'No valid rows to import. Fix the highlighted rows or required fields (barcode, sku, product_name, import_date, quantity). Gender must be exactly Male, Female, Kids, or Unisex.',
+      )
       return
     }
     setConfirmingIntake(true)
     setErrorIntake(null)
     try {
-      const result = commitImport(validSkus, pendingFileIntake)
+      const result = await commitImport(validSkus, pendingFileIntake, {
+        importKind: 'intake',
+      })
+      refreshImportHistory()
       setSuccessBanner({
         kind: 'intake',
         count: result.count,
         distinctProducts: result.distinctProducts,
         totalUnits: result.totalUnits,
+        totalUnitsLabel: result.totalUnitsLabel,
         filename: result.filename,
+        seasonRollover: result.seasonRollover,
       })
       setPendingFileIntake(null)
       setPendingSkusIntake([])
@@ -800,17 +919,20 @@ export function ImportCSV() {
   async function handleConfirmReporting() {
     const validSkus = pendingSkusReporting.filter((s) => isValidReportingRow(s))
     if (validSkus.length === 0) {
-      setErrorReporting('No valid rows to import. Fix the highlighted rows or required fields (barcode, sku, quantity).')
+      setErrorReporting(
+        'No valid rows to import. Fix the highlighted rows or required fields (barcode, sku, sold_quantity, sale_date as DD.MM.YY).',
+      )
       return
     }
     setConfirmingReporting(true)
     setErrorReporting(null)
+    const reportingImportId = crypto.randomUUID?.() || `imp-${Date.now()}-${Math.random().toString(36).slice(2)}`
     try {
       const existingSkus = useStore.getState().skus
       const knownSkuCodes = new Set(existingSkus.map((s) => s.sku))
       const existingMap = new Map()
       for (const s of existingSkus) {
-        existingMap.set(`${s.sku}|${s.size ?? ''}`, s)
+        existingMap.set(skuSizeKey(s.sku, s.size), s)
       }
 
       const recognized = validSkus.filter((row) => knownSkuCodes.has(row.sku))
@@ -829,57 +951,125 @@ export function ImportCSV() {
         return
       }
 
-      const mergedSkus = recognized.map((row) => {
-        const key = `${row.sku}|${row.size ?? ''}`
-        const existing = existingMap.get(key)
-        return {
-          ...row,
-          product_name: existing?.product_name || row.product_name || '',
-          price_tag: existing?.price_tag ?? row.price_tag ?? 0,
-          cost_price: existing?.cost_price ?? row.cost_price ?? 0,
-          import_date: existing?.import_date || row.import_date || new Date().toISOString(),
-          quantity: existing?.quantity ?? row.quantity ?? 0,
-          gender: existing?.gender || row.gender || '',
-          season: existing?.season || row.season || '',
-          category: existing?.category || row.category || '',
-          brand: existing?.brand || row.brand || '',
-        }
-      })
+      const bySkuSize = new Map()
+      for (const row of recognized) {
+        const key = skuSizeKey(row.sku, row.size)
+        const movement = classifyReportingMovement(row)
+        const unitsAbs = Math.abs(Math.round(Number(row.sold_quantity) || 0))
+        const units = movement === 'RETURN' ? -unitsAbs : unitsAbs
+        if (!bySkuSize.has(key)) bySkuSize.set(key, { rows: [], increment: 0, revenue: 0 })
+        const b = bySkuSize.get(key)
+        b.rows.push(row)
+        b.increment += units
+        b.revenue += reportingLineRevenueFromRow(row)
+      }
 
-      let soldMap = {}
-      try { soldMap = await api.fetchSoldQuantityMap() } catch { /* offline — skip delta */ }
-
-      const today = new Date().toISOString().slice(0, 10)
-      const salesEvents = []
-      for (const row of mergedSkus) {
-        const key = `${row.sku}|${row.size ?? ''}`
-        const oldSold = soldMap[key] ?? 0
-        const newSold = Number(row.sold_quantity) || 0
-        const delta = newSold - oldSold
-        if (delta > 0) {
-          salesEvents.push({
+      const eventGroups = new Map()
+      for (const row of recognized) {
+        const d = row.sale_date
+        const eventDate = d instanceof Date ? toIsoDateLocal(d) : null
+        if (!eventDate) continue
+        const movement = classifyReportingMovement(row)
+        const direction = movement === 'RETURN' ? 'RETURN' : movement === 'SALE' ? 'SALE' : 'UNKNOWN'
+        const gk = `${skuSizeKey(row.sku, row.size)}|${eventDate}|${direction}`
+        const unitsAbs = Math.abs(Math.round(Number(row.sold_quantity) || 0))
+        const units = movement === 'RETURN' ? -unitsAbs : unitsAbs
+        if (!eventGroups.has(gk)) {
+          eventGroups.set(gk, {
             sku: row.sku,
-            product_name: row.product_name ?? '',
             size: row.size ?? '',
-            units_sold: delta,
-            price_sold: Number(row.price_sold) || 0,
-            revenue: delta * (Number(row.price_sold) || 0),
-            event_date: today,
+            eventDate,
+            units: 0,
+            revenue: 0,
+            grossSold: 0,
+            grossReturned: 0,
           })
         }
-      }
-      if (salesEvents.length > 0) {
-        api.postSalesEvents(salesEvents).catch(() => {})
+        const eg = eventGroups.get(gk)
+        if (movement === 'SALE') {
+          eg.grossSold += units
+        } else if (movement === 'RETURN') {
+          eg.grossReturned += unitsAbs
+        }
+        eg.units += units
+        eg.revenue += reportingLineRevenueFromRow(row)
       }
 
-      const result = commitImport(mergedSkus, pendingFileReporting)
+      const mergedSkus = []
+      for (const [key, { increment, revenue, rows }] of bySkuSize) {
+        const pipe = key.indexOf('|')
+        const sku = key.slice(0, pipe)
+        const size = key.slice(pipe + 1)
+        const existing = findExistingSkuRow(existingMap, existingSkus, sku, size)
+        const firstRow = rows[0]
+        const oldSold = Number(existing?.sold_quantity) || 0
+        const fromBatch =
+          increment !== 0 && Math.abs(revenue) > 1e-9 ? revenue / increment : null
+        const avgPrice =
+          fromBatch != null
+            ? fromBatch
+            : (Number(firstRow?.price_sold) || Number(existing?.price_sold) || 0)
+        mergedSkus.push({
+          ...firstRow,
+          sku,
+          size,
+          product_name: existing?.product_name || '',
+          price_sold: avgPrice,
+          price_tag: existing?.price_tag ?? 0,
+          cost_price: existing?.cost_price ?? 0,
+          import_date: existing?.import_date || firstRow.import_date || new Date().toISOString(),
+          quantity: existing?.quantity ?? 0,
+          sold_quantity: oldSold + increment,
+          gender: existing?.gender || '',
+          season: existing?.season || '',
+          category: existing?.category || '',
+          brand: existing?.brand || '',
+          barcode: existing?.barcode || firstRow.barcode,
+        })
+      }
+
+      const salesEvents = []
+      for (const eg of eventGroups.values()) {
+        if (eg.grossSold === 0 && eg.grossReturned === 0) continue
+        const existing = findExistingSkuRow(existingMap, existingSkus, eg.sku, eg.size)
+        const ppu =
+          eg.units !== 0 && Math.abs(eg.revenue) > 1e-9 ? eg.revenue / eg.units : 0
+        salesEvents.push({
+          sku: eg.sku,
+          product_name: existing?.product_name ?? '',
+          size: eg.size ?? '',
+          units_sold: eg.units,
+          price_sold: ppu,
+          revenue: eg.revenue,
+          event_date: eg.eventDate,
+          import_id: reportingImportId,
+        })
+      }
+
+      if (salesEvents.length > 0) {
+        await api.postSalesEvents(salesEvents, true)
+      }
+      const reportingNetUnits = recognized.reduce((sum, row) => sum + (Number(row.sold_quantity) || 0), 0)
+      const result = await commitImport(mergedSkus, pendingFileReporting, {
+        importKind: 'reporting',
+        presetImportId: reportingImportId,
+        attachImportIdToSkus: false,
+        persistSkus: false,
+        persistImportHistory: true,
+        summaryUnits: reportingNetUnits,
+        summaryLabel: 'net units',
+      })
+      const freshSkus = await api.fetchSkus().catch(() => null)
+      if (Array.isArray(freshSkus)) setSkus(freshSkus)
       refreshSkuImportTotals()
       refreshWeeklySales()
+      refreshImportHistory()
       setSuccessBanner({
         kind: 'reporting',
         count: result.count,
         distinctProducts: result.distinctProducts,
         totalUnits: result.totalUnits,
+        totalUnitsLabel: result.totalUnitsLabel,
         filename: result.filename,
         skippedCount,
         skippedSkus,
@@ -911,77 +1101,65 @@ export function ImportCSV() {
   }
 
   function handleDownloadNewArrivalsTemplate() {
-    const blob = new Blob([buildNewArrivalsTemplateCsv()], {
-      type: 'text/csv;charset=utf-8',
-    })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = NEW_ARRIVALS_TEMPLATE_FILE_NAME
-    a.rel = 'noopener'
-    a.click()
-    URL.revokeObjectURL(url)
+    window.location.assign('/api/templates/new-arrivals.csv')
   }
 
   function handleDownloadReportingTemplate() {
-    const blob = new Blob([buildReportingTemplateCsv()], {
-      type: 'text/csv;charset=utf-8',
-    })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = REPORTING_TEMPLATE_FILE_NAME
-    a.rel = 'noopener'
-    a.click()
-    URL.revokeObjectURL(url)
+    window.location.assign('/api/templates/reporting.csv')
   }
 
-  function handleDeleteImport(importId) {
-    deleteImport(importId)
-    setDeletingId(null)
+  function handleDownloadOriginalCsv(importId) {
+    if (!importId) return
+    window.location.assign(`/api/import-files/${encodeURIComponent(importId)}/download`)
   }
 
-  const displayHistory =
-    importHistory.length > 0
-      ? importHistory.map((h) => ({ ...h, status: 'imported' }))
-      : PLACEHOLDER_IMPORT_ROWS
+  async function handleReprocessReporting(row) {
+    if (!row?.id || !row.csvFilePath || reprocessingId) return
+    setReprocessConfirmRow(null)
+    setReprocessingId(row.id)
+    setErrorReporting(null)
+    setSuccessBanner(null)
+    try {
+      const result = await api.reprocessReportingImport(row.id)
+      const freshSkus = await api.fetchSkus().catch(() => null)
+      if (Array.isArray(freshSkus)) setSkus(freshSkus)
+      refreshSkuImportTotals()
+      refreshWeeklySales()
+      refreshImportHistory()
+      setSuccessBanner({
+        kind: 'reprocess',
+        filename: result.filename || row.filename,
+        rowsRecognized: Number(result.rowsRecognized) || 0,
+        rowsStillSkipped: Number(result.rowsStillSkipped) || 0,
+        salesEventsWritten: Number(result.salesEventsWritten) || 0,
+        skippedSkus: Array.isArray(result.skippedSkus) ? result.skippedSkus : [],
+      })
+    } catch (err) {
+      setErrorReporting(formatImportError(err))
+    } finally {
+      setReprocessingId(null)
+    }
+  }
 
-  const uploadHotIntake = isDraggingIntake || isHoverIntake
-  const uploadHotReporting = isDraggingReporting || isHoverReporting
+  async function handleDeleteImport(importId) {
+    try {
+      await deleteImport(importId)
+    } catch {
+      /* keep list; server state unchanged */
+    } finally {
+      setDeletingId(null)
+    }
+  }
+
+  const displayHistory = importHistory.map((h) => ({ ...h, status: h.csvFilePath ? 'archived' : 'imported' }))
+  const reprocessingImport = reprocessingId
+    ? displayHistory.find((row) => row.id === reprocessingId)
+    : null
 
   return (
     <div className="import-page">
-      <div
-        className="fade-up delay-1"
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          marginBottom: '14px',
-        }}
-      >
-        <div
-          style={{
-            fontFamily: '"DM Sans"',
-            fontSize: '16px',
-            letterSpacing: '2px',
-            color: 'var(--ro-heading)',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-          }}
-        >
-          <div
-            style={{
-              width: '6px',
-              height: '6px',
-              borderRadius: '50%',
-              background: '#38bdf8',
-              animation: 'blink 2s infinite',
-            }}
-          />
-          IMPORT CSV DATA
-        </div>
+      <div className="fade-up delay-1 page-hero-mobile-hide import-page-header">
+        <h1 className="import-page-header__title">Import CSV data</h1>
       </div>
 
       {successBanner && (
@@ -1002,18 +1180,41 @@ export function ImportCSV() {
           }}
         >
           <div style={{ fontSize: '13px', color: 'var(--ro-text)', lineHeight: 1.5 }}>
-            <strong style={{ color: '#00e676' }}>Import successful.</strong>{' '}
-            Saved {successBanner.distinctProducts} product{successBanner.distinctProducts === 1 ? '' : 's'}{' '}
-            ({successBanner.count} size row{successBanner.count === 1 ? '' : 's'}, {successBanner.totalUnits} total units) from{' '}
-            <span style={{ fontFamily: "'DM Sans', sans-serif" }}>{successBanner.filename}</span>
-            {successBanner.kind === 'intake' ? ' (New Arrivals Intake)' : ' (Reporting Import)'}.
-            {successBanner.skippedCount > 0 && (
-              <span style={{ color: '#fbbf24' }}>
-                {' '}Skipped {successBanner.skippedCount} row{successBanner.skippedCount === 1 ? '' : 's'} for{' '}
-                {successBanner.skippedSkus.length} unrecognized SKU{successBanner.skippedSkus.length === 1 ? '' : 's'} (not in New Arrivals).
-              </span>
+            {successBanner.kind === 'reprocess' ? (
+              <>
+                <strong style={{ color: '#00e676' }}>Reporting reprocessed.</strong>{' '}
+                Re-read <span style={{ fontFamily: "'DM Sans', sans-serif" }}>{successBanner.filename}</span> and wrote{' '}
+                {successBanner.salesEventsWritten} sales event{successBanner.salesEventsWritten === 1 ? '' : 's'} from{' '}
+                {successBanner.rowsRecognized} recognized row{successBanner.rowsRecognized === 1 ? '' : 's'}.
+                {successBanner.rowsStillSkipped > 0 && (
+                  <span style={{ color: '#fbbf24' }}>
+                    {' '}Still skipped {successBanner.rowsStillSkipped} row{successBanner.rowsStillSkipped === 1 ? '' : 's'} for{' '}
+                    {successBanner.skippedSkus.length} SKU{successBanner.skippedSkus.length === 1 ? '' : 's'} not yet in New Arrivals.
+                  </span>
+                )}
+                <span style={{ color: S.text2 }}> Intake quantities and costs were not changed.</span>
+              </>
+            ) : (
+              <>
+                <strong style={{ color: '#00e676' }}>Import successful.</strong>{' '}
+                Saved {successBanner.distinctProducts} product{successBanner.distinctProducts === 1 ? '' : 's'}{' '}
+                ({successBanner.count} size row{successBanner.count === 1 ? '' : 's'}, {successBanner.totalUnits} {successBanner.totalUnitsLabel || 'total units'}) from{' '}
+                <span style={{ fontFamily: "'DM Sans', sans-serif" }}>{successBanner.filename}</span>
+                {successBanner.kind === 'intake' ? ' (New Arrivals Intake)' : ' (Reporting Import)'}.
+                {successBanner.seasonRollover?.seasonStarted && successBanner.seasonRollover?.updated > 0 && (
+                  <span style={{ color: '#38bdf8' }}>
+                    {' '}Season {successBanner.seasonRollover.targetSeason} started — re-tagged {successBanner.seasonRollover.updated} carryover size row{successBanner.seasonRollover.updated === 1 ? '' : 's'} from prior seasons.
+                  </span>
+                )}
+                {successBanner.skippedCount > 0 && (
+                  <span style={{ color: '#fbbf24' }}>
+                    {' '}Skipped {successBanner.skippedCount} row{successBanner.skippedCount === 1 ? '' : 's'} for{' '}
+                    {successBanner.skippedSkus.length} unrecognized SKU{successBanner.skippedSkus.length === 1 ? '' : 's'} (not in New Arrivals).
+                  </span>
+                )}
+                <span style={{ color: S.text2 }}> All sizes are combined per product in the catalog and dashboard.</span>
+              </>
             )}
-            <span style={{ color: S.text2 }}> All sizes are combined per product in the catalog and dashboard.</span>
           </div>
           <button
             type="button"
@@ -1036,6 +1237,18 @@ export function ImportCSV() {
         </div>
       )}
 
+      {reprocessingImport && (
+        <div className="fade-up delay-1 import-reprocess-progress" role="status" aria-live="polite">
+          <div className="import-reprocess-progress__meta">
+            <span className="import-reprocess-progress__eyebrow">Reprocessing reporting import</span>
+            <span className="import-reprocess-progress__file">{reprocessingImport.filename}</span>
+          </div>
+          <div className="import-reprocess-progress__track" aria-hidden="true">
+            <div className="import-reprocess-progress__bar" />
+          </div>
+        </div>
+      )}
+
       <div
         className="fade-up delay-1 import-grid"
         style={{
@@ -1046,14 +1259,15 @@ export function ImportCSV() {
           alignItems: 'start',
         }}
       >
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+        <div className="import-upload-panel">
           <ImportUploadTile
             title="New Arrivals Intake"
             subtitle="Register incoming stock with ticket price (price_tag). No price_sold or sold_quantity columns — those stay 0 until reporting import or point-of-sale updates."
             emoji={<IconPackage size={28} strokeWidth={1.5} />}
             fieldPills={INTAKE_FIELD_PILLS}
             fileInputRef={fileInputIntakeRef}
-            uploadHot={uploadHotIntake}
+            isDragging={isDraggingIntake}
+            isHover={isHoverIntake}
             loading={loadingIntake}
             error={errorIntake}
             onDownloadTemplate={handleDownloadNewArrivalsTemplate}
@@ -1065,13 +1279,16 @@ export function ImportCSV() {
             }}
           />
 
+          <div className="import-upload-panel__divider" aria-hidden="true" />
+
           <ImportUploadTile
             title="Reporting Import"
-            subtitle="Update sales data with price_sold, sold_quantity, and current stock. Product name, price tag, cost price, and import date are inherited from New Arrivals."
+            subtitle="Per row: units sold on sale_date (DD.MM.YY), price_sold as the total money for that row, and current stock from New Arrivals. Example: 3 units at €99 each means sold_quantity 3 and price_sold 297.00. You can provide optional transaction_type values like SALE or RETURN; if missing, a negative sold_quantity is treated as a customer return."
             emoji={<IconImport size={28} strokeWidth={1.5} />}
             fieldPills={REPORTING_FIELD_PILLS}
             fileInputRef={fileInputReportingRef}
-            uploadHot={uploadHotReporting}
+            isDragging={isDraggingReporting}
+            isHover={isHoverReporting}
             loading={loadingReporting}
             error={errorReporting}
             onDownloadTemplate={handleDownloadReportingTemplate}
@@ -1084,164 +1301,93 @@ export function ImportCSV() {
           />
         </div>
 
-        <div
-          className="import-tile-shell"
-          style={{
-            ...tileShell,
-            display: 'flex',
-            flexDirection: 'column',
-            minHeight: 0,
-          }}
-        >
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-              marginBottom: '14px',
-            }}
-          >
-            <span style={{ fontSize: '18px', lineHeight: 1 }}>
+        <div className="import-history-panel">
+          <div className="import-history-panel__head">
+            <span className="import-history-panel__icon">
               <IconClock size={14} strokeWidth={1.5} />
             </span>
-            <span
-              style={{
-                fontFamily: '"DM Sans"',
-                fontSize: '13px',
-                letterSpacing: '2px',
-                color: 'var(--ro-text)',
-                fontWeight: 600,
-              }}
-            >
-              Recent Imports
-            </span>
+            <span className="import-history-panel__title">Recent Imports</span>
           </div>
 
-          <div
-            className="import-table-wrap"
-            style={{
-              background: S.surface,
-              border: `1px solid ${S.border}`,
-              borderRadius: '13px',
-              flex: 1,
-              maxHeight: '320px',
-              overflowY: 'auto',
-              overflowX: 'auto',
-              WebkitOverflowScrolling: 'touch',
-            }}
-          >
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <thead style={{ position: 'sticky', top: 0, background: S.surface, zIndex: 1 }}>
+          <div className="import-table-wrap import-history-table-wrap">
+            <table className="import-history-table">
+              <thead>
                 <tr>
-                  {['File', 'Date', 'Products', 'Units', 'Status', ''].map((h) => (
-                    <th
-                      key={h}
-                      style={{
-                        textAlign: 'left',
-                        fontSize: '9px',
-                        fontWeight: 700,
-                        textTransform: 'uppercase',
-                        letterSpacing: '0.08em',
-                        color: S.muted,
-                        padding: '8px 14px',
-                      }}
-                    >
-                      {h}
-                    </th>
-                  ))}
+                  <th>File</th>
+                  <th>Date</th>
+                  <th className="import-history-table__num">Products</th>
+                  <th className="import-history-table__num">Units</th>
+                  <th>Status</th>
+                  <th className="import-history-table__actions" aria-label="Actions" />
                 </tr>
               </thead>
               <tbody>
-                {displayHistory.map((row) => (
-                  <tr key={row.id ?? row.filename} style={{ borderTop: `1px solid ${S.border}` }}>
-                    <td
-                      style={{
-                        padding: '8px 14px',
-                        fontSize: '12px',
-                        fontFamily: "'DM Sans', sans-serif",
-                        color: 'var(--ro-text)',
-                      }}
-                    >
+                {displayHistory.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="import-history-table__empty">
+                      No imports yet. After you confirm an upload, completed files will appear here.
+                    </td>
+                  </tr>
+                ) : (
+                displayHistory.map((row) => {
+                  const units = row.totalUnits
+                  const unitsNegative = units != null && Number(units) < 0
+                  return (
+                  <tr key={row.id ?? row.filename} className="import-history-table__row">
+                    <td className="import-history-table__file" title={row.filename}>
                       {row.filename}
                     </td>
-                    <td style={{ padding: '8px 14px', fontSize: '12px', color: S.text2 }}>{row.date}</td>
-                    <td
-                      style={{
-                        padding: '8px 14px',
-                        fontSize: '12px',
-                        fontFamily: "'DM Sans', sans-serif",
-                        color: 'var(--ro-text)',
-                      }}
-                    >
+                    <td className="import-history-table__date">{formatImportDate(row.date)}</td>
+                    <td className="import-history-table__num import-history-table__count">
                       {row.productCount ?? row.count}
                     </td>
-                    <td
-                      style={{
-                        padding: '8px 14px',
-                        fontSize: '12px',
-                        fontFamily: "'DM Sans', sans-serif",
-                        color: S.text2,
-                      }}
-                    >
-                      {row.totalUnits ?? '—'}
+                    <td className={`import-history-table__num import-history-table__units${unitsNegative ? ' import-history-table__units--error' : ''}`}>
+                      {units != null ? units : '—'}
                     </td>
-                    <td style={{ padding: '8px 14px' }}>
-                      {row.status === 'archived' ? (
-                        <span
-                          style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            padding: '2px 8px',
-                            borderRadius: '6px',
-                            fontSize: '10px',
-                            fontWeight: 700,
-                            background: 'var(--ro-track-bg)',
-                            color: 'var(--ro-text-muted)',
-                          }}
-                        >
-                          Archived
-                        </span>
-                      ) : (
-                        <span
-                          style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            padding: '2px 8px',
-                            borderRadius: '6px',
-                            fontSize: '10px',
-                            fontWeight: 700,
-                            background: 'rgba(0,230,118,0.1)',
-                            color: '#00e676',
-                          }}
-                        >
-                          Imported
-                        </span>
-                      )}
+                    <td>
+                      <span className={importStatusBadgeClass(row.status)}>
+                        {importStatusLabel(row.status)}
+                      </span>
                     </td>
-                    <td style={{ padding: '8px 14px', textAlign: 'right' }}>
+                    <td className="import-history-table__actions">
                       {importHistory.length > 0 && (
-                        <button
-                          type="button"
-                          onClick={() => setDeletingId(row.id)}
-                          style={{
-                            padding: '4px 10px',
-                            borderRadius: '6px',
-                            fontSize: '10px',
-                            fontWeight: 600,
-                            cursor: 'pointer',
-                            background: 'rgba(255,51,51,0.08)',
-                            border: '1px solid rgba(255,51,51,0.18)',
-                            color: '#ff3333',
-                            fontFamily: '"DM Sans"',
-                            transition: 'all 0.15s',
-                          }}
-                        >
-                          Delete
-                        </button>
+                        <div className="import-history-actions">
+                          <button
+                            type="button"
+                            className="import-history-actions__btn"
+                            disabled={!row.csvFilePath}
+                            title={row.csvFilePath ? 'Download original CSV' : 'Original CSV was not archived for this older import'}
+                            onClick={() => handleDownloadOriginalCsv(row.id)}
+                          >
+                            <IconDownload size={12} strokeWidth={1.75} className="import-history-actions__icon" />
+                            Download
+                          </button>
+                          <button
+                            type="button"
+                            className="import-history-actions__btn"
+                            disabled={!row.csvFilePath || reprocessingId === row.id}
+                            title={row.csvFilePath ? 'Reprocess archived reporting CSV' : 'Original CSV was not archived for this older import'}
+                            onClick={() => setReprocessConfirmRow(row)}
+                          >
+                            <IconLifecycle size={12} strokeWidth={1.75} className="import-history-actions__icon" />
+                            {reprocessingId === row.id ? 'Working…' : 'Reprocess'}
+                          </button>
+                          <button
+                            type="button"
+                            className="import-history-actions__delete"
+                            title={`Delete ${row.filename}`}
+                            aria-label={`Delete ${row.filename}`}
+                            onClick={() => setDeletingId(row.id)}
+                          >
+                            <IconDelete size={15} strokeWidth={1.75} />
+                          </button>
+                        </div>
                       )}
                     </td>
                   </tr>
-                ))}
+                  )
+                })
+                )}
               </tbody>
             </table>
           </div>
@@ -1302,13 +1448,11 @@ export function ImportCSV() {
               }}
               onClick={(e) => e.stopPropagation()}
             >
-              <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--ro-text)', marginBottom: '10px' }}>
-                Delete import?
+              <div className="import-delete-modal__title">
+                Delete {rec.filename}?
               </div>
-              <div style={{ fontSize: '12px', color: S.text2, lineHeight: 1.6, marginBottom: '20px' }}>
-                This will permanently remove <strong style={{ color: 'var(--ro-text)' }}>{rec.count} SKU row{rec.count === 1 ? '' : 's'}</strong> imported
-                from <span style={{ fontFamily: "'DM Sans', sans-serif", color: 'var(--ro-text)' }}>{rec.filename}</span> and
-                the import record itself.
+              <div className="import-delete-modal__copy">
+                This will remove the import record. This cannot be undone.
               </div>
               <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
                 <button
@@ -1350,6 +1494,36 @@ export function ImportCSV() {
           </div>
         )
       })()}
+
+      {reprocessConfirmRow && (
+        <div className="import-reprocess-modal-backdrop" onClick={() => setReprocessConfirmRow(null)}>
+          <div className="import-reprocess-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="import-reprocess-modal__kicker">Safe sales replay</div>
+            <div className="import-reprocess-modal__title">Reprocess reporting CSV?</div>
+            <div className="import-reprocess-modal__copy">
+              This will re-read the archived reporting CSV and replace matching sales events for SKU/date/size.
+              It will not change intake quantities or costs.
+            </div>
+            <div className="import-reprocess-modal__file">{reprocessConfirmRow.filename}</div>
+            <div className="import-reprocess-modal__actions">
+              <button
+                type="button"
+                className="import-reprocess-modal__button import-reprocess-modal__button--ghost"
+                onClick={() => setReprocessConfirmRow(null)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="import-reprocess-modal__button import-reprocess-modal__button--primary"
+                onClick={() => handleReprocessReporting(reprocessConfirmRow)}
+              >
+                Reprocess now
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

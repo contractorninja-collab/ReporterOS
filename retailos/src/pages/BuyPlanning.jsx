@@ -173,8 +173,7 @@ export function BuyPlanning() {
     <div style={{ maxWidth: 900 }}>
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14, flexWrap: 'wrap', gap: 10 }}>
-        <div style={{ fontFamily: DM, fontSize: 16, letterSpacing: '2px', color: 'var(--ro-heading)', display: 'flex', alignItems: 'center', gap: 8 }}>
-          <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#c084fc', animation: 'blink 2s infinite' }} />
+        <div className="page-hero-mobile-hide" style={{ fontFamily: DM, fontSize: 16, letterSpacing: '2px', color: 'var(--ro-heading)', display: 'flex', alignItems: 'center', gap: 8 }}>
           BUY PLANNING ASSISTANT
         </div>
         <div style={{ display: 'flex', gap: 8 }}>

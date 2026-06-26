@@ -45,11 +45,16 @@
 
 [data-theme='light'] .app-sidebar {
   background: #ffffff !important;
-  border-right-color: rgba(0, 0, 0, 0.08) !important;
+  border-right-color: #e5e7eb !important;
 }
 
-[data-theme='light'] .app-sidebar a {
-  color: #4a4a62 !important;
+[data-theme='light'] .app-sidebar .ro-nav-row {
+  color: #374151 !important;
+}
+
+[data-theme='light'] .app-sidebar .ro-nav-row.is-active,
+[data-theme='light'] .app-sidebar .ro-nav-row.is-active .ro-nav-row__label {
+  color: #7c3aed !important;
 }
 
 [data-theme='light'] .app-topbar {
@@ -98,13 +103,65 @@
   color: #1a1a24 !important;
 }
 
-[data-theme='light'] .topbar-crumb {
-  color: #6b6b7a !important;
+[data-theme='light'] .app-topbar .topbar-page-title__text--sentence {
+  color: #111 !important;
+}
+
+[data-theme='light'] .app-topbar .topbar-search-wrap {
+  background: #fff !important;
+  border-color: #e5e7eb !important;
+}
+
+[data-theme='light'] .app-topbar .topbar-search-wrap .topbar-search-input {
+  color: #374151 !important;
+}
+
+[data-theme='light'] .app-topbar .topbar-season-chip {
+  background: #fff !important;
+  border-color: #e5e7eb !important;
+  color: #374151 !important;
+}
+
+[data-theme='light'] .app-topbar .topbar-season-chip--active {
+  background: #f3f4f6 !important;
+  border-color: #d1d5db !important;
+  color: #111 !important;
+}
+
+[data-theme='light'] .app-topbar .topbar-season-add-toggle {
+  background: #fff !important;
+  border-color: #e5e7eb !important;
+  color: #6b7280 !important;
 }
 
 [data-theme='light'] .app-topbar .topbar-desktop-only {
   background: #f4f4f8 !important;
   border-color: rgba(0, 0, 0, 0.1) !important;
+}
+
+[data-theme='light'] .app-topbar .topbar-import-csv {
+  background: #7c3aed !important;
+  border: none !important;
+  color: #ffffff !important;
+}
+
+[data-theme='light'] .app-topbar .topbar-import-csv:hover {
+  background: #6d28d9 !important;
+}
+
+[data-theme='light'] .app-topbar .topbar-user-desktop {
+  background: #f3f4f6 !important;
+  border-color: #e5e7eb !important;
+}
+
+[data-theme='light'] .topbar-icon-btn {
+  background: #fff !important;
+  border-color: #e5e7eb !important;
+  color: #9ca3af !important;
+}
+
+[data-theme='light'] .topbar-icon-btn:hover {
+  color: #374151 !important;
 }
 
 [data-theme='light'] .app-topbar input {

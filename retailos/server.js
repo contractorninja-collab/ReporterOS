@@ -3,37 +3,86 @@ import cors from 'cors'
 import multer from 'multer'
 import path from 'path'
 import fs from 'fs'
-import os from 'os'
 import cookieParser from 'cookie-parser'
 import helmet from 'helmet'
 import rateLimit from 'express-rate-limit'
 import { SignJWT, jwtVerify } from 'jose'
 import { fileURLToPath } from 'url'
 import {
-  getAllSkus, insertSkus, deleteSkusByImport,
+  getAllSkus, insertSkus, getShipmentMetaBySku,
+  softDeleteSkuByCode, restoreSkuByCode, listBinnedSkus, purgeSkuByCode, purgeExpiredBinnedSkus,
   getImportHistory, insertImportRecord, deleteImportRecord,
-  getLifetimeImportedBySku, getProductNameReport,
-  getAllUsers, updateUser, addUser, removeUser,
+  attachImportCsvFile, getImportCsvFileMeta, getLifetimeImportedBySku, getLifetimeImportCostBySku, getImportCostAudit, getProductNameReport, getDistinctSkuBrands,
+  getAllUsers, getUsersPublicDirectory, updateUser, addUser, removeUser, regenerateUserPin,
   getUserRowByUserCode, verifyPin, getPublicUserById, toPublicUser,
-  getAllAssignments, insertAssignment, updateAssignment,
-  getAllOutletTransfers, insertOutletTransfer, updateOutletTransfer,
-  getAllStoreTransfers, insertStoreTransfer, updateStoreTransfer,
+  getAllAssignments, getAssignmentById, insertAssignment, insertAssignments, updateAssignment,
+  getAllOutletTransfers, getOutletTransferById, insertOutletTransfer, updateOutletTransfer,
+  getAllStoreTransfers, getStoreTransferById, insertStoreTransfer, updateStoreTransfer,
+  getAllMarkdownLists, getMarkdownListById, insertMarkdownList, updateMarkdownList, deleteMarkdownList,
+  appendItemsToMarkdownList, applySaleToSkus, clearSaleForList,
+  changeMarkdownListItemSalePct,
+  getAllSaleChangeReports, getSaleChangeReportById, saleChangeReportVisibleToUser,
+  toggleSaleChangeItemMarked,
   getAllSnapshots, insertSnapshot,
-  getSoldQuantityMap, getSalesBySku, insertSalesEvents, getWeeklySales,
+  getSoldQuantityMap, getSalesBySku, getSalesSummaryForSku, getSalesAggregatedByDay, getExchangePairs, hasAnySalesEvents,
+  insertSalesEvents, replaceSalesEventsForReportingImport, deleteAllSalesEvents, getWeeklySales,
+  getExecutiveBuyingReport, getBrandProductivityReport, getReturnsExchangeReport, getSizeCurveHealthReport, getMarkdownRiskReport,
+  getCategoryProductivityReport, getMoversReport,
   getNotifications, getNotificationById, insertNotification, markNotificationRead,
   markNotificationsReadForViewer, notificationVisibleTo,
   clockIn, clockOut, getActiveShifts, getShiftHistory, getShiftById,
+  appendActivityLog, getActivityLog, backfillActivityLogFromLegacyIfEmpty,
+  getProductTypeLabels, getProductTypeLabel, upsertProductTypeLabel, normalizeProductType,
 } from './src/data/db.js'
+import { pickPrimaryLanIp } from './pickLanIp.mjs'
+import {
+  buildReportingTemplateCsv,
+  REPORTING_TEMPLATE_FILE_NAME,
+  buildNewArrivalsTemplateCsv,
+  NEW_ARRIVALS_TEMPLATE_FILE_NAME,
+} from './src/utils/csvImportSpec.js'
+import {
+  parseCSVText,
+  validateReportingRow,
+  skuSizeKey,
+  reportingLineRevenueFromRow,
+  classifyReportingMovement,
+} from './src/utils/csvParser.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
+
+function loadEnvFile() {
+  const envPath = path.join(__dirname, '.env')
+  if (!fs.existsSync(envPath)) return
+  for (const line of fs.readFileSync(envPath, 'utf8').split('\n')) {
+    const trimmed = line.trim()
+    if (!trimmed || trimmed.startsWith('#')) continue
+    const eq = trimmed.indexOf('=')
+    if (eq <= 0) continue
+    const key = trimmed.slice(0, eq).trim()
+    let val = trimmed.slice(eq + 1).trim()
+    if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+      val = val.slice(1, -1)
+    }
+    if (process.env[key] === undefined) process.env[key] = val
+  }
+}
+loadEnvFile()
+
 const DATA_DIR = process.env.DATA_DIR || __dirname
 const PHOTOS_DIR = path.resolve(DATA_DIR, 'photos')
 if (!fs.existsSync(PHOTOS_DIR)) fs.mkdirSync(PHOTOS_DIR, { recursive: true })
+const IMPORT_ARCHIVE_DIR = path.resolve(DATA_DIR, 'imports')
+if (!fs.existsSync(IMPORT_ARCHIVE_DIR)) fs.mkdirSync(IMPORT_ARCHIVE_DIR, { recursive: true })
 
 const IS_PROD = process.env.NODE_ENV === 'production'
+if (IS_PROD && !process.env.JWT_SECRET) {
+  console.error('[security] JWT_SECRET must be set in production. Refusing to start.')
+  process.exit(1)
+}
 const JWT_SECRET = process.env.JWT_SECRET || 'retailos-dev-secret-change-me'
-if (!process.env.JWT_SECRET) {
-  console.warn('[security] JWT_SECRET is not set — required for production')
+if (!IS_PROD && !process.env.JWT_SECRET) {
+  console.warn('[security] JWT_SECRET is not set — using dev default (unsafe for production)')
 }
 const jwtSecretKey = new TextEncoder().encode(JWT_SECRET)
 const COOKIE_NAME = 'retailos_session'
@@ -84,6 +133,350 @@ function writePhotoForSku(skuCode, buffer) {
   return `${skuCode}${ext}`
 }
 
+function safeImportFileName(name) {
+  const base = path.basename(String(name || 'import.csv'))
+    .replace(/[^A-Za-z0-9._ -]/g, '_')
+    .replace(/\s+/g, ' ')
+    .trim()
+  const withExt = base.toLowerCase().endsWith('.csv') ? base : `${base || 'import'}.csv`
+  return withExt || 'import.csv'
+}
+
+function writeImportCsvFile(importId, originalName, content) {
+  const id = String(importId || '').trim()
+  if (!/^[A-Za-z0-9._-]{8,120}$/.test(id)) {
+    const err = new Error('Invalid import id')
+    err.statusCode = 400
+    throw err
+  }
+  if (typeof content !== 'string' || content.length === 0) {
+    const err = new Error('CSV content is required')
+    err.statusCode = 400
+    throw err
+  }
+  const safeName = safeImportFileName(originalName)
+  const fileName = `${id}__${safeName}`
+  const absPath = path.join(IMPORT_ARCHIVE_DIR, fileName)
+  fs.writeFileSync(absPath, content, 'utf8')
+  const stat = fs.statSync(absPath)
+  return {
+    fileName,
+    filePath: path.relative(DATA_DIR, absPath).replace(/\\/g, '/'),
+    fileSize: stat.size,
+  }
+}
+
+/** YYYY-MM-DD in local time, matching the upload importer. */
+function toIsoDateLocal(d) {
+  if (!(d instanceof Date) || Number.isNaN(d.getTime())) return null
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+function resolveArchivedImportPath(meta) {
+  if (!meta?.csv_file_path) {
+    const err = new Error('CSV file not archived for this import')
+    err.statusCode = 404
+    throw err
+  }
+  const absPath = path.resolve(DATA_DIR, meta.csv_file_path)
+  const archiveRoot = path.resolve(IMPORT_ARCHIVE_DIR)
+  if (!absPath.startsWith(`${archiveRoot}${path.sep}`)) {
+    const err = new Error('Invalid archived CSV path')
+    err.statusCode = 400
+    throw err
+  }
+  if (!fs.existsSync(absPath)) {
+    const err = new Error('Archived CSV file not found on disk')
+    err.statusCode = 404
+    throw err
+  }
+  return absPath
+}
+
+function findExistingSkuRow(existingMap, allSkus, sku, size) {
+  const k = skuSizeKey(sku, size)
+  if (existingMap.has(k)) return existingMap.get(k)
+  const kEmpty = skuSizeKey(sku, '')
+  if (existingMap.has(kEmpty)) return existingMap.get(kEmpty)
+  const want = String(sku ?? '').trim()
+  return allSkus.find((s) => String(s.sku ?? '').trim() === want) ?? null
+}
+
+function buildReportingReplayEvents(rows, importId, existingSkus) {
+  const existingMap = new Map()
+  const knownSkuCodes = new Set()
+  for (const s of existingSkus) {
+    existingMap.set(skuSizeKey(s.sku, s.size), s)
+    if (s.sku) knownSkuCodes.add(String(s.sku))
+  }
+
+  const recognized = rows.filter((row) => knownSkuCodes.has(String(row.sku)))
+  const skippedSkus = [...new Set(rows
+    .filter((row) => !knownSkuCodes.has(String(row.sku)))
+    .map((row) => String(row.sku || '').trim())
+    .filter(Boolean))]
+
+  const eventGroups = new Map()
+  for (const row of recognized) {
+    const eventDate = toIsoDateLocal(row.sale_date)
+    if (!eventDate) continue
+    const movement = classifyReportingMovement(row)
+    const direction = movement === 'RETURN' ? 'RETURN' : movement === 'SALE' ? 'SALE' : 'UNKNOWN'
+    const gk = `${skuSizeKey(row.sku, row.size)}|${eventDate}|${direction}`
+    const unitsAbs = Math.abs(Math.round(Number(row.sold_quantity) || 0))
+    const units = movement === 'RETURN' ? -unitsAbs : unitsAbs
+    if (!eventGroups.has(gk)) {
+      eventGroups.set(gk, {
+        sku: row.sku,
+        size: row.size ?? '',
+        eventDate,
+        units: 0,
+        revenue: 0,
+        grossSold: 0,
+        grossReturned: 0,
+      })
+    }
+    const eg = eventGroups.get(gk)
+    if (movement === 'SALE') eg.grossSold += units
+    else if (movement === 'RETURN') eg.grossReturned += unitsAbs
+    eg.units += units
+    eg.revenue += reportingLineRevenueFromRow(row)
+  }
+
+  const salesEvents = []
+  for (const eg of eventGroups.values()) {
+    if (eg.grossSold === 0 && eg.grossReturned === 0) continue
+    const existing = findExistingSkuRow(existingMap, existingSkus, eg.sku, eg.size)
+    const ppu = eg.units !== 0 && Math.abs(eg.revenue) > 1e-9 ? eg.revenue / eg.units : 0
+    salesEvents.push({
+      sku: eg.sku,
+      product_name: existing?.product_name ?? '',
+      size: eg.size ?? '',
+      units_sold: eg.units,
+      price_sold: ppu,
+      revenue: eg.revenue,
+      event_date: eg.eventDate,
+      import_id: importId,
+    })
+  }
+
+  return {
+    recognized,
+    skippedSkus,
+    salesEvents,
+  }
+}
+
+function reprocessArchivedReportingImport(importId) {
+  const meta = getImportCsvFileMeta(importId)
+  if (!meta) {
+    const err = new Error('Import history record not found')
+    err.statusCode = 404
+    throw err
+  }
+  const absPath = resolveArchivedImportPath(meta)
+  const csvText = fs.readFileSync(absPath, 'utf8')
+  const parsedRows = parseCSVText(csvText)
+  const reportingRows = parsedRows.filter((row) => validateReportingRow(row))
+  if (reportingRows.length === 0) {
+    const err = new Error('Archived file is not a valid reporting CSV')
+    err.statusCode = 400
+    throw err
+  }
+
+  const { recognized, skippedSkus, salesEvents } = buildReportingReplayEvents(
+    reportingRows,
+    meta.id,
+    getAllSkus(),
+  )
+  const eventsWritten = salesEvents.length > 0
+    ? replaceSalesEventsForReportingImport(salesEvents)
+    : 0
+
+  return {
+    importId: meta.id,
+    filename: meta.filename || meta.csv_file_name || 'import.csv',
+    rowsParsed: parsedRows.length,
+    rowsReportingValid: reportingRows.length,
+    rowsRecognized: recognized.length,
+    rowsStillSkipped: reportingRows.length - recognized.length,
+    salesEventsWritten: eventsWritten,
+    skippedSkus,
+  }
+}
+
+const PRODUCT_TYPE_LABELS = ['tshirt', 'shorts', 'shoe', 'skirt', 'pants', 'hoodie', 'jacket', 'bag', 'dress', 'swimwear', 'other']
+
+function getPhotoFileForSku(skuCode) {
+  assertSafeSku(skuCode)
+  const files = fs.readdirSync(PHOTOS_DIR)
+  const match = files.find((f) => path.basename(f, path.extname(f)) === skuCode)
+  if (!match) return null
+  const absPath = path.join(PHOTOS_DIR, match)
+  const stat = fs.statSync(absPath)
+  return {
+    absPath,
+    fileName: match,
+    ext: path.extname(match).toLowerCase(),
+    signature: `${match}:${stat.size}:${Math.round(stat.mtimeMs)}`,
+  }
+}
+
+function imageMimeFromExt(ext) {
+  if (ext === '.png') return 'image/png'
+  if (ext === '.webp') return 'image/webp'
+  return 'image/jpeg'
+}
+
+function fallbackProductTypeFromText(product = {}) {
+  const hay = `${product.product_name || ''} ${product.category || ''} ${product.sku || ''}`.toLowerCase()
+  if (/shoe|sneaker|trainer|slide|sandal|court|runner|boot|pace|barreda|adilette/.test(hay)) return 'shoe'
+  if (/short|sho\b|sh\b/.test(hay)) return 'shorts'
+  if (/skirt|\bski\b/.test(hay)) return 'skirt'
+  if (/pant|trouser|jogger|legging|tight/.test(hay)) return 'pants'
+  if (/hoodie|hoody|sweater|sweatshirt|crew|crw|fleece|ft hd/.test(hay)) return 'hoodie'
+  if (/jacket|coat|track jacket|windbreaker|bomber|gilet|vest/.test(hay)) return 'jacket'
+  if (/bag|backpack|bkpk/.test(hay)) return 'bag'
+  if (/dress|\bdre\b/.test(hay)) return 'dress'
+  if (/swim|breaker/.test(hay)) return 'swimwear'
+  if (/tee|shirt|t-shirt|tshirt|top|polo|tank/.test(hay)) return 'tshirt'
+  return 'other'
+}
+
+function productMetaBySku(skuCode) {
+  const rows = getAllSkus().filter((s) => s.sku === skuCode)
+  if (!rows.length) return { sku: skuCode }
+  const pick = (key) => rows.find((r) => String(r[key] ?? '').trim())?.[key] || ''
+  return {
+    sku: skuCode,
+    product_name: pick('product_name'),
+    category: pick('category'),
+    brand: pick('brand'),
+    gender: pick('gender'),
+  }
+}
+
+function parseProductTypeResponse(text) {
+  const raw = String(text || '').trim()
+  if (!raw) return { product_type: 'other', confidence: 0 }
+  try {
+    const parsed = JSON.parse(raw)
+    return {
+      product_type: normalizeProductType(parsed.product_type),
+      confidence: Math.max(0, Math.min(1, Number(parsed.confidence) || 0)),
+    }
+  } catch {
+    const match = raw.match(/\{[\s\S]*\}/)
+    if (!match) return { product_type: 'other', confidence: 0 }
+    const parsed = JSON.parse(match[0])
+    return {
+      product_type: normalizeProductType(parsed.product_type),
+      confidence: Math.max(0, Math.min(1, Number(parsed.confidence) || 0)),
+    }
+  }
+}
+
+async function classifySkuPhoto(skuCode, options = {}) {
+  assertSafeSku(skuCode)
+  const product = productMetaBySku(skuCode)
+  const photo = getPhotoFileForSku(skuCode)
+  const cached = getProductTypeLabel(skuCode)
+  if (!photo) {
+    const label = upsertProductTypeLabel({
+      sku: skuCode,
+      product_type: fallbackProductTypeFromText(product),
+      source: 'fallback',
+      confidence: 0.35,
+      photo_signature: '',
+    })
+    return { status: 'no_photo_fallback', label }
+  }
+  if (!options.force && cached?.photo_signature === photo.signature && cached.product_type) {
+    return { status: 'cached', label: cached }
+  }
+  if (!process.env.OPENAI_API_KEY) {
+    const label = cached || upsertProductTypeLabel({
+      sku: skuCode,
+      product_type: fallbackProductTypeFromText(product),
+      source: 'fallback',
+      confidence: 0.35,
+      photo_signature: photo.signature,
+    })
+    return { status: 'missing_api_key', label }
+  }
+
+  const imageData = fs.readFileSync(photo.absPath).toString('base64')
+  const model = process.env.OPENAI_VISION_MODEL || 'gpt-4.1-nano'
+  const prompt = [
+    'Classify this retail product photo into exactly one product_type.',
+    `Allowed product_type values: ${PRODUCT_TYPE_LABELS.join(', ')}.`,
+    'Use shoe for all footwear including sneakers, slides, sandals, and boots.',
+    'Use tshirt for tees, shirts, polos, tanks, and tops.',
+    'Return strict JSON only: {"product_type":"...", "confidence":0.0}.',
+    `Known SKU metadata: ${JSON.stringify(product)}`,
+  ].join('\n')
+  const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model,
+      temperature: 0,
+      max_tokens: 80,
+      response_format: {
+        type: 'json_schema',
+        json_schema: {
+          name: 'product_type_classification',
+          strict: true,
+          schema: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              product_type: { type: 'string', enum: PRODUCT_TYPE_LABELS },
+              confidence: { type: 'number', minimum: 0, maximum: 1 },
+            },
+            required: ['product_type', 'confidence'],
+          },
+        },
+      },
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'text', text: prompt },
+          {
+            type: 'image_url',
+            image_url: {
+              url: `data:${imageMimeFromExt(photo.ext)};base64,${imageData}`,
+              detail: 'low',
+            },
+          },
+        ],
+      }],
+    }),
+  })
+  if (!response.ok) {
+    const body = await response.text().catch(() => '')
+    const err = new Error(`OpenAI classification failed (${response.status})${body ? `: ${body.slice(0, 200)}` : ''}`)
+    err.statusCode = response.status >= 500 ? 502 : 400
+    throw err
+  }
+  const data = await response.json()
+  const result = parseProductTypeResponse(data?.choices?.[0]?.message?.content)
+  const label = upsertProductTypeLabel({
+    sku: skuCode,
+    product_type: result.confidence < 0.3 ? 'other' : result.product_type,
+    source: 'ai',
+    confidence: result.confidence,
+    photo_signature: photo.signature,
+  })
+  return { status: 'classified', model, label }
+}
+
 const uploadPhotoMem = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 8 * 1024 * 1024 },
@@ -94,6 +487,15 @@ function safeError(res, e, status = 500) {
   const code = typeof e.statusCode === 'number' ? e.statusCode : status
   const msg = code >= 500 && IS_PROD ? 'Internal server error' : (e?.message || 'Error')
   res.status(code).json({ error: msg })
+}
+
+/** Append audit row; user from JWT (req.authUser). */
+function act(user, payload) {
+  appendActivityLog({
+    actorUserId: user?.id ?? null,
+    actorName: user?.name || 'Unknown',
+    ...payload,
+  })
 }
 
 function filterAssignments(rows, user) {
@@ -120,6 +522,75 @@ function filterNotifications(rows, user) {
   return rows.filter((n) => notificationVisibleTo(n, user.id, isExec))
 }
 
+function filterOutletTransfers(rows, user) {
+  if (user.role === 'executive') return rows
+  return rows.filter(
+    (t) => t.createdBy === user.id || t.assignedTo === user.id,
+  )
+}
+
+function assignmentVisibleToUser(row, user) {
+  if (user.role === 'executive') return true
+  return (
+    row.assignedTo === user.id ||
+    row.assignedBy === user.id ||
+    (row.shop && user.shop && row.shop === user.shop)
+  )
+}
+
+function outletTransferVisibleToUser(t, user) {
+  if (user.role === 'executive') return true
+  return t.createdBy === user.id || t.assignedTo === user.id
+}
+
+function storeTransferVisibleToUser(t, user) {
+  if (user.role === 'executive') return true
+  return (
+    t.fromShop === user.shop ||
+    t.toShop === user.shop ||
+    t.createdBy === user.id ||
+    t.assignedTo === user.id
+  )
+}
+
+function strEq(a, b) {
+  return (a == null ? '' : String(a)) === (b == null ? '' : String(b))
+}
+
+function notificationCreateAllowed(auth, body) {
+  if (auth.role === 'executive') return true
+  const uid = body.userId
+  if (uid === 'all' || uid === 'executives' || uid === auth.id) return true
+  const target = getPublicUserById(uid)
+  if (!target) return false
+  if (strEq(target.shop, auth.shop)) return true
+  if (
+    (body.type === 'transfer_missing_items' || body.type === 'transfer_received') &&
+    body.relatedId
+  ) {
+    const st = getStoreTransferById(body.relatedId)
+    if (st && storeTransferVisibleToUser(st, auth) && uid === st.createdBy) return true
+    const ot = getOutletTransferById(body.relatedId)
+    if (ot && outletTransferVisibleToUser(ot, auth) && uid === ot.createdBy) return true
+  }
+  if (body.type === 'transfer_created' && body.relatedId) {
+    const st = getStoreTransferById(body.relatedId)
+    if (st && (st.createdBy === auth.id || storeTransferVisibleToUser(st, auth))) return true
+    const ot = getOutletTransferById(body.relatedId)
+    if (ot && (ot.createdBy === auth.id || outletTransferVisibleToUser(ot, auth))) return true
+  }
+  if (body.type === 'alert_assigned') {
+    if (auth.role === 'outlet' && target.role === 'manager') return true
+    if (auth.role === 'manager' && target.role === 'outlet') return true
+  }
+  return false
+}
+
+const corsAllowedOrigins = (process.env.CORS_ORIGINS || '')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean)
+
 function requireAuth(req, res, next) {
   const token = req.cookies?.[COOKIE_NAME]
   if (!token) return res.status(401).json({ error: 'Unauthorized' })
@@ -143,6 +614,8 @@ function requireExecutive(req, res, next) {
 function apiAuthGate(req, res, next) {
   if (!req.path.startsWith('/api')) return next()
   if (req.path === '/api/health') return next()
+  if (req.path === '/api/templates/reporting.csv') return next()
+  if (req.path === '/api/templates/new-arrivals.csv') return next()
   if (req.path === '/api/auth/login' && req.method === 'POST') return next()
   if (req.path === '/api/auth/logout' && req.method === 'POST') return next()
   return requireAuth(req, res, next)
@@ -151,13 +624,27 @@ function apiAuthGate(req, res, next) {
 const app = express()
 const PORT = process.env.PORT || 3001
 
+// nginx reverse proxy sends X-Forwarded-*; required for rate-limit behind nginx
+app.set('trust proxy', 1)
+
 app.use(helmet({
   contentSecurityPolicy: false,
   crossOriginResourcePolicy: { policy: 'cross-origin' },
 }))
-app.use(cors({ origin: true, credentials: true }))
+app.use(cors({
+  credentials: true,
+  origin: IS_PROD
+    ? (origin, cb) => {
+        if (!origin) return cb(null, true)
+        if (corsAllowedOrigins.length && corsAllowedOrigins.includes(origin)) {
+          return cb(null, true)
+        }
+        return cb(null, false)
+      }
+    : true,
+}))
 app.use(cookieParser())
-app.use(express.json({ limit: '20mb' }))
+app.use(express.json({ limit: '50mb' }))
 
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -167,14 +654,31 @@ const loginLimiter = rateLimit({
 })
 const apiSoftLimiter = rateLimit({
   windowMs: 60 * 1000,
-  max: 400,
+  max: 1200,
   standardHeaders: true,
   legacyHeaders: false,
+  skip: (req) => (
+    req.path === '/health' ||
+    req.path === '/templates/reporting.csv' ||
+    req.path === '/templates/new-arrivals.csv'
+  ),
 })
 app.use('/api', apiSoftLimiter)
 
 app.get('/api/health', (_req, res) => {
   res.json({ ok: true })
+})
+
+app.get('/api/templates/reporting.csv', (req, res) => {
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8')
+  res.setHeader('Content-Disposition', `attachment; filename="${REPORTING_TEMPLATE_FILE_NAME}"`)
+  res.send(buildReportingTemplateCsv())
+})
+
+app.get('/api/templates/new-arrivals.csv', (req, res) => {
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8')
+  res.setHeader('Content-Disposition', `attachment; filename="${NEW_ARRIVALS_TEMPLATE_FILE_NAME}"`)
+  res.send(buildNewArrivalsTemplateCsv())
 })
 
 app.post('/api/auth/login', loginLimiter, async (req, res) => {
@@ -214,6 +718,18 @@ app.post('/api/auth/login', loginLimiter, async (req, res) => {
 
 app.use(apiAuthGate)
 
+app.get('/api/activity-log', requireExecutive, (req, res) => {
+  try {
+    res.json(getActivityLog({
+      limit: req.query.limit,
+      offset: req.query.offset,
+      category: typeof req.query.category === 'string' ? req.query.category : undefined,
+      since: typeof req.query.since === 'string' ? req.query.since : undefined,
+      until: typeof req.query.until === 'string' ? req.query.until : undefined,
+    }))
+  } catch (e) { safeError(res, e) }
+})
+
 app.get('/api/auth/me', (req, res) => {
   res.json({ user: req.authUser })
 })
@@ -227,22 +743,116 @@ app.post('/api/auth/logout', (req, res) => {
 // ── SKUs ────────────────────────────────────────────────────────────────────
 
 app.get('/api/skus', (req, res) => {
-  try { res.json(getAllSkus()) }
-  catch (e) { safeError(res, e) }
+  try {
+    try { purgeExpiredBinnedSkus() } catch { /* ignore */ }
+    res.json(getAllSkus())
+  } catch (e) { safeError(res, e) }
+})
+
+app.get('/api/skus/bin', requireExecutive, (req, res) => {
+  try {
+    const purged = purgeExpiredBinnedSkus()
+    res.json({ items: listBinnedSkus(), autoPurgedCodes: purged.purgedCodes })
+  } catch (e) { safeError(res, e) }
+})
+
+app.delete('/api/skus/:code', requireExecutive, (req, res) => {
+  try {
+    assertSafeSku(req.params.code)
+    const result = softDeleteSkuByCode(req.params.code, req.authUser)
+    if (!result.skuRowsUpdated) return res.status(404).json({ error: 'SKU not found or already binned' })
+    act(req.authUser, {
+      category: 'inventory',
+      action: 'binned',
+      entityType: 'sku',
+      entityId: req.params.code,
+      summary: `SKU ${req.params.code} moved to recycle bin`,
+      meta: { skuRowsUpdated: result.skuRowsUpdated },
+    })
+    res.json({ ok: true, skuRowsUpdated: result.skuRowsUpdated })
+  } catch (e) { safeError(res, e, e.statusCode || 500) }
+})
+
+app.post('/api/skus/:code/restore', requireExecutive, (req, res) => {
+  try {
+    assertSafeSku(req.params.code)
+    const result = restoreSkuByCode(req.params.code)
+    if (!result.skuRowsUpdated) return res.status(404).json({ error: 'No binned SKU rows found' })
+    act(req.authUser, {
+      category: 'inventory',
+      action: 'restored',
+      entityType: 'sku',
+      entityId: req.params.code,
+      summary: `SKU ${req.params.code} restored from recycle bin`,
+      meta: { skuRowsUpdated: result.skuRowsUpdated },
+    })
+    res.json({ ok: true, skuRowsUpdated: result.skuRowsUpdated })
+  } catch (e) { safeError(res, e, e.statusCode || 500) }
+})
+
+app.delete('/api/skus/:code/purge', requireExecutive, (req, res) => {
+  try {
+    assertSafeSku(req.params.code)
+    const result = purgeSkuByCode(req.params.code)
+    if (!result.skuRowsDeleted) return res.status(404).json({ error: 'SKU not found' })
+    act(req.authUser, {
+      category: 'inventory',
+      action: 'purged',
+      entityType: 'sku',
+      entityId: req.params.code,
+      summary: `SKU ${req.params.code} permanently deleted`,
+      meta: { skuRowsDeleted: result.skuRowsDeleted },
+    })
+    res.json({ ok: true, skuRowsDeleted: result.skuRowsDeleted })
+  } catch (e) { safeError(res, e, e.statusCode || 500) }
 })
 
 app.post('/api/skus', requireExecutive, (req, res) => {
   try {
     if (!Array.isArray(req.body)) return res.status(400).json({ error: 'Expected array' })
-    insertSkus(req.body)
-    res.json({ added: req.body.length })
+    const result = insertSkus(req.body)
+    const added = typeof result === 'object' ? result.count : result
+    const seasonRollover = typeof result === 'object' ? result.seasonRollover : null
+    act(req.authUser, {
+      category: 'inventory',
+      action: 'bulk_upsert',
+      entityType: 'sku',
+      entityId: null,
+      summary: `SKU bulk upsert — ${req.body.length} rows`,
+      meta: { count: req.body.length, seasonRollover },
+    })
+    res.json({ added, seasonRollover })
   } catch (e) { safeError(res, e) }
+})
+
+app.get('/api/shipment-meta', (req, res) => {
+  try { res.json(getShipmentMetaBySku()) }
+  catch (e) { safeError(res, e) }
 })
 
 app.delete('/api/skus/import/:importId', requireExecutive, (req, res) => {
   try {
-    const changes = deleteSkusByImport(req.params.importId)
-    res.json({ deleted: changes })
+    const result = deleteImportRecord(req.params.importId)
+    for (const code of result.fullyRemovedSkuCodes) {
+      removeExistingPhotosForSku(code)
+    }
+    act(req.authUser, {
+      category: 'inventory',
+      action: 'delete_by_import',
+      entityType: 'import_batch',
+      entityId: req.params.importId,
+      summary: `Removed SKUs for import batch ${req.params.importId}`,
+      meta: {
+        skuRowsDeleted: result.skuRowsDeleted,
+        importHistoryDeleted: result.importHistoryDeleted,
+        fullyRemovedSkuCodes: result.fullyRemovedSkuCodes,
+      },
+    })
+    res.json({
+      deleted: result.importHistoryDeleted,
+      skuRowsDeleted: result.skuRowsDeleted,
+      fullyRemovedSkuCodes: result.fullyRemovedSkuCodes,
+    })
   } catch (e) { safeError(res, e) }
 })
 
@@ -251,11 +861,176 @@ app.get('/api/sku-import-totals', (req, res) => {
   catch (e) { safeError(res, e) }
 })
 
+app.get('/api/sku-import-cost-totals', (req, res) => {
+  try { res.json(getLifetimeImportCostBySku()) }
+  catch (e) { safeError(res, e) }
+})
+
+app.get('/api/import-cost-audit', (req, res) => {
+  try {
+    res.json(getImportCostAudit({
+      importId: typeof req.query.importId === 'string' ? req.query.importId : '',
+      expectedTotal: req.query.expectedTotal,
+    }))
+  } catch (e) { safeError(res, e) }
+})
+
+app.post('/api/import-files', requireExecutive, (req, res) => {
+  try {
+    const importId = String(req.body?.importId || '').trim()
+    const filename = String(req.body?.filename || 'import.csv')
+    const csvText = req.body?.csvText
+    const meta = writeImportCsvFile(importId, filename, csvText)
+    attachImportCsvFile(importId, meta)
+    act(req.authUser, {
+      category: 'inventory',
+      action: 'csv_archived',
+      entityType: 'import_batch',
+      entityId: importId,
+      summary: `Archived source CSV for import ${importId}`,
+      meta,
+    })
+    res.json(meta)
+  } catch (e) { safeError(res, e) }
+})
+
+app.get('/api/import-files/:importId/download', requireExecutive, (req, res) => {
+  try {
+    const meta = getImportCsvFileMeta(req.params.importId)
+    if (!meta?.csv_file_path) return res.status(404).json({ error: 'CSV file not archived for this import' })
+
+    const absPath = path.resolve(DATA_DIR, meta.csv_file_path)
+    const archiveRoot = path.resolve(IMPORT_ARCHIVE_DIR)
+    if (!absPath.startsWith(`${archiveRoot}${path.sep}`)) {
+      return res.status(400).json({ error: 'Invalid archived CSV path' })
+    }
+    if (!fs.existsSync(absPath)) return res.status(404).json({ error: 'Archived CSV file not found on disk' })
+
+    res.download(absPath, meta.filename || meta.csv_file_name || 'import.csv')
+  } catch (e) { safeError(res, e) }
+})
+
 app.get('/api/product-report', (req, res) => {
   try {
     const q = typeof req.query.q === 'string' ? req.query.q : ''
-    res.json(getProductNameReport(q))
+    const season = typeof req.query.season === 'string' && req.query.season ? req.query.season : undefined
+    res.json(getProductNameReport(q, { season }))
   } catch (e) { safeError(res, e) }
+})
+
+app.get('/api/sku-brands', (req, res) => {
+  try { res.json(getDistinctSkuBrands()) } catch (e) { safeError(res, e) }
+})
+
+app.get('/api/product-type-labels', (req, res) => {
+  try { res.json(getProductTypeLabels()) } catch (e) { safeError(res, e) }
+})
+
+app.post('/api/product-type-labels/classify-bulk', requireExecutive, async (req, res) => {
+  try {
+    const force = req.body?.force === true
+    const limit = Math.max(1, Math.min(25, Number(req.body?.limit) || 10))
+    const requested = Array.isArray(req.body?.skus) ? req.body.skus.map((x) => String(x || '').trim()).filter(Boolean) : []
+    const photoSkus = fs.readdirSync(PHOTOS_DIR)
+      .map((f) => path.basename(f, path.extname(f)))
+      .filter((code) => SAFE_SKU_PARAM.test(code))
+    const allSkus = requested.length ? requested : photoSkus
+    const results = []
+    for (const sku of allSkus) {
+      if (results.length >= limit) break
+      const photo = getPhotoFileForSku(sku)
+      const cached = getProductTypeLabel(sku)
+      if (!force && cached?.product_type && (!photo || cached.photo_signature === photo.signature)) continue
+      results.push(await classifySkuPhoto(sku, { force }))
+    }
+    act(req.authUser, {
+      category: 'photo',
+      action: 'product_type_classified_bulk',
+      entityType: 'product_type_labels',
+      entityId: 'bulk',
+      summary: `Classified ${results.length} product type label(s)`,
+      meta: { count: results.length, force },
+    })
+    res.json({
+      status: process.env.OPENAI_API_KEY ? 'ok' : 'missing_api_key',
+      processed: results.length,
+      results,
+      labels: getProductTypeLabels(),
+    })
+  } catch (e) { safeError(res, e, e.statusCode || 500) }
+})
+
+app.post('/api/product-type-labels/:skuCode', requireExecutive, async (req, res) => {
+  try {
+    const result = await classifySkuPhoto(req.params.skuCode, { force: req.body?.force === true })
+    act(req.authUser, {
+      category: 'photo',
+      action: 'product_type_classified',
+      entityType: 'sku',
+      entityId: req.params.skuCode,
+      summary: `Classified product type for ${req.params.skuCode}`,
+      meta: { status: result.status, product_type: result.label?.product_type, source: result.label?.source },
+    })
+    res.json(result)
+  } catch (e) { safeError(res, e, e.statusCode || 500) }
+})
+
+app.put('/api/product-type-labels/:skuCode', requireExecutive, (req, res) => {
+  try {
+    assertSafeSku(req.params.skuCode)
+    const label = upsertProductTypeLabel({
+      sku: req.params.skuCode,
+      product_type: req.body?.product_type,
+      source: 'manual',
+      confidence: 1,
+      photo_signature: getProductTypeLabel(req.params.skuCode)?.photo_signature || '',
+    })
+    act(req.authUser, {
+      category: 'photo',
+      action: 'product_type_manual',
+      entityType: 'sku',
+      entityId: req.params.skuCode,
+      summary: `Manually set product type for ${req.params.skuCode}`,
+      meta: { product_type: label?.product_type },
+    })
+    res.json(label)
+  } catch (e) { safeError(res, e, e.statusCode || 500) }
+})
+
+function reportQuery(req) {
+  return {
+    since: typeof req.query.since === 'string' && req.query.since ? req.query.since : undefined,
+    until: typeof req.query.until === 'string' && req.query.until ? req.query.until : undefined,
+    season: typeof req.query.season === 'string' && req.query.season ? req.query.season : undefined,
+  }
+}
+
+app.get('/api/reports/executive-buying', requireExecutive, (req, res) => {
+  try { res.json(getExecutiveBuyingReport(reportQuery(req))) } catch (e) { safeError(res, e) }
+})
+
+app.get('/api/reports/brand-productivity', requireExecutive, (req, res) => {
+  try { res.json(getBrandProductivityReport(reportQuery(req))) } catch (e) { safeError(res, e) }
+})
+
+app.get('/api/reports/returns-exchanges', requireExecutive, (req, res) => {
+  try { res.json(getReturnsExchangeReport(reportQuery(req))) } catch (e) { safeError(res, e) }
+})
+
+app.get('/api/reports/size-curve-health', requireExecutive, (req, res) => {
+  try { res.json(getSizeCurveHealthReport(reportQuery(req))) } catch (e) { safeError(res, e) }
+})
+
+app.get('/api/reports/markdown-risk', requireExecutive, (req, res) => {
+  try { res.json(getMarkdownRiskReport(reportQuery(req))) } catch (e) { safeError(res, e) }
+})
+
+app.get('/api/reports/category-productivity', requireExecutive, (req, res) => {
+  try { res.json(getCategoryProductivityReport(reportQuery(req))) } catch (e) { safeError(res, e) }
+})
+
+app.get('/api/reports/movers', requireExecutive, (req, res) => {
+  try { res.json(getMoversReport(reportQuery(req))) } catch (e) { safeError(res, e) }
 })
 
 // ── Import history ──────────────────────────────────────────────────────────
@@ -266,33 +1041,171 @@ app.get('/api/import-history', (req, res) => {
 })
 
 app.post('/api/import-history', requireExecutive, (req, res) => {
-  try { res.json(insertImportRecord(req.body)) }
-  catch (e) { safeError(res, e) }
+  try {
+    const rec = insertImportRecord({
+      ...req.body,
+      imported_by_user_id: req.authUser.id,
+      imported_by_name: req.authUser.name,
+    })
+    act(req.authUser, {
+      category: 'import',
+      action: 'recorded',
+      entityType: 'import_batch',
+      entityId: rec.id,
+      summary: `Import recorded: ${rec.filename || 'file'} — ${rec.count} rows, ${rec.totalUnits ?? 0} units`,
+      meta: { filename: rec.filename, count: rec.count, totalUnits: rec.totalUnits ?? 0 },
+    })
+    res.json(rec)
+  } catch (e) { safeError(res, e) }
+})
+
+app.post('/api/import-history/reprocess-reporting', requireExecutive, (req, res) => {
+  try {
+    const archived = getImportHistory().filter((h) => h.csvFilePath)
+    const results = []
+    const skipped = []
+    for (const h of archived) {
+      try {
+        results.push(reprocessArchivedReportingImport(h.id))
+      } catch (e) {
+        if (e?.statusCode === 400) {
+          skipped.push({ importId: h.id, filename: h.filename, reason: e.message })
+          continue
+        }
+        throw e
+      }
+    }
+    const totals = results.reduce((acc, r) => {
+      acc.rowsParsed += r.rowsParsed
+      acc.rowsRecognized += r.rowsRecognized
+      acc.rowsStillSkipped += r.rowsStillSkipped
+      acc.salesEventsWritten += r.salesEventsWritten
+      for (const sku of r.skippedSkus) acc.skippedSkus.add(sku)
+      return acc
+    }, {
+      rowsParsed: 0,
+      rowsRecognized: 0,
+      rowsStillSkipped: 0,
+      salesEventsWritten: 0,
+      skippedSkus: new Set(),
+    })
+    const payload = {
+      processed: results.length,
+      skippedImports: skipped,
+      totals: {
+        ...totals,
+        skippedSkus: [...totals.skippedSkus],
+      },
+      results,
+    }
+    act(req.authUser, {
+      category: 'import',
+      action: 'reprocessed_reporting_bulk',
+      entityType: 'import_batch',
+      entityId: 'bulk',
+      summary: `Reprocessed ${results.length} archived reporting import(s)`,
+      meta: { processed: results.length, skippedImports: skipped.length, totals: payload.totals },
+    })
+    res.json(payload)
+  } catch (e) { safeError(res, e, e.statusCode || 500) }
+})
+
+app.post('/api/import-history/:id/reprocess-reporting', requireExecutive, (req, res) => {
+  try {
+    const result = reprocessArchivedReportingImport(req.params.id)
+    act(req.authUser, {
+      category: 'import',
+      action: 'reprocessed_reporting',
+      entityType: 'import_batch',
+      entityId: req.params.id,
+      summary: `Reprocessed reporting import ${result.filename}`,
+      meta: result,
+    })
+    res.json(result)
+  } catch (e) { safeError(res, e, e.statusCode || 500) }
 })
 
 app.delete('/api/import-history/:id', requireExecutive, (req, res) => {
   try {
-    const changes = deleteImportRecord(req.params.id)
-    res.json({ deleted: changes })
+    const result = deleteImportRecord(req.params.id)
+    for (const code of result.fullyRemovedSkuCodes) {
+      removeExistingPhotosForSku(code)
+    }
+    act(req.authUser, {
+      category: 'import',
+      action: 'deleted',
+      entityType: 'import_batch',
+      entityId: req.params.id,
+      summary: `Deleted import batch ${req.params.id} and its SKUs`,
+      meta: {
+        importHistoryDeleted: result.importHistoryDeleted,
+        skuRowsDeleted: result.skuRowsDeleted,
+        fullyRemovedSkuCodes: result.fullyRemovedSkuCodes,
+      },
+    })
+    res.json({
+      deleted: result.importHistoryDeleted,
+      skuRowsDeleted: result.skuRowsDeleted,
+      fullyRemovedSkuCodes: result.fullyRemovedSkuCodes,
+    })
   } catch (e) { safeError(res, e) }
 })
 
 // ── Users ───────────────────────────────────────────────────────────────────
 
 app.get('/api/users', (req, res) => {
-  try { res.json(getAllUsers()) }
-  catch (e) { safeError(res, e) }
+  try {
+    if (req.authUser.role === 'executive') {
+      return res.json(getAllUsers())
+    }
+    const rows = getUsersPublicDirectory()
+    res.json(rows.map((r) => ({ ...r, user_code: null })))
+  } catch (e) { safeError(res, e) }
 })
 
 app.post('/api/users', requireExecutive, (req, res) => {
-  try { res.json(addUser(req.body)) }
-  catch (e) { safeError(res, e) }
+  try {
+    const u = addUser(req.body)
+    act(req.authUser, {
+      category: 'user',
+      action: 'created',
+      entityType: 'user',
+      entityId: u.id,
+      summary: `User created: ${u.name} (${u.role})`,
+      meta: { role: u.role, shop: u.shop },
+    })
+    res.json(u)
+  } catch (e) { safeError(res, e) }
 })
 
 app.put('/api/users/:id', requireExecutive, (req, res) => {
   try {
     const updated = updateUser(req.params.id, req.body)
     if (!updated) return res.status(404).json({ error: 'User not found or no valid fields' })
+    act(req.authUser, {
+      category: 'user',
+      action: 'updated',
+      entityType: 'user',
+      entityId: req.params.id,
+      summary: `User updated: ${updated.name}`,
+      meta: { fields: Object.keys(req.body || {}) },
+    })
+    res.json(updated)
+  } catch (e) { safeError(res, e) }
+})
+
+app.post('/api/users/:id/regenerate-pin', requireExecutive, (req, res) => {
+  try {
+    const updated = regenerateUserPin(req.params.id)
+    if (!updated) return res.status(404).json({ error: 'User not found' })
+    act(req.authUser, {
+      category: 'user',
+      action: 'pin_regenerated',
+      entityType: 'user',
+      entityId: req.params.id,
+      summary: `PIN regenerated: ${updated.name}`,
+      meta: { user_code: updated.user_code },
+    })
     res.json(updated)
   } catch (e) { safeError(res, e) }
 })
@@ -300,6 +1213,14 @@ app.put('/api/users/:id', requireExecutive, (req, res) => {
 app.delete('/api/users/:id', requireExecutive, (req, res) => {
   try {
     const changes = removeUser(req.params.id)
+    act(req.authUser, {
+      category: 'user',
+      action: 'deleted',
+      entityType: 'user',
+      entityId: req.params.id,
+      summary: `User deleted: ${req.params.id}`,
+      meta: { deleted: changes },
+    })
     res.json({ deleted: changes })
   } catch (e) { safeError(res, e) }
 })
@@ -312,15 +1233,127 @@ app.get('/api/assignments', (req, res) => {
   } catch (e) { safeError(res, e) }
 })
 
+function normalizeAssignmentPayload(raw, u) {
+  const body = { ...raw, assignedBy: u.id }
+  if (u.role !== 'executive') {
+    body.shop = u.shop ?? ''
+    const toId = body.assignedTo
+    if (!toId || String(toId).trim() === '') {
+      const err = new Error('assignedTo is required')
+      err.statusCode = 400
+      throw err
+    }
+    const assignee = getPublicUserById(toId)
+    if (!assignee) {
+      const err = new Error('Invalid assignee')
+      err.statusCode = 400
+      throw err
+    }
+    if ((assignee.shop ?? '') !== (u.shop ?? '')) {
+      const err = new Error('Assignee must be in your shop')
+      err.statusCode = 403
+      throw err
+    }
+  }
+  return body
+}
+
 app.post('/api/assignments', (req, res) => {
-  try { res.json(insertAssignment(req.body)) }
-  catch (e) { safeError(res, e) }
+  try {
+    const u = req.authUser
+    const body = normalizeAssignmentPayload(req.body, u)
+    const created = insertAssignment(body)
+    act(u, {
+      category: 'assignment',
+      action: 'created',
+      entityType: 'assignment',
+      entityId: created.id,
+      summary: `${created.type || 'Task'}: ${(created.productName || created.skuCode || '').slice(0, 72)}`,
+      meta: { type: created.type, skuCode: created.skuCode, shop: created.shop },
+    })
+    res.json(created)
+  } catch (e) { safeError(res, e) }
+})
+
+const ASSIGNMENTS_BULK_MAX = 25000
+
+app.post('/api/assignments/bulk', (req, res) => {
+  try {
+    const u = req.authUser
+    if (!Array.isArray(req.body)) return res.status(400).json({ error: 'Expected array' })
+    if (req.body.length > ASSIGNMENTS_BULK_MAX) {
+      return res.status(400).json({ error: `At most ${ASSIGNMENTS_BULK_MAX} assignments per request` })
+    }
+    const normalized = []
+    for (const raw of req.body) {
+      normalized.push(normalizeAssignmentPayload(raw, u))
+    }
+    const created = insertAssignments(normalized)
+    act(u, {
+      category: 'assignment',
+      action: 'bulk_created',
+      entityType: 'assignment',
+      entityId: null,
+      summary: `Bulk assignments: ${created.length} created`,
+      meta: { count: created.length },
+    })
+    res.json({ count: created.length })
+  } catch (e) { safeError(res, e) }
+})
+
+app.post('/api/assignments/complete-photo-tasks', (req, res) => {
+  try {
+    const u = req.authUser
+    const skuCodes = Array.isArray(req.body?.skuCodes)
+      ? [...new Set(req.body.skuCodes.map((x) => String(x ?? '').trim()).filter(Boolean))]
+      : []
+    if (skuCodes.length === 0) return res.json({ count: 0 })
+    const skuSet = new Set(skuCodes)
+    const now = new Date().toISOString()
+    const rows = getAllAssignments().filter((row) => (
+      row.type === 'photo_needed' &&
+      row.status === 'pending' &&
+      skuSet.has(String(row.skuCode ?? '').trim()) &&
+      assignmentVisibleToUser(row, u)
+    ))
+    let count = 0
+    for (const row of rows) {
+      if (updateAssignment(row.id, { status: 'done', completedAt: now })) count++
+    }
+    if (count > 0) {
+      act(u, {
+        category: 'assignment',
+        action: 'bulk_completed',
+        entityType: 'assignment',
+        entityId: null,
+        summary: `Photo tasks completed: ${count}`,
+        meta: { count, skuCount: skuCodes.length },
+      })
+    }
+    res.json({ count })
+  } catch (e) { safeError(res, e) }
 })
 
 app.put('/api/assignments/:id', (req, res) => {
   try {
+    const row = getAssignmentById(req.params.id)
+    if (!row) return res.status(404).json({ error: 'Not found' })
+    if (!assignmentVisibleToUser(row, req.authUser)) {
+      return res.status(403).json({ error: 'Forbidden' })
+    }
     const updated = updateAssignment(req.params.id, req.body)
     if (!updated) return res.status(404).json({ error: 'Not found' })
+    const statusChanged = req.body?.status != null && req.body.status !== row.status
+    act(req.authUser, {
+      category: 'assignment',
+      action: statusChanged ? 'status_changed' : 'updated',
+      entityType: 'assignment',
+      entityId: req.params.id,
+      summary: statusChanged
+        ? `Assignment ${req.params.id}: status → ${updated.status}`
+        : `Assignment updated: ${req.params.id}`,
+      meta: { patch: req.body, previousStatus: row.status, status: updated.status },
+    })
     res.json(updated)
   } catch (e) { safeError(res, e) }
 })
@@ -328,19 +1361,52 @@ app.put('/api/assignments/:id', (req, res) => {
 // ── Outlet transfers ────────────────────────────────────────────────────────
 
 app.get('/api/outlet-transfers', (req, res) => {
-  try { res.json(getAllOutletTransfers()) }
-  catch (e) { safeError(res, e) }
+  try {
+    res.json(filterOutletTransfers(getAllOutletTransfers(), req.authUser))
+  } catch (e) { safeError(res, e) }
 })
 
 app.post('/api/outlet-transfers', (req, res) => {
-  try { res.json(insertOutletTransfer(req.body)) }
-  catch (e) { safeError(res, e) }
+  try {
+    const u = req.authUser
+    const body = { ...req.body, createdBy: u.id }
+    if (u.role !== 'executive') {
+      const at = body.assignedTo
+      if (at != null && at !== '' && at !== u.id) {
+        return res.status(403).json({ error: 'Can only assign outlet transfer to yourself' })
+      }
+    }
+    const t = insertOutletTransfer(body)
+    const n = Array.isArray(t.items) ? t.items.length : 0
+    act(u, {
+      category: 'transfer_outlet',
+      action: 'created',
+      entityType: 'outlet_transfer',
+      entityId: t.id,
+      summary: `Outlet transfer created (${n} items)`,
+      meta: { status: t.status },
+    })
+    res.json(t)
+  } catch (e) { safeError(res, e) }
 })
 
 app.put('/api/outlet-transfers/:id', (req, res) => {
   try {
+    const row = getOutletTransferById(req.params.id)
+    if (!row) return res.status(404).json({ error: 'Not found' })
+    if (!outletTransferVisibleToUser(row, req.authUser)) {
+      return res.status(403).json({ error: 'Forbidden' })
+    }
     const updated = updateOutletTransfer(req.params.id, req.body)
     if (!updated) return res.status(404).json({ error: 'Not found' })
+    act(req.authUser, {
+      category: 'transfer_outlet',
+      action: 'updated',
+      entityType: 'outlet_transfer',
+      entityId: req.params.id,
+      summary: `Outlet transfer updated — ${updated.status || row.status}`,
+      meta: { patch: req.body, status: updated.status },
+    })
     res.json(updated)
   } catch (e) { safeError(res, e) }
 })
@@ -354,14 +1420,244 @@ app.get('/api/store-transfers', (req, res) => {
 })
 
 app.post('/api/store-transfers', (req, res) => {
-  try { res.json(insertStoreTransfer(req.body)) }
-  catch (e) { safeError(res, e) }
+  try {
+    const u = req.authUser
+    const body = { ...req.body, createdBy: u.id }
+    if (u.role !== 'executive') {
+      const shop = u.shop ?? ''
+      if (!shop) {
+        return res.status(403).json({ error: 'Shop required for store transfers' })
+      }
+      const { fromShop, toShop } = body
+      if (fromShop !== shop && toShop !== shop) {
+        return res.status(403).json({ error: 'Transfer must involve your shop' })
+      }
+    }
+    const t = insertStoreTransfer(body)
+    const n = Array.isArray(t.items) ? t.items.length : 0
+    act(u, {
+      category: 'transfer_store',
+      action: 'created',
+      entityType: 'store_transfer',
+      entityId: t.id,
+      summary: `Store transfer ${t.fromShop || '?'} → ${t.toShop || '?'} (${n} items)`,
+      meta: { fromShop: t.fromShop, toShop: t.toShop, status: t.status },
+    })
+    res.json(t)
+  } catch (e) { safeError(res, e) }
 })
 
 app.put('/api/store-transfers/:id', (req, res) => {
   try {
+    const row = getStoreTransferById(req.params.id)
+    if (!row) return res.status(404).json({ error: 'Not found' })
+    if (!storeTransferVisibleToUser(row, req.authUser)) {
+      return res.status(403).json({ error: 'Forbidden' })
+    }
     const updated = updateStoreTransfer(req.params.id, req.body)
     if (!updated) return res.status(404).json({ error: 'Not found' })
+    act(req.authUser, {
+      category: 'transfer_store',
+      action: 'updated',
+      entityType: 'store_transfer',
+      entityId: req.params.id,
+      summary: `Store transfer updated — ${updated.status || row.status}`,
+      meta: { patch: req.body, status: updated.status },
+    })
+    res.json(updated)
+  } catch (e) { safeError(res, e) }
+})
+
+// ── Markdown / sale lists ───────────────────────────────────────────────────
+
+function markdownListVisibleToUser(l, user) {
+  if (user.role === 'executive') return true
+  return (
+    (l.shop && l.shop === user.shop) ||
+    l.createdBy === user.id ||
+    l.assignedTo === user.id
+  )
+}
+
+app.get('/api/markdown-lists', (req, res) => {
+  try {
+    res.json(getAllMarkdownLists().filter((l) => markdownListVisibleToUser(l, req.authUser)))
+  } catch (e) { safeError(res, e) }
+})
+
+app.post('/api/markdown-lists', (req, res) => {
+  try {
+    const u = req.authUser
+    if (u.role !== 'executive' && u.role !== 'manager') {
+      return res.status(403).json({ error: 'Manager or executive access required' })
+    }
+    const body = { ...req.body, createdBy: u.id }
+    if (u.role !== 'executive') body.shop = u.shop ?? ''
+    const list = insertMarkdownList(body)
+    // Removal lists track taking sale tags OFF — they never flag SKUs as on sale.
+    if (list.kind !== 'removal') applySaleToSkus(list.id, list.items)
+    const n = Array.isArray(list.items) ? list.items.length : 0
+    act(u, {
+      category: 'markdown',
+      action: 'created',
+      entityType: 'markdown_list',
+      entityId: list.id,
+      summary: `${list.kind === 'removal' ? 'Sale removal list' : 'Sale list'} "${list.title || 'Untitled'}" (${n} products)`,
+      meta: { status: list.status, products: n, kind: list.kind },
+    })
+    res.json(list)
+  } catch (e) { safeError(res, e) }
+})
+
+app.put('/api/markdown-lists/:id', (req, res) => {
+  try {
+    const u = req.authUser
+    const row = getMarkdownListById(req.params.id)
+    if (!row) return res.status(404).json({ error: 'Not found' })
+    if (!markdownListVisibleToUser(row, u)) {
+      return res.status(403).json({ error: 'Forbidden' })
+    }
+
+    let updated
+    if (req.body.items !== undefined) {
+      if (u.role !== 'executive' && u.role !== 'manager') {
+        return res.status(403).json({ error: 'Manager or executive access required' })
+      }
+      const incoming = Array.isArray(req.body.items) ? req.body.items : []
+      const existing = row.items || []
+      const newOrUpdated = incoming.filter((it) => {
+        const prev = existing.find((e) => e.skuCode === it.skuCode)
+        return !prev || prev.salePct !== it.salePct || prev.salePrice !== it.salePrice
+      })
+      updated = appendItemsToMarkdownList(req.params.id, incoming)
+      act(u, {
+        category: 'markdown',
+        action: 'items_added',
+        entityType: 'markdown_list',
+        entityId: req.params.id,
+        summary: `Added ${newOrUpdated.length} product(s) to sale list "${row.title || 'Untitled'}"`,
+        meta: { added: newOrUpdated.length, total: (updated.items || []).length },
+      })
+      res.json(updated)
+      return
+    }
+
+    updated = updateMarkdownList(req.params.id, req.body)
+    // Ending a sale clears the SALE flag from its SKUs (list is kept for history).
+    if (req.body.status === 'ended' && row.status !== 'ended') {
+      clearSaleForList(req.params.id)
+    }
+    act(u, {
+      category: 'markdown',
+      action: 'updated',
+      entityType: 'markdown_list',
+      entityId: req.params.id,
+      summary: `Sale list updated — ${updated?.status || row.status}`,
+      meta: { patch: req.body, status: updated?.status },
+    })
+    res.json(updated)
+  } catch (e) { safeError(res, e) }
+})
+
+app.delete('/api/markdown-lists/:id', (req, res) => {
+  try {
+    const u = req.authUser
+    const row = getMarkdownListById(req.params.id)
+    if (!row) return res.status(404).json({ error: 'Not found' })
+    if (u.role !== 'executive' && u.role !== 'manager') {
+      return res.status(403).json({ error: 'Manager or executive access required' })
+    }
+    if (!markdownListVisibleToUser(row, u)) {
+      return res.status(403).json({ error: 'Forbidden' })
+    }
+    deleteMarkdownList(req.params.id)
+    act(u, {
+      category: 'markdown',
+      action: 'deleted',
+      entityType: 'markdown_list',
+      entityId: req.params.id,
+      summary: `Sale list "${row.title || 'Untitled'}" deleted — sale cleared`,
+      meta: { products: Array.isArray(row.items) ? row.items.length : 0 },
+    })
+    res.json({ ok: true })
+  } catch (e) { safeError(res, e) }
+})
+
+app.patch('/api/markdown-lists/:id/items/:skuCode/sale-pct', (req, res) => {
+  try {
+    const u = req.authUser
+    if (u.role !== 'executive' && u.role !== 'manager') {
+      return res.status(403).json({ error: 'Manager or executive access required' })
+    }
+    const row = getMarkdownListById(req.params.id)
+    if (!row) return res.status(404).json({ error: 'Not found' })
+    if (!markdownListVisibleToUser(row, u)) {
+      return res.status(403).json({ error: 'Forbidden' })
+    }
+    const salePct = Number(req.body?.salePct)
+    if (!salePct || salePct <= 0) return res.status(400).json({ error: 'salePct required' })
+    const skuCode = decodeURIComponent(req.params.skuCode || '')
+    const result = changeMarkdownListItemSalePct(req.params.id, skuCode, salePct, u.id)
+    const ch = result.report?.changes?.[0]
+    act(u, {
+      category: 'markdown',
+      action: 'sale_pct_changed',
+      entityType: 'sale_change_report',
+      entityId: result.report?.id,
+      summary: ch
+        ? `Sale % changed on "${row.title || 'Sale list'}" — ${ch.productName || ch.skuCode} -${ch.oldSalePct}% → -${ch.newSalePct}%`
+        : `Sale % changed on "${row.title || 'Sale list'}"`,
+      meta: { listId: req.params.id, skuCode, reportId: result.report?.id },
+    })
+    res.json(result)
+  } catch (e) { safeError(res, e) }
+})
+
+app.get('/api/sale-change-reports', (req, res) => {
+  try {
+    res.json(getAllSaleChangeReports().filter((r) => saleChangeReportVisibleToUser(r, req.authUser)))
+  } catch (e) { safeError(res, e) }
+})
+
+app.get('/api/sale-change-reports/:id', (req, res) => {
+  try {
+    const row = getSaleChangeReportById(req.params.id)
+    if (!row) return res.status(404).json({ error: 'Not found' })
+    if (!saleChangeReportVisibleToUser(row, req.authUser)) {
+      return res.status(403).json({ error: 'Forbidden' })
+    }
+    res.json(row)
+  } catch (e) { safeError(res, e) }
+})
+
+app.patch('/api/sale-change-reports/:id/items/:skuCode/marked', (req, res) => {
+  try {
+    const u = req.authUser
+    const row = getSaleChangeReportById(req.params.id)
+    if (!row) return res.status(404).json({ error: 'Not found' })
+    if (!saleChangeReportVisibleToUser(row, u)) {
+      return res.status(403).json({ error: 'Forbidden' })
+    }
+    const skuCode = decodeURIComponent(req.params.skuCode || '')
+    let shop = String(req.body?.shop || '').trim()
+    if (u.role === 'manager') {
+      if (!u.shop) return res.status(403).json({ error: 'Manager shop required' })
+      shop = u.shop
+    } else if (!shop) {
+      return res.status(400).json({ error: 'shop required' })
+    }
+    const updated = toggleSaleChangeItemMarked(req.params.id, skuCode, u.id, shop)
+    const marked = updated.item_statuses?.[skuCode]?.[shop]?.status === 'marked'
+    act(u, {
+      category: 'markdown',
+      action: marked ? 'sale_change_marked' : 'sale_change_unmarked',
+      entityType: 'sale_change_report',
+      entityId: req.params.id,
+      summary: marked
+        ? `Sale tag marked down at ${shop} on change report — ${skuCode}`
+        : `Sale tag mark-down cleared at ${shop} on change report — ${skuCode}`,
+      meta: { listId: row.listId, skuCode, reportId: req.params.id, shop },
+    })
     res.json(updated)
   } catch (e) { safeError(res, e) }
 })
@@ -374,8 +1670,19 @@ app.get('/api/snapshots', (req, res) => {
 })
 
 app.post('/api/snapshots', requireExecutive, (req, res) => {
-  try { res.json(insertSnapshot(req.body)) }
-  catch (e) { safeError(res, e) }
+  try {
+    const s = insertSnapshot(req.body)
+    const nk = s.products && typeof s.products === 'object' ? Object.keys(s.products).length : 0
+    act(req.authUser, {
+      category: 'sales_snapshot',
+      action: 'created',
+      entityType: 'snapshot',
+      entityId: s.id,
+      summary: `Sales snapshot — ${nk} product keys`,
+      meta: { productKeys: nk },
+    })
+    res.json(s)
+  } catch (e) { safeError(res, e) }
 })
 
 // ── Sales events ─────────────────────────────────────────────────────────────
@@ -389,15 +1696,70 @@ app.get('/api/sales/by-sku', (req, res) => {
   try {
     const since = req.query.since || '1970-01-01'
     const until = req.query.until || undefined
-    res.json(getSalesBySku(since, until))
+    const season = typeof req.query.season === 'string' && req.query.season ? req.query.season : undefined
+    res.json(getSalesBySku(since, until, season))
   } catch (e) { safeError(res, e) }
+})
+
+app.get('/api/sales/summary/:sku', (req, res) => {
+  try {
+    res.json(getSalesSummaryForSku(req.params.sku || ''))
+  } catch (e) { safeError(res, e) }
+})
+
+app.get('/api/sales/by-day', (req, res) => {
+  try {
+    const since = req.query.since || '1970-01-01'
+    const until = req.query.until || undefined
+    const season = typeof req.query.season === 'string' && req.query.season ? req.query.season : undefined
+    res.json(getSalesAggregatedByDay(since, until, season))
+  } catch (e) { safeError(res, e) }
+})
+
+app.get('/api/sales/exchanges', (req, res) => {
+  try {
+    const since = req.query.since || undefined
+    const until = req.query.until || undefined
+    res.json(getExchangePairs(since, until))
+  } catch (e) { safeError(res, e) }
+})
+
+app.get('/api/sales/events/has-any', (req, res) => {
+  try { res.json({ has: hasAnySalesEvents() }) }
+  catch (e) { safeError(res, e) }
 })
 
 app.post('/api/sales-events', requireExecutive, (req, res) => {
   try {
     if (!Array.isArray(req.body)) return res.status(400).json({ error: 'Expected array' })
-    const count = insertSalesEvents(req.body)
+    const replace = req.query.replace === '1' || req.query.replace === 'true'
+    const count = replace
+      ? replaceSalesEventsForReportingImport(req.body)
+      : insertSalesEvents(req.body)
+    act(req.authUser, {
+      category: 'sales_event',
+      action: 'imported',
+      entityType: 'sales_events',
+      entityId: null,
+      summary: `Sales events import — ${count} rows`,
+      meta: { count },
+    })
     res.json({ inserted: count })
+  } catch (e) { safeError(res, e) }
+})
+
+app.delete('/api/sales-events', requireExecutive, (req, res) => {
+  try {
+    const n = deleteAllSalesEvents()
+    act(req.authUser, {
+      category: 'sales_event',
+      action: 'cleared',
+      entityType: 'sales_events',
+      entityId: null,
+      summary: `Cleared all sales events (${n} rows)`,
+      meta: { deleted: n },
+    })
+    res.json({ deleted: n })
   } catch (e) { safeError(res, e) }
 })
 
@@ -428,21 +1790,39 @@ app.get('/api/photos/:skuCode', (req, res) => {
   } catch (e) { safeError(res, e, e.statusCode || 500) }
 })
 
-app.post('/api/photos/:skuCode', uploadPhotoMem.single('photo'), (req, res) => {
+app.post('/api/photos/:skuCode', requireExecutive, uploadPhotoMem.single('photo'), (req, res) => {
   try {
     assertSafeSku(req.params.skuCode)
     if (!req.file?.buffer) return res.status(400).json({ error: 'No file uploaded' })
     const filename = writePhotoForSku(req.params.skuCode, req.file.buffer)
+    act(req.authUser, {
+      category: 'photo',
+      action: 'uploaded',
+      entityType: 'sku_photo',
+      entityId: req.params.skuCode,
+      summary: `Photo uploaded for SKU ${req.params.skuCode}`,
+      meta: { filename },
+    })
     res.json({ skuCode: req.params.skuCode, filename })
   } catch (e) { safeError(res, e, e.statusCode || 500) }
 })
 
-app.delete('/api/photos/:skuCode', (req, res) => {
+app.delete('/api/photos/:skuCode', requireExecutive, (req, res) => {
   try {
     assertSafeSku(req.params.skuCode)
     const files = fs.readdirSync(PHOTOS_DIR)
     const match = files.find((f) => path.basename(f, path.extname(f)) === req.params.skuCode)
     if (match) fs.unlinkSync(path.join(PHOTOS_DIR, match))
+    if (match) {
+      act(req.authUser, {
+        category: 'photo',
+        action: 'deleted',
+        entityType: 'sku_photo',
+        entityId: req.params.skuCode,
+        summary: `Photo removed for SKU ${req.params.skuCode}`,
+        meta: { filename: match },
+      })
+    }
     res.json({ deleted: !!match })
   } catch (e) { safeError(res, e, e.statusCode || 500) }
 })
@@ -474,6 +1854,14 @@ app.post('/api/shifts/clock-in', (req, res) => {
       return res.status(403).json({ error: 'Can only clock in as yourself' })
     }
     const result = clockIn(id, userId, userName, shop)
+    act(req.authUser, {
+      category: 'shift',
+      action: 'clock_in',
+      entityType: 'shift',
+      entityId: result.id,
+      summary: `Clock in${shop ? ` @ ${shop}` : ''}`,
+      meta: { shop },
+    })
     res.json(result)
   } catch (e) { safeError(res, e) }
 })
@@ -487,6 +1875,14 @@ app.put('/api/shifts/:id/clock-out', (req, res) => {
     }
     const result = clockOut(req.params.id)
     if (!result) return res.status(404).json({ error: 'Shift not found' })
+    act(req.authUser, {
+      category: 'shift',
+      action: 'clock_out',
+      entityType: 'shift',
+      entityId: req.params.id,
+      summary: `Clock out${result.duration_min != null ? ` (${result.duration_min} min)` : ''}`,
+      meta: { durationMin: result.duration_min, forUserId: row.user_id },
+    })
     res.json(result)
   } catch (e) { safeError(res, e) }
 })
@@ -502,6 +1898,9 @@ app.get('/api/notifications', (req, res) => {
 
 app.post('/api/notifications', (req, res) => {
   try {
+    if (!notificationCreateAllowed(req.authUser, req.body || {})) {
+      return res.status(403).json({ error: 'Forbidden' })
+    }
     const n = insertNotification(req.body)
     res.json(n)
   } catch (e) { safeError(res, e) }
@@ -539,24 +1938,45 @@ if (fs.existsSync(distDir)) {
   })
 }
 
-function lanIpv4Addresses() {
-  const out = []
-  for (const nets of Object.values(os.networkInterfaces())) {
-    if (!nets) continue
-    for (const n of nets) {
-      if (n.family === 'IPv4' && !n.internal) out.push(n.address)
-    }
-  }
-  return out
-}
-
-const server = app.listen(PORT, '0.0.0.0', () => {
+const LISTEN_HOST = process.env.LISTEN_HOST || '0.0.0.0'
+const server = app.listen(PORT, LISTEN_HOST, () => {
+  const lan = pickPrimaryLanIp()
   console.log(`intelRetail API — http://localhost:${PORT}`)
-  for (const ip of lanIpv4Addresses()) {
-    console.log(`intelRetail API — http://${ip}:${PORT}`)
-  }
+  console.log(`intelRetail API — http://${lan}:${PORT}  ← same host both PCs use on this LAN (override: RETAILOS_LAN_IP)`)
+  console.log(`LAN app:  With Vite (npm run dev:full) use one URL on every PC:  http://${lan}:5173`)
+  console.log('          If the other PC cannot connect, allow Node.js through Windows Firewall (Private).')
   console.log(`Database: ${path.resolve(DATA_DIR, 'retailos.db')}`)
   console.log(`Photos:   ${PHOTOS_DIR}`)
+  try {
+    const bf = backfillActivityLogFromLegacyIfEmpty()
+    if (!bf.skipped) console.log(`[activity-log] Backfilled ${bf.inserted} legacy event(s)`)
+  } catch (e) {
+    console.error('[activity-log] Backfill failed:', e.message)
+  }
+  try {
+    const r = purgeExpiredBinnedSkus()
+    if (r.purgedCodes.length) {
+      console.log(`[recycle-bin] Auto-purged ${r.purgedCodes.length} expired SKU code(s): ${r.purgedCodes.join(', ')}`)
+    }
+  } catch (e) {
+    console.error('[recycle-bin] Auto-purge failed:', e.message)
+  }
+  setInterval(() => {
+    try {
+      const r = purgeExpiredBinnedSkus()
+      if (r.purgedCodes.length) {
+        console.log(`[recycle-bin] Auto-purged ${r.purgedCodes.length} expired SKU code(s): ${r.purgedCodes.join(', ')}`)
+      }
+    } catch (e) {
+      console.error('[recycle-bin] Auto-purge failed:', e.message)
+    }
+  }, 24 * 60 * 60 * 1000)
+  if (IS_PROD && corsAllowedOrigins.length === 0) {
+    console.warn('[security] CORS_ORIGINS is empty — browser clients with an Origin header will be blocked. Set CORS_ORIGINS to your HTTPS site(s), comma-separated.')
+  }
+  if (LISTEN_HOST !== '0.0.0.0') {
+    console.log(`Listen:   ${LISTEN_HOST} (set LISTEN_HOST=0.0.0.0 for all interfaces)`)
+  }
 })
 
 server.on('error', (err) => {

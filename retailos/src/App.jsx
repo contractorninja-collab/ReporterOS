@@ -1,5 +1,5 @@
 import { useState, useEffect, Component } from 'react'
-import { Routes, Route, NavLink } from 'react-router-dom'
+import { Routes, Route, NavLink, useLocation } from 'react-router-dom'
 import { useStore } from './store/useStore'
 import { Sidebar } from './components/Sidebar.jsx'
 import { Topbar } from './components/Topbar.jsx'
@@ -7,7 +7,6 @@ import { IconDashboard, IconPlanning, IconPlus, IconImport, IconMenu } from './u
 import { Dashboard } from './pages/Dashboard.jsx'
 import { Lifecycle } from './pages/Lifecycle.jsx'
 import { Bestsellers } from './pages/Bestsellers.jsx'
-import { Strategy } from './pages/Strategy.jsx'
 import { Reports } from './pages/Reports.jsx'
 import { ImportCSV } from './pages/ImportCSV.jsx'
 import { Photos } from './pages/Photos.jsx'
@@ -21,8 +20,12 @@ import { UserManagement } from './pages/UserManagement.jsx'
 import { ProductLookup } from './pages/ProductLookup.jsx'
 import { BuyPlanning } from './pages/BuyPlanning.jsx'
 import { TransferBuilder } from './pages/TransferBuilder.jsx'
+import MarkdownBuilder from './pages/MarkdownBuilder.jsx'
+import MarkdownLists from './pages/MarkdownLists.jsx'
 import { ShiftBoard } from './pages/ShiftBoard.jsx'
 import { SmartAlerts } from './pages/SmartAlerts.jsx'
+import { ActivityLog } from './pages/ActivityLog.jsx'
+import { RecycleBin } from './pages/RecycleBin.jsx'
 import { RequireExecutive } from './components/RequireExecutive.jsx'
 import { isExecutive } from './utils/roles.js'
 import * as api from './api/client.js'
@@ -183,13 +186,14 @@ function LoginScreen() {
           </div>
           <div
             style={{
-              fontSize: 11,
+              fontSize: 7.5,
               fontWeight: 500,
-              letterSpacing: '2px',
+              letterSpacing: '1.1px',
               textTransform: 'uppercase',
               background: 'linear-gradient(90deg, #5a5a72, #8888aa, #5a5a72)',
               WebkitBackgroundClip: 'text',
               WebkitTextFillColor: 'transparent',
+              lineHeight: 1.25,
             }}
           >
             Your Intelligent Retail Assistant
@@ -351,6 +355,7 @@ function ApiOfflineBanner() {
   if (apiOnline || dismissed) return null
   return (
     <div
+      className="api-offline-banner"
       style={{
         position: 'fixed',
         top: 0,
@@ -393,18 +398,40 @@ function ApiOfflineBanner() {
 }
 
 function App() {
+  const location = useLocation()
   const skus = useStore((s) => s.skus)
   const activeSeason = useStore((s) => s.activeSeason)
   const activeUser = useStore((s) => s.activeUser)
   const _ready = useStore((s) => s._ready)
+  const _apiOnline = useStore((s) => s._apiOnline)
+  const syncFromServer = useStore((s) => s.syncFromServer)
   const setActiveUser = useStore((s) => s.setActiveUser)
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [browserOnline, setBrowserOnline] = useState(
+    () => (typeof navigator !== 'undefined' ? navigator.onLine : true),
+  )
+
+  const connectivityLive = browserOnline && _apiOnline
 
   useEffect(() => {
     const onUnauth = () => setActiveUser(null)
     window.addEventListener('retailos:unauthorized', onUnauth)
     return () => window.removeEventListener('retailos:unauthorized', onUnauth)
   }, [setActiveUser])
+
+  useEffect(() => {
+    const onOnline = () => {
+      setBrowserOnline(true)
+      syncFromServer()
+    }
+    const onOffline = () => setBrowserOnline(false)
+    window.addEventListener('online', onOnline)
+    window.addEventListener('offline', onOffline)
+    return () => {
+      window.removeEventListener('online', onOnline)
+      window.removeEventListener('offline', onOffline)
+    }
+  }, [syncFromServer])
 
   if (!_ready) {
     return (
@@ -429,6 +456,7 @@ function App() {
 
   const closeSidebar = () => setSidebarOpen(false)
   const exec = isExecutive(activeUser)
+  const hideFooterImport = location.pathname === '/bin'
 
   return (
     <AppErrorBoundary>
@@ -446,20 +474,17 @@ function App() {
 
       {/* Sidebar wrapper */}
       <aside
-        className={`app-sidebar${sidebarOpen ? ' open' : ''}`}
+        className={`app-sidebar app-sidebar--glass${sidebarOpen ? ' open' : ''}`}
         style={{
           position: 'fixed',
           left: 0,
           top: 0,
           bottom: 0,
-          width: '228px',
-          background: 'var(--ro-surface)',
-          borderRight: '1px solid var(--ro-border)',
+          width: '200px',
           display: 'flex',
           flexDirection: 'column',
           zIndex: 200,
-          overflowY: 'auto',
-          overflowX: 'hidden',
+          overflow: 'hidden',
         }}
       >
         <Sidebar onNavigate={closeSidebar} />
@@ -469,7 +494,7 @@ function App() {
       <div
         className="app-main"
         style={{
-          marginLeft: '228px',
+          marginLeft: '200px',
           minHeight: '100vh',
           display: 'flex',
           flexDirection: 'column',
@@ -497,6 +522,7 @@ function App() {
           <button
             type="button"
             className="hamburger-btn"
+            style={{ flexShrink: 0 }}
             onClick={() => setSidebarOpen(true)}
             aria-label="Open menu"
           >
@@ -522,12 +548,13 @@ function App() {
               <Route path="/smart-alerts" element={<SmartAlerts />} />
               <Route path="/lifecycle" element={<Lifecycle />} />
               <Route path="/bestsellers" element={<Bestsellers />} />
-              <Route path="/strategy" element={<RequireExecutive><Strategy /></RequireExecutive>} />
               <Route path="/reports" element={<RequireExecutive><Reports /></RequireExecutive>} />
+              <Route path="/activity-log" element={<RequireExecutive><ActivityLog /></RequireExecutive>} />
               <Route path="/lookup" element={<RequireExecutive><ProductLookup /></RequireExecutive>} />
               <Route path="/buy-planning" element={<RequireExecutive><BuyPlanning /></RequireExecutive>} />
               <Route path="/import" element={<RequireExecutive><ImportCSV /></RequireExecutive>} />
               <Route path="/photos" element={<RequireExecutive><Photos /></RequireExecutive>} />
+              <Route path="/bin" element={<RequireExecutive><RecycleBin /></RequireExecutive>} />
               <Route path="/catalog/footwear" element={<Footwear />} />
               <Route path="/catalog/apparel" element={<Apparel />} />
               <Route path="/catalog/accessories" element={<Accessories />} />
@@ -535,57 +562,31 @@ function App() {
               <Route path="/new-transfer" element={<TransferBuilder />} />
               <Route path="/outlet" element={<OutletTransfers />} />
               <Route path="/transfers" element={<StoreTransfers />} />
+              <Route path="/markdown" element={<MarkdownLists />} />
+              <Route path="/new-markdown" element={<MarkdownBuilder />} />
               <Route path="/users" element={<RequireExecutive><UserManagement /></RequireExecutive>} />
               <Route path="/shift-board" element={<ShiftBoard />} />
             </Routes>
           </div>
 
-          <div
-            className="app-footer"
-            style={{
-              marginTop: 'auto',
-              marginLeft: '-28px',
-              marginRight: '-28px',
-              padding: '16px 28px',
-              borderTop: '1px solid var(--ro-border)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              flexWrap: 'wrap',
-              gap: '8px',
-            }}
-          >
-            <div style={{ fontSize: '10px', color: 'var(--ro-text-muted)' }}>
-              RetailOS v1.0 · Built for Driloni Sportswear Sh.P.K · SKU Lifecycle Intelligence
+          <div className="app-footer">
+            <div className="app-footer__left">
+              <strong>RetailOS v1.0</strong> · Built for Driloni Sportswear Sh.P.K · SKU Lifecycle Intelligence
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
-              {exec && (
-                <NavLink
-                  to="/import"
-                  className="app-footer-import"
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    padding: '6px 12px',
-                    borderRadius: '8px',
-                    fontSize: '11px',
-                    fontWeight: 600,
-                    textDecoration: 'none',
-                    background: '#ff3333',
-                    color: '#fff',
-                    fontFamily: '"DM Sans", sans-serif',
-                    whiteSpace: 'nowrap',
-                    boxShadow: '0 2px 10px rgba(255, 51, 51, 0.35)',
-                  }}
-                >
+              {exec && !hideFooterImport && (
+                <NavLink to="/import" className="app-footer-import">
                   <IconImport size={14} strokeWidth={1.5} />
                   Import CSV
                 </NavLink>
               )}
-              <div style={{ fontSize: '10px', color: 'var(--ro-text-muted)' }}>
+              <div className="app-footer__meta">
                 Last sync: Today · {skus.length} SKUs · {activeSeason} Active ·{' '}
-                <span style={{ color: '#00e676' }}>● Live</span>
+                {connectivityLive ? (
+                  <span className="app-footer__live">● Live</span>
+                ) : (
+                  <span style={{ color: '#dc2626', fontWeight: 600 }}>● Offline</span>
+                )}
               </div>
             </div>
           </div>

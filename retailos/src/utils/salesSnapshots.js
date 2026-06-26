@@ -57,8 +57,8 @@ export function computeSalesInPeriod(snapshots, startDate, endDate) {
   for (const [skuCode, end] of Object.entries(endProducts)) {
     const start = startProducts[skuCode]
     const prevSold = start ? start.soldQuantity : 0
-    const delta = Math.max(0, end.soldQuantity - prevSold)
-    if (delta > 0) {
+    const delta = end.soldQuantity - prevSold
+    if (delta !== 0) {
       results.push({
         skuCode,
         productName: end.productName,
@@ -105,7 +105,7 @@ export function groupSalesByInterval(snapshots, startDate, endDate, interval = '
     for (const [sku, currData] of Object.entries(curr.products)) {
       const prevData = prev.products[sku]
       const prevSold = prevData ? prevData.soldQuantity : 0
-      const delta = Math.max(0, currData.soldQuantity - prevSold)
+      const delta = currData.soldQuantity - prevSold
       bucket.units += delta
       bucket.revenue += delta * (currData.priceSold || 0)
     }
@@ -124,7 +124,7 @@ export function groupSalesByInterval(snapshots, startDate, endDate, interval = '
   return [...buckets.values()].sort((a, b) => a.label.localeCompare(b.label))
 }
 
-function getBucketKey(date, interval) {
+export function getBucketKey(date, interval) {
   const d = new Date(date)
   const yyyy = d.getFullYear()
   const mm = String(d.getMonth() + 1).padStart(2, '0')
@@ -137,6 +137,29 @@ function getBucketKey(date, interval) {
     return `${yyyy}-W${String(week).padStart(2, '0')}`
   }
   return `${yyyy}-${mm}-${dd}`
+}
+
+/**
+ * Bucket daily sales_events aggregates (event_date, units, revenue) into chart intervals.
+ * @param {Array<{ event_date: string, units: number, revenue: number }>} dailyRows
+ */
+export function groupEventDaysByInterval(dailyRows, startDate, endDate, interval = 'day') {
+  if (!dailyRows?.length) return []
+  const start = new Date(startDate).setHours(0, 0, 0, 0)
+  const end = new Date(endDate).setHours(23, 59, 59, 999)
+  const buckets = new Map()
+  for (const r of dailyRows) {
+    if (!r.event_date) continue
+    const d = new Date(`${r.event_date}T12:00:00`)
+    const t = d.getTime()
+    if (t < start || t > end) continue
+    const key = getBucketKey(d, interval)
+    if (!buckets.has(key)) buckets.set(key, { label: key, units: 0, revenue: 0 })
+    const b = buckets.get(key)
+    b.units += Number(r.units) || 0
+    b.revenue += Number(r.revenue) || 0
+  }
+  return [...buckets.values()].sort((a, b) => a.label.localeCompare(b.label))
 }
 
 /**

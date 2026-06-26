@@ -5,20 +5,20 @@ import { aggregateSkus } from '../utils/aggregateSkus'
 import KpiCard from '../components/KpiCard'
 import { IconFootwear } from '../utils/icons.js'
 import { isExecutive } from '../utils/roles.js'
-
-const BRAND_GRADIENTS = [
-  'linear-gradient(135deg,#0a1a0a,#1a3a1a)',
-  'linear-gradient(135deg,#0d1b10,#1a3a20)',
-  'linear-gradient(135deg,#0f1923,#1e3a5f)',
-  'linear-gradient(135deg,#1a0a2e,#2d1357)',
-  'linear-gradient(135deg,#1a1a0a,#3a3a0d)',
-  'linear-gradient(135deg,#0a1a1a,#0d3333)',
-  'linear-gradient(135deg,#10101a,#1e1e3a)',
-  'linear-gradient(135deg,#1a0010,#3d0028)',
-]
-const BRAND_COLORS = ['#00e676', '#fbbf24', '#38bdf8', '#c084fc', '#f472b6', '#ff8800', '#ff3333', '#34d399']
+import { toTitleCase } from '../utils/textFormat.js'
 
 const sizes = [35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46]
+
+function sellThroughThresholdClass(pct) {
+  const n = Number(pct) || 0
+  if (n >= 40) return 'catalog-threshold--good'
+  if (n >= 20) return 'catalog-threshold--mid'
+  return 'catalog-threshold--bad'
+}
+
+function brandSlug(name) {
+  return String(name || '').toLowerCase().trim()
+}
 
 export function Footwear() {
   const [brandFilter, setBrandFilter] = useState('All brands')
@@ -70,270 +70,156 @@ export function Footwear() {
 
   const n = footwearProducts.length
   const avgSellThrough = n ? Math.round(sellSum / n) : 0
+  const avgStClass = sellThroughThresholdClass(avgSellThrough)
+  const showEmptyBrands = dynamicBrands.length === 0
+    || (brandFilter !== 'All brands' && footwearProducts.length === 0)
 
   return (
     <div
+      className="catalog-page"
       data-sku-count={products.length}
       data-footwear-count={n}
       data-footwear-risk-clearance={riskClearanceCount}
       data-footwear-avg-sellthrough={avgSellThrough}
     >
-      {/* SECTION 1 — Header with brand filter pills */}
-      <div
-        className="fade-up delay-1"
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          marginBottom: '14px',
-          flexWrap: 'wrap',
-          gap: '12px',
-        }}
-      >
-        <div
-          style={{
-            fontFamily: '"DM Sans"',
-            fontSize: '16px',
-            letterSpacing: '2px',
-            color: 'var(--ro-heading)',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-          }}
-        >
-          <div
-            style={{
-              width: '6px',
-              height: '6px',
-              borderRadius: '50%',
-              background: '#38bdf8',
-              animation: 'blink 2s infinite',
-            }}
-          />
-          FOOTWEAR CATALOG
-        </div>
-
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', alignItems: 'center' }}>
+      <div className="fade-up delay-1 catalog-page-header">
+        <div className="catalog-filter-chips">
           {BRANDS.map((b) => {
             const active = brandFilter === b
             return (
               <button
                 key={b}
                 type="button"
+                className={`catalog-filter-chip${active ? ' is-active' : ''}`}
                 onClick={() => setBrandFilter(b)}
-                style={{
-                  padding: '5px 12px',
-                  borderRadius: '8px',
-                  fontSize: '11px',
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                  fontFamily: '"DM Sans"',
-                  border: active ? '1px solid rgba(56,189,248,0.35)' : '1px solid var(--ro-border)',
-                  background: active ? 'rgba(56,189,248,0.12)' : 'var(--ro-surface-elevated)',
-                  color: active ? '#38bdf8' : 'var(--ro-text-dim)',
-                  transition: 'all 0.18s',
-                }}
               >
-                {b}
+                {b === 'All brands' ? b : toTitleCase(b)}
               </button>
             )
           })}
         </div>
       </div>
 
-      {/* SECTION 2 — 4 KPI cards */}
-      <div
-        className="fade-up delay-2"
-        style={{
-          display: 'grid',
-          gridTemplateColumns: exec ? 'repeat(4, 1fr)' : 'repeat(3, 1fr)',
-          gap: '12px',
-          marginBottom: '22px',
-        }}
-      >
+      <div className={`fade-up delay-2 catalog-kpi-grid${exec ? '' : ' catalog-kpi-grid--3'}`}>
         <KpiCard
-          label="Total Footwear SKUs"
+          className="catalog-kpi-tile catalog-kpi-tile--total"
+          label="Total SKUs"
           value={n}
-          sub={brandFilter === 'All brands' ? 'All brands' : brandFilter}
-          accentColor="#38bdf8"
+          sub={brandFilter === 'All brands' ? 'All brands' : toTitleCase(brandFilter)}
+          accentColor="#60A5FA"
         />
         {exec ? (
           <KpiCard
-            label="Avg Sell-Through"
+            className={`catalog-kpi-tile catalog-kpi-tile--sellthrough ${avgStClass}`}
+            label="Avg sell-through"
             value={n ? `${avgSellThrough}%` : '—'}
             sub="Filtered range"
-            accentColor="#00e676"
+            accentColor="#34D399"
           />
         ) : null}
         <KpiCard
-          label="At Risk / Clearance"
+          className="catalog-kpi-tile catalog-kpi-tile--alert"
+          label="At risk / clearance"
           value={riskClearanceCount}
           sub="Lifecycle"
-          accentColor="#ff3333"
+          accentColor="#F87171"
         />
         <KpiCard
+          className={`catalog-kpi-tile catalog-kpi-tile--highlight catalog-kpi-tile--compact-value${exec && n && bestSellThrough >= 0 ? ' catalog-kpi-tile--sub-positive' : ''}`}
           label={exec ? 'Bestseller' : 'Highlight style'}
           value={n ? bestsellerName : '—'}
           sub={exec && n && bestSellThrough >= 0 ? `${Math.round(bestSellThrough)}% sell-through` : exec ? '—' : n ? 'Strong performer in filter' : '—'}
-          accentColor="#fbbf24"
+          accentColor="#FBBF24"
         />
       </div>
 
-      {/* SECTION 3 — Brand breakdown cards */}
-      <div
-        className="fade-up delay-2"
-        style={{
-          display: 'grid',
-          gridTemplateColumns: `repeat(${Math.min(dynamicBrands.length || 1, 4)}, 1fr)`,
-          gap: '12px',
-          marginBottom: '22px',
-        }}
-      >
-        {dynamicBrands.map((brandName, idx) => {
-          const b = { name: brandName, gradient: BRAND_GRADIENTS[idx % BRAND_GRADIENTS.length], barColor: BRAND_COLORS[idx % BRAND_COLORS.length] }
-          const brandSkus = footwearProducts.filter((s) => s.brand === b.name)
-          const count = brandSkus.length
-          const soldQty = (s) => s.sold_quantity || 0
-          const qty = (s) => s.quantity || 0
-          const avg = Math.round(
-            brandSkus.reduce((acc, s) => acc + getSellThrough(soldQty(s), qty(s)), 0) / (count || 1)
-          )
-          const atRisk = brandSkus.filter((s) =>
-            ['Risk', 'Clearance', 'Outlet'].includes(
-              getLifecycleStatus(s.import_date, soldQty(s), qty(s))
-            )
-          ).length
-
-          return (
-            <div
-              key={b.name}
-              style={{
-                background: 'var(--ro-surface)',
-                border: '1px solid var(--ro-border)',
-                borderRadius: '13px',
-                overflow: 'hidden',
-                cursor: 'pointer',
-                transition: 'all 0.18s',
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.transform = 'translateY(-3px)'
-                e.currentTarget.style.borderColor = 'var(--ro-border-hover)'
-                e.currentTarget.style.boxShadow = '0 12px 30px rgba(0,0,0,0.3)'
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.transform = ''
-                e.currentTarget.style.borderColor = 'var(--ro-border)'
-                e.currentTarget.style.boxShadow = ''
-              }}
-            >
-              <div
-                style={{
-                  height: '110px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontSize: '46px',
-                  background: b.gradient,
-                }}
-              >
-                <IconFootwear size={40} strokeWidth={1.5} color="var(--ro-heading)" />
-              </div>
-
-              <div style={{ padding: '13px' }}>
-                <div
-                  style={{
-                    fontFamily: '"DM Sans"',
-                    fontSize: '17px',
-                    letterSpacing: '1.5px',
-                    color: 'var(--ro-heading)',
-                    marginBottom: '2px',
-                  }}
-                >
-                  {b.name}
-                </div>
-                <div style={{ fontSize: '11px', color: 'var(--ro-text-muted)', marginBottom: '8px' }}>
-                  {count} SKUs · Footwear
-                </div>
-                {exec ? (
-                  <>
-                    <div style={{ height: '4px', background: 'var(--ro-surface-elevated)', borderRadius: '2px', overflow: 'hidden' }}>
-                      <div
-                        style={{
-                          height: '100%',
-                          borderRadius: '2px',
-                          background: b.barColor,
-                          width: `${avg}%`,
-                        }}
-                      />
-                    </div>
-                    <div
-                      style={{
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        marginTop: '8px',
-                        fontSize: '10px',
-                        color: 'var(--ro-text-muted)',
-                      }}
-                    >
-                      <span>{avg}% avg sell-through</span>
-                      <span style={{ color: atRisk > 5 ? '#ff3333' : '#fbbf24' }}>{atRisk} at risk</span>
-                    </div>
-                  </>
-                ) : (
-                  <div
-                    style={{
-                      display: 'flex',
-                      justifyContent: 'flex-end',
-                      marginTop: '8px',
-                      fontSize: '10px',
-                      color: 'var(--ro-text-muted)',
-                    }}
-                  >
-                    <span style={{ color: atRisk > 5 ? '#ff3333' : '#fbbf24' }}>{atRisk} at risk</span>
-                  </div>
-                )}
-              </div>
-            </div>
-          )
-        })}
-      </div>
-
-      {/* SECTION 4 — Size Coverage grid */}
-      <div
-        className="fade-up delay-3"
-        style={{
-          background: 'var(--ro-surface)',
-          border: '1px solid var(--ro-border)',
-          borderRadius: '13px',
-          padding: '18px',
-          marginBottom: '22px',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
-          <span
-            style={{
-              fontFamily: '"DM Sans"',
-              fontSize: '14px',
-              letterSpacing: '2px',
-              color: 'var(--ro-heading)',
-              fontWeight: 600,
-            }}
-          >
-            Size Coverage — Footwear
-          </span>
+      {showEmptyBrands ? (
+        <div className="catalog-empty fade-up delay-2">
+          <IconFootwear className="catalog-empty__icon" size={32} strokeWidth={1.5} aria-hidden />
+          <p className="catalog-empty__title">No brands found</p>
+          <p className="catalog-empty__hint">Try selecting a different filter above.</p>
         </div>
-        <div style={{ fontSize: '11px', color: 'var(--ro-text-muted)', marginBottom: '4px' }}>
+      ) : (
+        <div className="fade-up delay-2 catalog-card-grid">
+          {dynamicBrands.map((brandName) => {
+            const brandSkus = footwearProducts.filter((s) => s.brand === brandName)
+            const count = brandSkus.length
+            const soldQty = (s) => s.sold_quantity || 0
+            const qty = (s) => s.quantity || 0
+            const avg = Math.round(
+              brandSkus.reduce((acc, s) => acc + getSellThrough(soldQty(s), qty(s)), 0) / (count || 1)
+            )
+            const atRisk = brandSkus.filter((s) =>
+              ['Risk', 'Clearance', 'Outlet'].includes(
+                getLifecycleStatus(s.import_date, soldQty(s), qty(s))
+              )
+            ).length
+
+            const thresholdClass = sellThroughThresholdClass(avg)
+            const slug = brandSlug(brandName)
+
+            return (
+              <div
+                key={brandName}
+                className="catalog-card"
+                data-brand={slug}
+              >
+                <div className="catalog-card__header" data-brand={slug}>
+                  <span className="catalog-card__initial" aria-hidden="true">
+                    {String(brandName || '?').charAt(0).toUpperCase()}
+                  </span>
+                </div>
+
+                <div className="catalog-card__body">
+                  <div className="catalog-card__name">{toTitleCase(brandName)}</div>
+                  <div className="catalog-card__meta">
+                    {count} SKUs · Footwear
+                  </div>
+                  {exec ? (
+                    <>
+                      <div className="catalog-card__bar">
+                        <div
+                          className={`catalog-card__bar-fill ${thresholdClass}`}
+                          style={{ width: `${avg}%` }}
+                        />
+                      </div>
+                      <div className="catalog-card__stats">
+                        <div className="catalog-stat-chip">
+                          <span className={`catalog-stat-chip__val ${thresholdClass}`}>{avg}%</span>
+                          <span className="catalog-stat-chip__label">avg sell-through</span>
+                        </div>
+                        <div className="catalog-stat-chip catalog-stat-chip--right">
+                          <span className={`catalog-stat-chip__val${atRisk > 0 ? ' catalog-stat-chip__val--risk' : ' catalog-stat-chip__val--zero'}`}>
+                            {atRisk}
+                          </span>
+                          <span className="catalog-stat-chip__label">at risk</span>
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="catalog-card__stats">
+                      <div className="catalog-stat-chip catalog-stat-chip--right catalog-stat-chip--solo">
+                        <span className={`catalog-stat-chip__val${atRisk > 0 ? ' catalog-stat-chip__val--risk' : ' catalog-stat-chip__val--zero'}`}>
+                          {atRisk}
+                        </span>
+                        <span className="catalog-stat-chip__label">at risk</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      <div className="fade-up delay-3 catalog-size-panel">
+        <div className="catalog-size-panel__title">Size Coverage — Footwear</div>
+        <div className="catalog-size-panel__hint">
           Green = well stocked · Red = low stock · Grey = out of stock
         </div>
 
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(6, 1fr)',
-            gap: '5px',
-            marginTop: '10px',
-          }}
-        >
+        <div className="catalog-size-grid">
           {sizes.map((size) => {
             const remaining = footwearRawSkus
               .filter((s) => s.size == size)
@@ -343,19 +229,11 @@ export function Footwear() {
             return (
               <div
                 key={size}
+                className="catalog-size-cell"
                 style={{
-                  background: 'var(--ro-surface-elevated)',
-                  border: `1px solid ${
-                    remaining <= 3 && !isOut ? 'rgba(255,51,51,0.2)' : 'var(--ro-border)'
-                  }`,
-                  borderRadius: '6px',
-                  padding: '5px 4px',
-                  textAlign: 'center',
-                  fontSize: '11px',
-                  fontWeight: 600,
-                  cursor: 'pointer',
                   color: cellColor,
                   textDecoration: isOut ? 'line-through' : 'none',
+                  borderColor: remaining <= 3 && !isOut ? 'rgba(255,51,51,0.2)' : undefined,
                 }}
               >
                 {size}

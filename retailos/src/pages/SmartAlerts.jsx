@@ -35,8 +35,9 @@ export function SmartAlerts() {
   }, [products])
 
   return (
-    <div className="fade-up delay-1">
+    <div className="fade-up delay-1 smart-alerts-page">
       <div
+        className="page-hero-mobile-hide"
         style={{
           display: 'flex',
           alignItems: 'center',
@@ -59,7 +60,7 @@ export function SmartAlerts() {
         <div style={{ fontSize: 11, color: 'var(--ro-text-muted)' }}>Ranked by urgency · one row per SKU</div>
       </div>
 
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 14 }}>
+      <div className="smart-alerts-filter-row" style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 14 }}>
         {FILTER_KEYS.map((key) => {
           const active = urgencyFilter === key
           const count = countsByUrgency[key] ?? 0
@@ -67,6 +68,7 @@ export function SmartAlerts() {
             <button
               key={key}
               type="button"
+              className="smart-alerts-filter-pill"
               onClick={() => setUrgencyFilter(key)}
               style={{
                 padding: '4px 10px',
@@ -88,6 +90,7 @@ export function SmartAlerts() {
       </div>
 
       <div
+        className="smart-alerts-list-panel"
         style={{
           background: 'var(--ro-surface)',
           border: '1px solid var(--ro-border)',
@@ -99,6 +102,7 @@ export function SmartAlerts() {
         }}
       >
         <div
+          className="smart-alerts-list-title"
           style={{
             fontFamily: DM_SANS,
             fontSize: 14,
@@ -109,7 +113,7 @@ export function SmartAlerts() {
         >
           All alerts
         </div>
-        <div style={{ maxHeight: 'min(70vh, 640px)', overflowY: 'auto', flex: 1, minHeight: 0 }}>
+        <div className="smart-alerts-list-scroll" style={{ maxHeight: 'min(70vh, 640px)', overflowY: 'auto', flex: 1, minHeight: 0 }}>
           <SmartAlertsList urgencyFilter={urgencyFilter} />
         </div>
       </div>

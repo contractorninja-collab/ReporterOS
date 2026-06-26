@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import useStore from '../store/useStore.js'
+import { toTitleCase } from '../utils/textFormat.js'
+import { IconPlus, IconDownload, IconPrint } from '../utils/icons.js'
 
 function formatDate(iso) {
   if (!iso) return '—'
@@ -53,15 +55,15 @@ function printBatch(batch, userName) {
 function renderItemRow(it, idx) {
   if (it.sizeBreakdown && it.sizeBreakdown.length > 0) {
     return (
-      <tr key={idx}>
-        <td style={{ padding: '8px 14px', fontSize: 11, color: 'var(--ro-text-dim)', fontFamily: '"DM Sans"' }}>{it.skuCode}</td>
-        <td style={{ padding: '8px 14px', fontSize: 12, color: 'var(--ro-text)', fontWeight: 600 }}>{it.productName}</td>
-        <td style={{ padding: '8px 14px', fontSize: 12, color: 'var(--ro-text)' }}>{it.totalQty ?? it.quantity}</td>
-        <td style={{ padding: '8px 14px' }}>
-          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+      <tr key={idx} className="ot-batch-table__row">
+        <td className="ot-batch-table__sku">{it.skuCode}</td>
+        <td className="ot-batch-table__product">{toTitleCase(it.productName)}</td>
+        <td className="ot-batch-table__qty">{it.totalQty ?? it.quantity}</td>
+        <td className="ot-batch-table__sizes">
+          <div className="ot-batch-table__size-pills">
             {it.sizeBreakdown.map((b) => (
-              <span key={b.size} style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: 'var(--ro-fill-muted)', color: 'var(--ro-text)', fontFamily: '"DM Sans"', fontWeight: 600 }}>
-                {b.size} <span style={{ color: 'var(--ro-text-dim)' }}>×{b.qty}</span>
+              <span key={b.size} className="ot-batch-table__size-pill">
+                {b.size} <span className="ot-batch-table__size-qty">×{b.qty}</span>
               </span>
             ))}
           </div>
@@ -70,11 +72,11 @@ function renderItemRow(it, idx) {
     )
   }
   return (
-    <tr key={idx}>
-      <td style={{ padding: '8px 14px', fontSize: 11, color: 'var(--ro-text-dim)', fontFamily: '"DM Sans"' }}>{it.skuCode}</td>
-      <td style={{ padding: '8px 14px', fontSize: 12, color: 'var(--ro-text)', fontWeight: 600 }}>{it.productName}</td>
-      <td style={{ padding: '8px 14px', fontSize: 12, color: 'var(--ro-text)' }}>{it.quantity}</td>
-      <td style={{ padding: '8px 14px', fontSize: 11, color: 'var(--ro-text-dim)' }}>{it.sizes || '—'}</td>
+    <tr key={idx} className="ot-batch-table__row">
+      <td className="ot-batch-table__sku">{it.skuCode}</td>
+      <td className="ot-batch-table__product">{toTitleCase(it.productName)}</td>
+      <td className="ot-batch-table__qty">{it.quantity}</td>
+      <td className="ot-batch-table__sizes">{it.sizes || '—'}</td>
     </tr>
   )
 }
@@ -103,125 +105,69 @@ export function OutletTransfers() {
   }
 
   return (
-    <div style={{ maxWidth: 700 }}>
-      <div style={{ marginBottom: 20 }}>
-        <h2 style={{ fontFamily: '"DM Sans"', fontSize: 22, letterSpacing: '2px', color: 'var(--ro-heading)', margin: 0 }}>
-          OUTLET TRANSFERS
-        </h2>
-        <p style={{ fontSize: 12, color: 'var(--ro-text-muted)', margin: '4px 0 0' }}>
-          Batches of products being moved to the outlet. Each day's moves are grouped into one batch.
-        </p>
-      </div>
+    <div className="outlet-transfers-page store-transfers-page">
+      <p className="ot-page-subtitle page-hero-mobile-hide">
+        Batches of products being moved to the outlet. Each day&apos;s moves are grouped into one batch.
+      </p>
 
-      <button
-        type="button"
-        onClick={() => navigate('/new-transfer')}
-        style={{
-          display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 16px',
-          borderRadius: 8, border: 'none', background: '#ff3333', color: '#fff',
-          fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: '"DM Sans"', marginBottom: 16,
-        }}
-      >
-        + New Transfer
+      <button type="button" className="ot-new-transfer-btn" onClick={() => navigate('/new-transfer')}>
+        <IconPlus size={14} strokeWidth={2} className="ot-new-transfer-btn__icon" />
+        New Transfer
       </button>
 
       {transfers.length === 0 && (
-        <div
-          style={{
-            textAlign: 'center',
-            padding: 48,
-            background: 'var(--ro-surface)',
-            border: '1px solid var(--ro-border)',
-            borderRadius: 14,
-            color: 'var(--ro-text-muted)',
-            fontSize: 14,
-          }}
-        >
+        <div className="ot-empty-state">
           No outlet transfers yet. Move products to outlet from the product detail view.
         </div>
       )}
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <div className="ot-batch-list">
         {transfers.map((batch) => {
           const isExpanded = expanded === batch.id
           const isPending = batch.status === 'pending'
           const totalUnits = batch.items.reduce((s, i) => s + (i.totalQty ?? i.quantity ?? 0), 0)
           return (
-            <div
-              key={batch.id}
-              style={{
-                background: 'var(--ro-surface)',
-                border: `1px solid ${isPending ? 'rgba(251,191,36,0.18)' : 'var(--ro-border)'}`,
-                borderRadius: 14,
-                overflow: 'hidden',
-              }}
-            >
+            <div key={batch.id} className="ot-batch-card">
               <div
+                className="ot-batch-card__head"
                 onClick={() => setExpanded(isExpanded ? null : batch.id)}
-                style={{
-                  padding: '16px 18px',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 14,
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault()
+                    setExpanded(isExpanded ? null : batch.id)
+                  }
                 }}
+                role="button"
+                tabIndex={0}
               >
-                <div style={{ fontSize: 22 }} />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ro-text)', marginBottom: 3 }}>
-                    Transfer — {formatDate(batch.createdAt)}
-                  </div>
-                  <div style={{ fontSize: 11, color: 'var(--ro-text-muted)' }}>
+                <div className="ot-batch-card__info">
+                  <div className="ot-batch-card__title">Transfer — {formatDate(batch.createdAt)}</div>
+                  <div className="ot-batch-card__meta">
                     {batch.items.length} products · {totalUnits} units · by {getUserName(batch.createdBy)}
                     {batch.assignedTo && (
                       <span> · assigned to {formatAssigneeList(batch.assignedTo)}</span>
                     )}
                   </div>
-                  {batch.note && (
-                    <div style={{ fontSize: 10, color: 'var(--ro-text-dim)', marginTop: 2, fontStyle: 'italic' }}>{batch.note}</div>
-                  )}
+                  {batch.note && <div className="ot-batch-card__note">{batch.note}</div>}
                 </div>
-                <span
-                  style={{
-                    fontSize: 9,
-                    fontWeight: 700,
-                    textTransform: 'uppercase',
-                    padding: '3px 8px',
-                    borderRadius: 4,
-                    background: isPending ? 'rgba(251,191,36,0.12)' : 'rgba(0,230,118,0.12)',
-                    color: isPending ? '#fbbf24' : '#00e676',
-                  }}
-                >
+                <span className={`ot-status-badge${isPending ? ' ot-status-badge--pending' : ' ot-status-badge--received'}`}>
                   {isPending ? 'Pending' : 'Received'}
                 </span>
-                <span style={{ fontSize: 14, color: 'var(--ro-text-muted)', transform: isExpanded ? 'rotate(180deg)' : '', transition: 'transform 0.2s' }}>
+                <span className={`ot-batch-card__chevron${isExpanded ? ' ot-batch-card__chevron--expanded' : ''}`} aria-hidden="true">
                   ▼
                 </span>
               </div>
 
               {isExpanded && (
-                <div style={{ borderTop: '1px solid var(--ro-border)' }}>
-                  <div style={{ overflowX: 'auto' }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <div className="ot-batch-card__body">
+                  <div className="transfer-batch-table-wrap ot-batch-table-wrap">
+                    <table className="ot-batch-table">
                       <thead>
                         <tr>
-                          {['SKU', 'Product', 'Qty', 'Sizes'].map((h) => (
-                            <th
-                              key={h}
-                              style={{
-                                textAlign: 'left',
-                                padding: '8px 14px',
-                                fontSize: 9,
-                                fontWeight: 700,
-                                color: 'var(--ro-text-muted)',
-                                textTransform: 'uppercase',
-                                letterSpacing: '0.8px',
-                                borderBottom: '1px solid var(--ro-border)',
-                              }}
-                            >
-                              {h}
-                            </th>
-                          ))}
+                          <th>SKU</th>
+                          <th>Product</th>
+                          <th>Qty</th>
+                          <th>Sizes</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -230,62 +176,23 @@ export function OutletTransfers() {
                     </table>
                   </div>
 
-                  <div style={{ display: 'flex', gap: 8, padding: '12px 18px', borderTop: '1px solid var(--ro-border)' }}>
+                  <div className="ot-batch-card__footer">
                     {isPending && (
-                      <button
-                        type="button"
-                        onClick={() => handleReceive(batch.id)}
-                        style={{
-                          padding: '7px 14px',
-                          borderRadius: 8,
-                          fontSize: 11,
-                          fontWeight: 600,
-                          cursor: 'pointer',
-                          border: 'none',
-                          background: '#00e676',
-                          color: '#09090e',
-                          fontFamily: '"DM Sans"',
-                        }}
-                      >
+                      <button type="button" className="ot-mark-received-btn" onClick={() => handleReceive(batch.id)}>
                         Mark Received
                       </button>
                     )}
-                    <button
-                      type="button"
-                      onClick={() => downloadCSV(batch)}
-                      style={{
-                        padding: '7px 14px',
-                        borderRadius: 8,
-                        fontSize: 11,
-                        fontWeight: 600,
-                        cursor: 'pointer',
-                        border: '1px solid var(--ro-border-hover)',
-                        background: 'none',
-                        color: 'var(--ro-text-dim)',
-                        fontFamily: '"DM Sans"',
-                      }}
-                    >
+                    <button type="button" className="ot-export-btn" onClick={() => downloadCSV(batch)}>
+                      <IconDownload size={12} strokeWidth={1.75} className="ot-export-btn__icon" />
                       CSV
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => printBatch(batch, getUserName(batch.createdBy))}
-                      style={{
-                        padding: '7px 14px',
-                        borderRadius: 8,
-                        fontSize: 11,
-                        fontWeight: 600,
-                        cursor: 'pointer',
-                        border: '1px solid var(--ro-border-hover)',
-                        background: 'none',
-                        color: 'var(--ro-text-dim)',
-                        fontFamily: '"DM Sans"',
-                      }}
-                    >
+                    <button type="button" className="ot-export-btn" onClick={() => printBatch(batch, getUserName(batch.createdBy))}>
+                      <IconPrint size={12} strokeWidth={1.75} className="ot-export-btn__icon" />
                       PDF / Print
                     </button>
                     {batch.receivedAt && (
-                      <span style={{ fontSize: 10, color: 'var(--ro-text-muted)', marginLeft: 'auto', alignSelf: 'center' }}>
+                      <span className="ot-batch-card__received">
+                        <span className="ot-batch-card__received-dot" aria-hidden="true">●</span>
                         Received {formatDate(batch.receivedAt)}
                       </span>
                     )}

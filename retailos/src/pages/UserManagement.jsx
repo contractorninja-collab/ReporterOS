@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useMemo, useState, useEffect, useRef } from 'react'
 import useStore from '../store/useStore.js'
-import { IconLock, IconManager, IconExecutive, IconPackage } from '../utils/icons.js'
+import { IconLock, IconManager, IconPackage, IconPlus, IconDelete, IconView } from '../utils/icons.js'
 
 const ROLE_OPTIONS = [
   { value: 'manager', label: 'Shop Manager' },
@@ -8,27 +8,43 @@ const ROLE_OPTIONS = [
   { value: 'outlet', label: 'Outlet' },
 ]
 const SHOP_OPTIONS = ['Ring Mall', 'Village', 'Outlet']
-const ROLE_COLORS = { manager: '#38bdf8', executive: '#c084fc', outlet: '#fbbf24' }
 
-function generateUserCode(existingUsers) {
-  const existing = new Set(existingUsers.map((u) => u.user_code).filter(Boolean))
-  let code
-  do {
-    code = String(Math.floor(10000 + Math.random() * 90000))
-  } while (existing.has(code))
-  return code
+function roleBadgeClass(role) {
+  if (role === 'executive') return 'um-role-badge um-role-badge--executive'
+  if (role === 'manager') return 'um-role-badge um-role-badge--manager'
+  return 'um-role-badge um-role-badge--outlet'
 }
 
-const inputStyle = {
-  background: 'var(--ro-surface-elevated)',
-  border: '1px solid var(--ro-border-hover)',
-  borderRadius: 8,
-  padding: '8px 12px',
-  color: 'var(--ro-text)',
-  fontSize: 13,
-  fontFamily: '"DM Sans"',
-  outline: 'none',
-  width: '100%',
+function avatarClass(role) {
+  if (role === 'executive') return 'um-user-avatar um-user-avatar--executive'
+  if (role === 'manager') return 'um-user-avatar um-user-avatar--manager'
+  return 'um-user-avatar um-user-avatar--outlet'
+}
+
+function nextPreviewUserCode(users) {
+  const max = users.reduce((m, u) => {
+    const n = Number(u.user_code)
+    return Number.isFinite(n) ? Math.max(m, n) : m
+  }, 10000)
+  return String(max + 1)
+}
+
+function PinDisplay({ userId, pin, revealedUserId, onToggleReveal }) {
+  const isRevealed = revealedUserId === userId
+  return (
+    <span className={`um-user-row__pin${isRevealed ? ' um-user-row__pin--revealed' : ''}`}>
+      PIN {isRevealed ? pin : '••••'}
+      <button
+        type="button"
+        className="um-pin-toggle"
+        onClick={() => onToggleReveal(userId)}
+        aria-label={isRevealed ? 'Hide PIN' : 'Show PIN'}
+        title={isRevealed ? 'Hide PIN' : 'Show PIN'}
+      >
+        <IconView size={12} strokeWidth={1.75} />
+      </button>
+    </span>
+  )
 }
 
 export function UserManagement() {
@@ -36,60 +52,69 @@ export function UserManagement() {
   const addUser = useStore((s) => s.addUser)
   const removeUser = useStore((s) => s.removeUser)
   const updateUser = useStore((s) => s.updateUser)
+  const regenerateUserPin = useStore((s) => s.regenerateUserPin)
   const activeUser = useStore((s) => s.activeUser)
 
   const [name, setName] = useState('')
   const [role, setRole] = useState('manager')
   const [shop, setShop] = useState('Ring Mall')
-  const [pin, setPin] = useState('')
-  const [userCode, setUserCode] = useState(() => generateUserCode(users))
-  const [confirmDelete, setConfirmDelete] = useState(null)
+  const [deleteConfirmUser, setDeleteConfirmUser] = useState(null)
+  const [revealedPinUserId, setRevealedPinUserId] = useState(null)
+  const pinRevealTimerRef = useRef(null)
   const [editingId, setEditingId] = useState(null)
   const [editName, setEditName] = useState('')
   const [editRole, setEditRole] = useState('manager')
   const [editShop, setEditShop] = useState('Ring Mall')
-  const [editPin, setEditPin] = useState('')
-  const [editUserCode, setEditUserCode] = useState('')
 
   const isExec = activeUser?.role === 'executive'
-
-  const pinValid = (p) => /^\d{4}$/.test(p)
+  const previewUserCode = useMemo(() => nextPreviewUserCode(users), [users])
 
   const handleAdd = () => {
     const trimmed = name.trim()
-    if (!trimmed || !pinValid(pin)) return
-    addUser({ name: trimmed, role, shop: role === 'executive' ? null : shop, pin, user_code: userCode })
+    if (!trimmed) return
+    addUser({ name: trimmed, role, shop: role === 'executive' ? null : shop })
     setName('')
-    setPin('')
-    setUserCode(generateUserCode([...users, { user_code: userCode }]))
   }
 
   const handleRemove = (userId) => {
     removeUser(userId)
-    setConfirmDelete(null)
+    setDeleteConfirmUser(null)
+    if (revealedPinUserId === userId) {
+      setRevealedPinUserId(null)
+    }
   }
+
+  const togglePinReveal = (userId) => {
+    if (revealedPinUserId === userId) {
+      setRevealedPinUserId(null)
+      if (pinRevealTimerRef.current) clearTimeout(pinRevealTimerRef.current)
+      return
+    }
+    setRevealedPinUserId(userId)
+    if (pinRevealTimerRef.current) clearTimeout(pinRevealTimerRef.current)
+    pinRevealTimerRef.current = setTimeout(() => setRevealedPinUserId(null), 5000)
+  }
+
+  useEffect(() => () => {
+    if (pinRevealTimerRef.current) clearTimeout(pinRevealTimerRef.current)
+  }, [])
 
   const startEdit = (u) => {
     setEditingId(u.id)
     setEditName(u.name)
     setEditRole(u.role)
     setEditShop(u.shop || 'Ring Mall')
-    setEditPin('')
-    setEditUserCode(u.user_code || '')
-    setConfirmDelete(null)
+    setDeleteConfirmUser(null)
   }
 
   const saveEdit = () => {
     const trimmed = editName.trim()
     if (!trimmed || !editingId) return
-    if (editPin.length > 0 && !pinValid(editPin)) return
     const payload = {
       name: trimmed,
       role: editRole,
       shop: editRole === 'executive' ? null : editShop,
-      user_code: editUserCode,
     }
-    if (pinValid(editPin)) payload.pin = editPin
     updateUser(editingId, payload)
     setEditingId(null)
   }
@@ -111,401 +136,254 @@ export function UserManagement() {
   }
 
   return (
-    <div style={{ maxWidth: 640 }}>
-      <div style={{ marginBottom: 24 }}>
-        <h2 style={{ fontFamily: '"DM Sans"', fontSize: 22, letterSpacing: '2px', color: 'var(--ro-heading)', margin: 0 }}>
-          USER MANAGEMENT
-        </h2>
-        <p style={{ fontSize: 12, color: 'var(--ro-text-muted)', margin: '4px 0 0' }}>
-          Add, edit, or remove system users.
-        </p>
-      </div>
+    <div className="user-management-page">
+      <p className="um-page-subtitle page-hero-mobile-hide">
+        Add, edit, or remove system users.
+      </p>
 
-      <div
-        style={{
-          background: 'var(--ro-surface)',
-          border: '1px solid var(--ro-border)',
-          borderRadius: 14,
-          padding: 20,
-          marginBottom: 20,
-        }}
-      >
-        <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--ro-text-dim)', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: 12 }}>
-          Add New User
-        </div>
-        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
-          <div style={{ flex: '1 1 160px' }}>
-            <label style={{ fontSize: 10, color: 'var(--ro-text-muted)', display: 'block', marginBottom: 4 }}>Name</label>
+      <div className="um-add-panel">
+        <div className="um-add-panel__title">Add new user</div>
+        <div className="user-form-grid um-form-grid">
+          <div className="um-field">
+            <label className="um-label">Name</label>
             <input
               type="text"
+              className="um-input"
               value={name}
               onChange={(e) => setName(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
               placeholder="Full name"
-              style={inputStyle}
             />
           </div>
-          <div style={{ flex: '0 0 140px' }}>
-            <label style={{ fontSize: 10, color: 'var(--ro-text-muted)', display: 'block', marginBottom: 4 }}>Role</label>
-            <select value={role} onChange={(e) => setRole(e.target.value)} style={inputStyle}>
+          <div className="um-field um-field--role">
+            <label className="um-label">Role</label>
+            <select className="um-select" value={role} onChange={(e) => setRole(e.target.value)}>
               {ROLE_OPTIONS.map((r) => (
                 <option key={r.value} value={r.value}>{r.label}</option>
               ))}
             </select>
           </div>
           {role !== 'executive' && (
-            <div style={{ flex: '0 0 120px' }}>
-              <label style={{ fontSize: 10, color: 'var(--ro-text-muted)', display: 'block', marginBottom: 4 }}>Shop</label>
-              <select value={shop} onChange={(e) => setShop(e.target.value)} style={inputStyle}>
+            <div className="um-field um-field--shop">
+              <label className="um-label">Shop</label>
+              <select className="um-select" value={shop} onChange={(e) => setShop(e.target.value)}>
                 {SHOP_OPTIONS.map((s) => (
                   <option key={s} value={s}>{s}</option>
                 ))}
               </select>
             </div>
           )}
-          <div style={{ flex: '0 0 90px' }}>
-            <label style={{ fontSize: 10, color: 'var(--ro-text-muted)', display: 'block', marginBottom: 4 }}>PIN</label>
-            <input
-              type="password"
-              inputMode="numeric"
-              maxLength={4}
-              value={pin}
-              onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
-              placeholder="4 digits"
-              style={inputStyle}
-            />
+          <div className="um-field um-field--code">
+            <label className="um-label">Next Login Code</label>
+            <div className="um-code-preview">{previewUserCode}</div>
           </div>
-          <div style={{ flex: '0 0 130px' }}>
-            <label style={{ fontSize: 10, color: 'var(--ro-text-muted)', display: 'block', marginBottom: 4 }}>Login Code</label>
-            <div style={{ display: 'flex', gap: 4 }}>
-              <input
-                type="text"
-                value={userCode}
-                readOnly
-                style={{ ...inputStyle, fontFamily: '"DM Sans"', letterSpacing: '2px', fontWeight: 700, color: '#38bdf8', flex: 1 }}
-              />
-              <button
-                type="button"
-                onClick={() => setUserCode(generateUserCode(users))}
-                title="Generate new code"
-                style={{
-                  padding: '0 8px',
-                  borderRadius: 8,
-                  border: '1px solid var(--ro-border-hover)',
-                  background: 'none',
-                  color: 'var(--ro-text-dim)',
-                  cursor: 'pointer',
-                  fontSize: 14,
-                  flexShrink: 0,
-                }}
-              >
-                ↻
-              </button>
-            </div>
+          <div className="um-pin-helper">
+            PIN is generated automatically and appears in the user list after creation.
           </div>
           <button
             type="button"
+            className={`um-add-btn${name.trim() ? ' um-add-btn--active' : ''}`}
             onClick={handleAdd}
-            disabled={!name.trim() || !pinValid(pin)}
-            style={{
-              padding: '9px 18px',
-              borderRadius: 8,
-              fontSize: 12,
-              fontWeight: 700,
-              cursor: name.trim() && pinValid(pin) ? 'pointer' : 'not-allowed',
-              border: 'none',
-              background: name.trim() && pinValid(pin) ? '#ff3333' : '#222',
-              color: name.trim() && pinValid(pin) ? '#fff' : '#555',
-              fontFamily: '"DM Sans"',
-              whiteSpace: 'nowrap',
-            }}
+            disabled={!name.trim()}
           >
-            + Add User
+            <IconPlus size={14} strokeWidth={2} className="um-add-btn__icon" />
+            Add User
           </button>
         </div>
       </div>
 
-      <div
-        style={{
-          background: 'var(--ro-surface)',
-          border: '1px solid var(--ro-border)',
-          borderRadius: 14,
-          overflow: 'hidden',
-        }}
-      >
-        <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--ro-border)' }}>
-          <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--ro-text-dim)', textTransform: 'uppercase', letterSpacing: '1px' }}>
-            Registered Users ({users.length})
-          </span>
-        </div>
+      <div className="um-users-section">
+        <div className="um-users-section__title">Registered users ({users.length})</div>
+        <div className="um-user-list">
         {users.map((u) => {
-          const accent = ROLE_COLORS[u.role] || '#64748b'
           const isSelf = activeUser?.id === u.id
           const isEditing = editingId === u.id
 
           if (isEditing) {
             return (
-              <div
-                key={u.id}
-                style={{
-                  padding: '14px 20px',
-                  borderBottom: '1px solid var(--ro-border)',
-                  background: 'var(--ro-table-row-hover)',
-                }}
-              >
-                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 10 }}>
-                  <div style={{ flex: '1 1 160px' }}>
-                    <label style={{ fontSize: 10, color: 'var(--ro-text-muted)', display: 'block', marginBottom: 4 }}>Name</label>
-                    <input
-                      type="text"
-                      value={editName}
-                      onChange={(e) => setEditName(e.target.value)}
-                      onKeyDown={(e) => e.key === 'Enter' && saveEdit()}
-                      style={inputStyle}
-                      autoFocus
-                    />
-                  </div>
-                  <div style={{ flex: '0 0 140px' }}>
-                    <label style={{ fontSize: 10, color: 'var(--ro-text-muted)', display: 'block', marginBottom: 4 }}>Role</label>
-                    <select value={editRole} onChange={(e) => setEditRole(e.target.value)} style={inputStyle}>
-                      {ROLE_OPTIONS.map((r) => (
-                        <option key={r.value} value={r.value}>{r.label}</option>
-                      ))}
-                    </select>
-                  </div>
-                  {editRole !== 'executive' && (
-                    <div style={{ flex: '0 0 120px' }}>
-                      <label style={{ fontSize: 10, color: 'var(--ro-text-muted)', display: 'block', marginBottom: 4 }}>Shop</label>
-                      <select value={editShop} onChange={(e) => setEditShop(e.target.value)} style={inputStyle}>
-                        {SHOP_OPTIONS.map((s) => (
-                          <option key={s} value={s}>{s}</option>
+              <div key={u.id} className="um-user-row um-user-row--editing">
+                <div className="um-edit-form">
+                  <div className="user-form-grid um-form-grid um-form-grid--inline">
+                    <div className="um-field">
+                      <label className="um-label">Name</label>
+                      <input
+                        type="text"
+                        className="um-input"
+                        value={editName}
+                        onChange={(e) => setEditName(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && saveEdit()}
+                        autoFocus
+                      />
+                    </div>
+                    <div className="um-field um-field--role">
+                      <label className="um-label">Role</label>
+                      <select className="um-select" value={editRole} onChange={(e) => setEditRole(e.target.value)}>
+                        {ROLE_OPTIONS.map((r) => (
+                          <option key={r.value} value={r.value}>{r.label}</option>
                         ))}
                       </select>
                     </div>
-                  )}
-                  <div style={{ flex: '0 0 120px' }}>
-                    <label style={{ fontSize: 10, color: 'var(--ro-text-muted)', display: 'block', marginBottom: 4 }}>New PIN</label>
-                    <input
-                      type="password"
-                      inputMode="numeric"
-                      maxLength={4}
-                      value={editPin}
-                      onChange={(e) => setEditPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
-                      placeholder="Leave blank to keep"
-                      style={inputStyle}
-                    />
-                  </div>
-                  <div style={{ flex: '0 0 130px' }}>
-                    <label style={{ fontSize: 10, color: 'var(--ro-text-muted)', display: 'block', marginBottom: 4 }}>Login Code</label>
-                    <div style={{ display: 'flex', gap: 4 }}>
-                      <input
-                        type="text"
-                        value={editUserCode}
-                        readOnly
-                        style={{ ...inputStyle, fontFamily: '"DM Sans"', letterSpacing: '2px', fontWeight: 700, color: '#38bdf8', flex: 1 }}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setEditUserCode(generateUserCode(users))}
-                        title="Generate new code"
-                        style={{
-                          padding: '0 8px',
-                          borderRadius: 8,
-                          border: '1px solid var(--ro-border-hover)',
-                          background: 'none',
-                          color: 'var(--ro-text-dim)',
-                          cursor: 'pointer',
-                          fontSize: 14,
-                          flexShrink: 0,
-                        }}
-                      >
-                        ↻
-                      </button>
+                    {editRole !== 'executive' && (
+                      <div className="um-field um-field--shop">
+                        <label className="um-label">Shop</label>
+                        <select className="um-select" value={editShop} onChange={(e) => setEditShop(e.target.value)}>
+                          {SHOP_OPTIONS.map((s) => (
+                            <option key={s} value={s}>{s}</option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+                    <div className="um-field um-field--code">
+                      <label className="um-label">Login Code</label>
+                      <div className="um-code-preview um-code-preview--readonly">{u.user_code || '—'}</div>
+                    </div>
+                    <div className="um-field um-field--pin">
+                      <label className="um-label">PIN</label>
+                      {u.pin_plain ? (
+                        <PinDisplay
+                          userId={u.id}
+                          pin={u.pin_plain}
+                          revealedUserId={revealedPinUserId}
+                          onToggleReveal={togglePinReveal}
+                        />
+                      ) : (
+                        <div className="um-code-preview um-code-preview--readonly">—</div>
+                      )}
                     </div>
                   </div>
-                </div>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <button
-                    type="button"
-                    onClick={saveEdit}
-                    disabled={!editName.trim() || (editPin.length > 0 && !pinValid(editPin))}
-                    style={{
-                      fontSize: 11,
-                      padding: '6px 14px',
-                      borderRadius: 6,
-                      border: 'none',
-                      background: '#00e676',
-                      color: '#09090e',
-                      cursor: 'pointer',
-                      fontFamily: '"DM Sans"',
-                      fontWeight: 700,
-                    }}
-                  >
-                    Save
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setEditingId(null)}
-                    style={{
-                      fontSize: 11,
-                      padding: '6px 14px',
-                      borderRadius: 6,
-                      border: '1px solid var(--ro-border-hover)',
-                      background: 'none',
-                      color: 'var(--ro-text-dim)',
-                      cursor: 'pointer',
-                      fontFamily: '"DM Sans"',
-                    }}
-                  >
-                    Cancel
-                  </button>
+                  <div className="um-user-actions user-action-row">
+                    <button
+                      type="button"
+                      className={`um-btn um-btn--save${editName.trim() ? ' um-btn--save-active' : ''}`}
+                      onClick={saveEdit}
+                      disabled={!editName.trim()}
+                    >
+                      Save
+                    </button>
+                    <button
+                      type="button"
+                      className="um-btn um-btn--new-pin"
+                      onClick={() => regenerateUserPin(u.id)}
+                    >
+                      Generate New PIN
+                    </button>
+                    <button
+                      type="button"
+                      className="um-btn um-btn--edit"
+                      onClick={() => setEditingId(null)}
+                    >
+                      Cancel
+                    </button>
+                  </div>
                 </div>
               </div>
             )
           }
 
           return (
-            <div
-              key={u.id}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 12,
-                padding: '12px 20px',
-                borderBottom: '1px solid var(--ro-border)',
-              }}
-            >
-              <div
-                style={{
-                  width: 32,
-                  height: 32,
-                  borderRadius: 8,
-                  background: accent + '1a',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontSize: 14,
-                  flexShrink: 0,
-                }}
-              >
-                {u.role === 'manager' ? (
-                  <IconManager size={14} strokeWidth={1.5} />
-                ) : u.role === 'executive' ? (
-                  <IconExecutive size={14} strokeWidth={1.5} />
-                ) : (
+            <div key={u.id} className="um-user-row user-list-row">
+              <div className={avatarClass(u.role)}>
+                {u.role === 'outlet' ? (
                   <IconPackage size={14} strokeWidth={1.5} />
+                ) : (
+                  <IconManager size={14} strokeWidth={1.5} />
                 )}
               </div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ro-text)' }}>
-                  {u.name}
-                  {isSelf && (
-                    <span style={{ fontSize: 9, color: '#00e676', marginLeft: 6 }}>YOU</span>
-                  )}
+              <div className="um-user-row__info">
+                <div className="um-user-row__name-line">
+                  <span className="um-user-row__name">{u.name}</span>
+                  {isSelf && <span className="um-you-badge">YOU</span>}
                 </div>
-                <div style={{ display: 'flex', gap: 6, marginTop: 3, alignItems: 'center' }}>
-                  <span
-                    style={{
-                      fontSize: 9,
-                      fontWeight: 700,
-                      textTransform: 'uppercase',
-                      padding: '1px 6px',
-                      borderRadius: 4,
-                      background: accent + '1a',
-                      color: accent,
-                    }}
-                  >
+                <div className="um-user-row__meta">
+                  <span className={roleBadgeClass(u.role)}>
                     {ROLE_OPTIONS.find((r) => r.value === u.role)?.label || u.role}
                   </span>
-                  {u.shop && <span style={{ fontSize: 10, color: 'var(--ro-text-muted)' }}>{u.shop}</span>}
+                  {u.shop && <span className="um-user-row__shop">{u.shop}</span>}
                   {u.user_code && (
-                    <span style={{ fontSize: 10, fontWeight: 700, color: '#38bdf8', letterSpacing: '1px', fontFamily: '"DM Sans"' }}>
-                      #{u.user_code}
-                    </span>
+                    <span className="um-user-row__id">ID #{u.user_code}</span>
+                  )}
+                  {u.pin_plain && (
+                    <PinDisplay
+                      userId={u.id}
+                      pin={u.pin_plain}
+                      revealedUserId={revealedPinUserId}
+                      onToggleReveal={togglePinReveal}
+                    />
                   )}
                 </div>
               </div>
-              <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+              <div className="um-user-actions user-action-row">
                 <button
                   type="button"
+                  className="um-btn um-btn--new-pin"
+                  onClick={() => regenerateUserPin(u.id)}
+                >
+                  New PIN
+                </button>
+                <button
+                  type="button"
+                  className="um-btn um-btn--edit"
                   onClick={() => startEdit(u)}
-                  style={{
-                    fontSize: 11,
-                    padding: '4px 10px',
-                    borderRadius: 6,
-                    border: '1px solid var(--ro-border)',
-                    background: 'none',
-                    color: 'var(--ro-text-dim)',
-                    cursor: 'pointer',
-                    fontFamily: '"DM Sans"',
-                  }}
                 >
                   Edit
                 </button>
-                {confirmDelete === u.id ? (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => handleRemove(u.id)}
-                      style={{
-                        fontSize: 11,
-                        padding: '4px 10px',
-                        borderRadius: 6,
-                        border: 'none',
-                        background: '#ff3333',
-                        color: '#fff',
-                        cursor: 'pointer',
-                        fontFamily: '"DM Sans"',
-                        fontWeight: 600,
-                      }}
-                    >
-                      Confirm
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setConfirmDelete(null)}
-                      style={{
-                        fontSize: 11,
-                        padding: '4px 10px',
-                        borderRadius: 6,
-                        border: '1px solid var(--ro-border-hover)',
-                        background: 'none',
-                        color: 'var(--ro-text-dim)',
-                        cursor: 'pointer',
-                        fontFamily: '"DM Sans"',
-                      }}
-                    >
-                      Cancel
-                    </button>
-                  </>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => setConfirmDelete(u.id)}
-                    style={{
-                      fontSize: 11,
-                      padding: '4px 10px',
-                      borderRadius: 6,
-                      border: '1px solid var(--ro-border)',
-                      background: 'none',
-                      color: 'var(--ro-text-muted)',
-                      cursor: 'pointer',
-                      fontFamily: '"DM Sans"',
-                    }}
-                  >
-                    Remove
-                  </button>
-                )}
+                <button
+                  type="button"
+                  className="um-btn um-btn--remove"
+                  onClick={() => setDeleteConfirmUser(u)}
+                  aria-label={`Remove ${u.name}`}
+                  title={`Remove ${u.name}`}
+                >
+                  <IconDelete size={14} strokeWidth={1.75} />
+                </button>
               </div>
             </div>
           )
         })}
         {users.length === 0 && (
-          <div style={{ padding: 32, textAlign: 'center', color: 'var(--ro-text-muted)', fontSize: 13 }}>
-            No users yet. Add one above.
-          </div>
+          <div className="um-empty">No users yet. Add one above.</div>
         )}
+        </div>
       </div>
+
+      {deleteConfirmUser && (
+        <div
+          className="um-delete-modal-backdrop"
+          role="presentation"
+          onClick={() => setDeleteConfirmUser(null)}
+        >
+          <div
+            className="um-delete-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="um-delete-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="um-delete-modal__title" id="um-delete-title">
+              Remove {deleteConfirmUser.name}?
+            </div>
+            <p className="um-delete-modal__body">
+              They will lose access immediately. This cannot be undone.
+            </p>
+            <div className="um-delete-modal__actions">
+              <button
+                type="button"
+                className="um-delete-modal__btn um-delete-modal__btn--ghost"
+                onClick={() => setDeleteConfirmUser(null)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="um-delete-modal__btn um-delete-modal__btn--danger"
+                onClick={() => handleRemove(deleteConfirmUser.id)}
+              >
+                Remove user
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

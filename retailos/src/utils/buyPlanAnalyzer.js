@@ -1,12 +1,6 @@
 import { aggregateSkus } from './aggregateSkus'
 import { getDaysInStore, getSellThrough } from './lifecycle'
-
-function normalizeGender(g) {
-  const x = (g || '').toUpperCase().trim().slice(0, 1)
-  if (x === 'F') return 'Women'
-  if (x === 'K') return 'Kids'
-  return 'Men'
-}
+import { genderBucketKey } from './gender.js'
 
 function inferNextSeason(code) {
   const m = (code || '').match(/^(SS|FW)(\d{2})$/i)
@@ -32,7 +26,7 @@ export function analyzeSeason(allSkus, seasonCode) {
   const totalStocked = products.reduce((s, p) => s + p.quantity, 0)
   const totalSold = products.reduce((s, p) => s + p.sold_quantity, 0)
   const overallST = getSellThrough(totalSold, totalStocked)
-  const totalRevenue = products.reduce((s, p) => s + p.sold_quantity * (p.price_sold || 0), 0)
+  const totalRevenue = products.reduce((s, p) => s + (p.netRevenue ?? 0), 0)
 
   const overall = {
     totalStocked,
@@ -75,7 +69,7 @@ function buildCategoryRecs(products, overallST, totalRevenue) {
     const e = catMap[cat]
     e.stocked += p.quantity
     e.sold += p.sold_quantity
-    e.revenue += p.sold_quantity * (p.price_sold || 0)
+    e.revenue += p.netRevenue ?? 0
   }
 
   const sorted = [...Object.entries(catMap)]
@@ -106,13 +100,13 @@ function buildCategoryRecs(products, overallST, totalRevenue) {
 
 function assignABCTiers(products, catMap) {
   const sorted = [...products].sort(
-    (a, b) => b.sold_quantity * (b.price_sold || 0) - a.sold_quantity * (a.price_sold || 0),
+    (a, b) => (b.netRevenue ?? 0) - (a.netRevenue ?? 0),
   )
-  const totalRev = sorted.reduce((s, p) => s + p.sold_quantity * (p.price_sold || 0), 0)
+  const totalRev = sorted.reduce((s, p) => s + (p.netRevenue ?? 0), 0)
   if (totalRev === 0) return
   let cum = 0
   for (const p of sorted) {
-    cum += p.sold_quantity * (p.price_sold || 0)
+    cum += p.netRevenue ?? 0
     const cumPct = (cum / totalRev) * 100
     const tier = cumPct <= 80 ? 'a' : cumPct <= 95 ? 'b' : 'c'
     const cat = (p.category || 'Other').trim()
@@ -124,7 +118,7 @@ function buildGenderMix(products) {
   const cats = {}
   for (const p of products) {
     const cat = (p.category || 'Other').trim()
-    const g = normalizeGender(p.gender)
+    const g = genderBucketKey(p.gender)
     if (!cats[cat]) cats[cat] = {}
     if (!cats[cat][g]) cats[cat][g] = { stocked: 0, sold: 0 }
     cats[cat][g].stocked += p.quantity
@@ -196,7 +190,7 @@ function buildTopPerformers(products) {
         sku: p.sku,
         name: p.product_name,
         category: (p.category || 'Other').trim(),
-        gender: normalizeGender(p.gender),
+        gender: genderBucketKey(p.gender),
         sellThrough: Math.round(getSellThrough(p.sold_quantity, p.quantity)),
         velocity: +(p.sold_quantity / days).toFixed(2),
       }
@@ -212,7 +206,7 @@ function buildBottomPerformers(products) {
       sku: p.sku,
       name: p.product_name,
       category: (p.category || 'Other').trim(),
-      gender: normalizeGender(p.gender),
+      gender: genderBucketKey(p.gender),
       sellThrough: Math.round(getSellThrough(p.sold_quantity, p.quantity)),
       daysInStore: getDaysInStore(p.import_date),
     }))
@@ -228,7 +222,7 @@ function buildBrandScorecard(products, totalRevenue) {
     const e = brandMap[b]
     e.stocked += p.quantity
     e.sold += p.sold_quantity
-    e.revenue += p.sold_quantity * (p.price_sold || 0)
+    e.revenue += p.netRevenue ?? 0
     e.count++
   }
 

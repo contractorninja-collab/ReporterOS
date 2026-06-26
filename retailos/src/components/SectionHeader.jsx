@@ -1,37 +1,8 @@
-function SectionHeader({ title, dotColor, children }) {
+function SectionHeader({ title, children }) {
   return (
-    <div
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        marginBottom: '14px',
-      }}
-    >
-      <div
-        style={{
-          fontFamily: '"DM Sans"',
-          fontSize: '16px',
-          letterSpacing: '2px',
-          color: 'var(--ro-heading)',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '8px',
-        }}
-      >
-        <div
-          style={{
-            width: '6px',
-            height: '6px',
-            borderRadius: '50%',
-            background: dotColor || '#ff3333',
-            animation: 'blink 2s infinite',
-            flexShrink: 0,
-          }}
-        />
-        {title}
-      </div>
-      {children && <div>{children}</div>}
+    <div className="section-header">
+      <div className="section-header__title">{title}</div>
+      {children ? <div className="section-header__actions">{children}</div> : null}
     </div>
   )
 }

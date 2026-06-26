@@ -2,7 +2,9 @@ import { useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import useStore from '../store/useStore.js'
 import { aggregateSkus } from '../utils/aggregateSkus.js'
-import { IconSearch, IconClose } from '../utils/icons.js'
+import { normalizeGenderCodeForFilter } from '../utils/gender.js'
+import { toTitleCase } from '../utils/textFormat.js'
+import { IconSearch, IconClose, IconWarning, IconCart } from '../utils/icons.js'
 
 const DM = '"DM Sans", sans-serif'
 const SHOPS = ['Ring Mall', 'Village']
@@ -20,29 +22,21 @@ const S = {
   orange: '#fbbf24',
 }
 
-const pillBase = {
-  padding: '5px 14px',
-  borderRadius: 20,
-  fontSize: 11,
-  fontWeight: 600,
-  cursor: 'pointer',
-  fontFamily: DM,
-  transition: 'all 0.14s',
-  border: '1px solid',
-}
-
-function Pill({ label, active, color, onClick }) {
+function FilterChip({ label, active, onClick }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      style={{
-        ...pillBase,
-        background: active ? `${color}18` : 'transparent',
-        color: active ? color : S.muted,
-        borderColor: active ? `${color}33` : S.border,
-      }}
+      className={`tb-chip${active ? ' tb-chip--active' : ''}`}
     >
+      {label}
+    </button>
+  )
+}
+
+function TypeToggle({ label, active, onClick }) {
+  return (
+    <button type="button" onClick={onClick} className={`tb-type-toggle__btn${active ? ' tb-type-toggle__btn--active' : ''}`}>
       {label}
     </button>
   )
@@ -160,11 +154,9 @@ export function TransferBuilder() {
       )
     }
     if (genderFilter !== 'All') {
-      const code = genderFilter === 'Men' ? 'M' : genderFilter === 'Women' ? 'F' : 'K'
-      list = list.filter((p) => {
-        const g = (p.gender || '').toUpperCase().trim().slice(0, 1)
-        return g === code
-      })
+      const code =
+        genderFilter === 'Men' ? 'M' : genderFilter === 'Women' ? 'F' : genderFilter === 'Unisex' ? 'U' : 'K'
+      list = list.filter((p) => normalizeGenderCodeForFilter(p.gender) === code)
     }
     if (categoryFilter !== 'All') {
       list = list.filter((p) => (p.category || '').toLowerCase() === categoryFilter.toLowerCase())
@@ -217,6 +209,8 @@ export function TransferBuilder() {
       .filter(([, qty]) => qty > 0)
       .map(([size, qty]) => ({ size, qty }))
     if (breakdown.length === 0) return
+    const remaining = product.quantity - product.sold_quantity
+    if (isStagingOverAllocated(product.sku, remaining)) return
 
     setCart((prev) => ({
       ...prev,
@@ -280,50 +274,54 @@ export function TransferBuilder() {
     return Object.values(picks).reduce((s, v) => s + v, 0)
   }
 
-  return (
-    <div style={{ maxWidth: 1100 }}>
-      <div style={{ marginBottom: 20 }}>
-        <h2 style={{ fontFamily: DM, fontSize: 22, letterSpacing: '2px', color: 'var(--ro-heading)', margin: 0 }}>
-          NEW TRANSFER
-        </h2>
-        <p style={{ fontSize: 12, color: S.muted, margin: '4px 0 0' }}>
-          Select products, pick quantities per size, and assign the transfer.
-        </p>
-      </div>
+  function getSizeStock(skuCode, size) {
+    const row = (rawSkusByProduct[skuCode] || []).find((r) => String(r.size ?? '') === String(size ?? ''))
+    if (!row) return 0
+    return Math.max(0, row.quantity - row.sold_quantity)
+  }
 
-      {/* ── Config bar ─────────────────────────────────────────────────── */}
-      <div
-        className="transfer-config"
-        style={{
-          display: 'flex',
-          flexWrap: 'wrap',
-          gap: 12,
-          padding: '16px 18px',
-          background: S.surface,
-          border: `1px solid ${S.border}`,
-          borderRadius: 14,
-          marginBottom: 18,
-          alignItems: 'flex-end',
-        }}
-      >
-        <div>
-          <label style={{ display: 'block', fontSize: 9, fontWeight: 700, color: S.muted, textTransform: 'uppercase', letterSpacing: '1px', marginBottom: 5 }}>
-            Type
-          </label>
-          <div style={{ display: 'flex', gap: 6 }}>
-            <Pill
+  function isSizeChipInsufficient(skuCode, size) {
+    const stock = getSizeStock(skuCode, size)
+    const staged = (staging[skuCode] || {})[size] || 0
+    return stock <= 0 || staged > stock
+  }
+
+  function isStockRowWarning(remaining, skuCode) {
+    if (remaining <= 3) return true
+    const selected = stagingTotal(skuCode)
+    if (selected > 0 && remaining <= selected) return true
+    const picks = staging[skuCode] || {}
+    return Object.entries(picks).some(([size, qty]) => qty > 0 && qty > getSizeStock(skuCode, size))
+  }
+
+  function isStagingOverAllocated(skuCode, remaining) {
+    const selected = stagingTotal(skuCode)
+    if (selected > remaining) return true
+    const picks = staging[skuCode] || {}
+    return Object.entries(picks).some(([size, qty]) => qty > getSizeStock(skuCode, size))
+  }
+
+  return (
+    <div className="transfer-builder-page">
+      <p className="tb-page-subtitle page-hero-mobile-hide">
+        Select products, pick quantities per size, and assign the transfer.
+      </p>
+
+      <div className="transfer-config tb-form-panel">
+        <div className="tb-form-field-group tb-form-field-group--type">
+          <label className="tb-form-label">Type</label>
+          <div className="tb-type-toggle">
+            <TypeToggle
               label="Store to Store"
               active={transferType === 'store'}
-              color={S.blue}
               onClick={() => {
                 setTransferType('store')
                 setAssignedTo('')
               }}
             />
-            <Pill
+            <TypeToggle
               label="To Outlet"
               active={transferType === 'outlet'}
-              color={S.orange}
               onClick={() => {
                 setTransferType('outlet')
                 setAssignedTo('')
@@ -333,85 +331,65 @@ export function TransferBuilder() {
         </div>
 
         {transferType === 'store' && (
-          <>
-            <div>
-              <label style={{ display: 'block', fontSize: 9, fontWeight: 700, color: S.muted, textTransform: 'uppercase', letterSpacing: '1px', marginBottom: 5 }}>
-                From
-              </label>
-              <select
-                value={fromShop}
-                onChange={(e) => {
-                  const newFrom = e.target.value
-                  setFromShop(newFrom)
-                  const newTo = SHOPS.find((s) => s !== newFrom) || SHOPS[0]
-                  setToShop(newTo)
-                  setAssignedTo('')
-                }}
-                style={{
-                  background: S.surface2, border: `1px solid ${S.border}`, borderRadius: 8,
-                  padding: '6px 10px', color: S.text, fontSize: 12, fontFamily: DM, outline: 'none',
-                }}
-              >
-                {SHOPS.map((s) => <option key={s} value={s}>{s}</option>)}
-              </select>
+          <div className="tb-form-field-group tb-form-field-group--route">
+            <div className="tb-form-route">
+              <div className="tb-form-route__field">
+                <label className="tb-form-label">From</label>
+                <select
+                  className="tb-form-select"
+                  value={fromShop}
+                  onChange={(e) => {
+                    const newFrom = e.target.value
+                    setFromShop(newFrom)
+                    const newTo = SHOPS.find((s) => s !== newFrom) || SHOPS[0]
+                    setToShop(newTo)
+                    setAssignedTo('')
+                  }}
+                >
+                  {SHOPS.map((s) => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
+              <span className="tb-form-arrow" aria-hidden="true">→</span>
+              <div className="tb-form-route__field">
+                <label className="tb-form-label">To</label>
+                <select
+                  className="tb-form-select"
+                  value={toShop}
+                  onChange={(e) => {
+                    setToShop(e.target.value)
+                    setAssignedTo('')
+                  }}
+                >
+                  {SHOPS.filter((s) => s !== fromShop).map((s) => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
             </div>
-            <div style={{ fontSize: 16, color: S.muted, alignSelf: 'center', paddingBottom: 2 }}>→</div>
-            <div>
-              <label style={{ display: 'block', fontSize: 9, fontWeight: 700, color: S.muted, textTransform: 'uppercase', letterSpacing: '1px', marginBottom: 5 }}>
-                To
-              </label>
-              <select
-                value={toShop}
-                onChange={(e) => {
-                  setToShop(e.target.value)
-                  setAssignedTo('')
-                }}
-                style={{
-                  background: S.surface2, border: `1px solid ${S.border}`, borderRadius: 8,
-                  padding: '6px 10px', color: S.text, fontSize: 12, fontFamily: DM, outline: 'none',
-                }}
-              >
-                {SHOPS.filter((s) => s !== fromShop).map((s) => <option key={s} value={s}>{s}</option>)}
-              </select>
-            </div>
-          </>
+          </div>
         )}
 
-        <div>
-          <label style={{ display: 'block', fontSize: 9, fontWeight: 700, color: S.muted, textTransform: 'uppercase', letterSpacing: '1px', marginBottom: 5 }}>
+        <div className="tb-form-field-group tb-form-field-group--assign">
+          <label className="tb-form-label">
             {transferType === 'outlet' ? 'Assign to (Ring Mall & Village managers)' : 'Assign to'}
           </label>
           {transferType === 'outlet' ? (
             <>
-              <div
-                style={{
-                  fontSize: 11,
-                  color: S.text2,
-                  lineHeight: 1.45,
-                  maxWidth: 320,
-                  padding: '8px 10px',
-                  background: S.surface2,
-                  border: `1px solid ${S.border}`,
-                  borderRadius: 8,
-                  fontFamily: DM,
-                }}
-              >
+              <div className="tb-outlet-assign-summary">
                 {assignableUsers.length === 0 ? (
-                  <span style={{ color: S.orange }}>
+                  <span className="tb-outlet-assign-summary__empty">
                     No Ring Mall or Village managers available{showAllUsers && isExec ? '' : ' on shift'}.
                   </span>
                 ) : (
                   <>
                     Everyone listed gets a task and a notification. Outlet staff are never assigned.
-                    <div style={{ marginTop: 6, color: S.text, fontWeight: 600 }}>
+                    <div className="tb-outlet-assign-summary__names">
                       {assignableUsers.map((u) => u.name).join(', ')}
                     </div>
                   </>
                 )}
               </div>
               {isExec && (
-                <label style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 5, fontSize: 10, color: S.text2, cursor: 'pointer' }}>
-                  <input type="checkbox" checked={showAllUsers} onChange={(e) => setShowAllUsers(e.target.checked)} style={{ accentColor: S.blue }} />
+                <label className="tb-form-checkbox">
+                  <input type="checkbox" className="tb-form-checkbox__input pl-bulk-check" checked={showAllUsers} onChange={(e) => setShowAllUsers(e.target.checked)} />
                   Show all Ring Mall &amp; Village managers (include off-shift)
                 </label>
               )}
@@ -419,12 +397,9 @@ export function TransferBuilder() {
           ) : (
             <>
               <select
+                className="tb-form-select tb-form-select--assign"
                 value={assignedTo}
                 onChange={(e) => setAssignedTo(e.target.value)}
-                style={{
-                  background: S.surface2, border: `1px solid ${S.border}`, borderRadius: 8,
-                  padding: '6px 10px', color: S.text, fontSize: 12, fontFamily: DM, outline: 'none', minWidth: 160,
-                }}
               >
                 <option value="">— none —</option>
                 {assignableUsers.map((u) => (
@@ -432,13 +407,22 @@ export function TransferBuilder() {
                 ))}
               </select>
               {assignableUsers.length === 0 && !showAllUsers && (
-                <div style={{ fontSize: 10, color: S.orange, marginTop: 4 }}>
-                  No managers on shift at {toShop}
+                <div className="tb-form-alert">
+                  <IconWarning size={14} strokeWidth={1.75} className="tb-form-alert__icon" />
+                  <div>
+                    <div className="tb-form-alert__text">No managers on shift at {toShop}</div>
+                    {isExec && (
+                      <label className="tb-form-checkbox tb-form-checkbox--alert">
+                        <input type="checkbox" className="tb-form-checkbox__input pl-bulk-check" checked={showAllUsers} onChange={(e) => setShowAllUsers(e.target.checked)} />
+                        Show all users (override)
+                      </label>
+                    )}
+                  </div>
                 </div>
               )}
-              {isExec && (
-                <label style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 5, fontSize: 10, color: S.text2, cursor: 'pointer' }}>
-                  <input type="checkbox" checked={showAllUsers} onChange={(e) => setShowAllUsers(e.target.checked)} style={{ accentColor: S.blue }} />
+              {isExec && (assignableUsers.length > 0 || showAllUsers) && (
+                <label className="tb-form-checkbox">
+                  <input type="checkbox" className="tb-form-checkbox__input pl-bulk-check" checked={showAllUsers} onChange={(e) => setShowAllUsers(e.target.checked)} />
                   Show all users (override)
                 </label>
               )}
@@ -446,71 +430,40 @@ export function TransferBuilder() {
           )}
         </div>
 
-        <div style={{ flex: 1, minWidth: 140 }}>
-          <label style={{ display: 'block', fontSize: 9, fontWeight: 700, color: S.muted, textTransform: 'uppercase', letterSpacing: '1px', marginBottom: 5 }}>
-            Note (optional)
-          </label>
+        <div className="tb-form-field-group tb-form-field-group--note">
+          <label className="tb-form-label">Note (optional)</label>
           <input
             type="text"
+            className="tb-form-input"
             value={note}
             onChange={(e) => setNote(e.target.value)}
             placeholder="e.g. Low stock replenishment"
-            style={{
-              width: '100%',
-              background: S.surface2, border: `1px solid ${S.border}`, borderRadius: 8,
-              padding: '6px 10px', color: S.text, fontSize: 12, fontFamily: DM, outline: 'none',
-            }}
           />
         </div>
       </div>
 
-      {/* ── Two-column layout ──────────────────────────────────────────── */}
-      <div className="transfer-layout" style={{ display: 'flex', gap: 18, alignItems: 'flex-start' }}>
-        {/* Left: product search */}
-        <div className="transfer-products" style={{ flex: 1, minWidth: 0 }}>
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8,
-              marginBottom: 12,
-              flexWrap: 'wrap',
-            }}
-          >
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 7,
-                background: S.surface2,
-                border: `1px solid ${S.border}`,
-                borderRadius: 8,
-                padding: '6px 11px',
-                flex: 1,
-                minWidth: 180,
-              }}
-            >
-              <span style={{ color: S.muted, fontSize: 13 }}>
-                <IconSearch size={13} strokeWidth={1.5} />
-              </span>
+      <div className="transfer-layout">
+        <div className="transfer-products">
+          <div className="tb-filters">
+            <div className="tb-search">
+              <IconSearch size={14} strokeWidth={1.75} className="tb-search__icon" />
               <input
                 type="text"
+                className="tb-search__input"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search by name, SKU, or barcode..."
-                style={{
-                  background: 'none', border: 'none', outline: 'none',
-                  color: S.text, fontSize: 12, fontFamily: DM, width: '100%',
-                }}
               />
             </div>
-            {['All', 'Men', 'Women', 'Kids'].map((g) => (
-              <Pill key={g} label={g} active={genderFilter === g} color={S.purple} onClick={() => setGenderFilter(g)} />
-            ))}
+            <div className="tb-filter-row">
+              {['All', 'Men', 'Women', 'Kids', 'Unisex'].map((g) => (
+                <FilterChip key={g} label={g} active={genderFilter === g} onClick={() => setGenderFilter(g)} />
+              ))}
+            </div>
           </div>
-          <div style={{ display: 'flex', gap: 6, marginBottom: 14, flexWrap: 'wrap' }}>
+          <div className="tb-filter-row tb-filter-row--category">
             {['All', 'Footwear', 'Apparel', 'Accessories'].map((c) => (
-              <Pill key={c} label={c} active={categoryFilter === c} color={S.blue} onClick={() => setCategoryFilter(c)} />
+              <FilterChip key={c} label={c} active={categoryFilter === c} onClick={() => setCategoryFilter(c)} />
             ))}
           </div>
 
@@ -520,56 +473,51 @@ export function TransferBuilder() {
             </div>
           )}
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div className="tb-product-list">
             {filtered.slice(0, 30).map((p) => {
               const inCart = !!cart[p.sku]
               const isExpanded = expandedSku === p.sku
               const sizeRows = getSizeRows(p.sku)
               const remaining = p.quantity - p.sold_quantity
+              const lowStock = remaining <= 3
+              const stockWarn = isStockRowWarning(remaining, p.sku)
+              const overAllocated = isStagingOverAllocated(p.sku, remaining)
               return (
                 <div
                   key={p.sku}
-                  style={{
-                    background: S.surface,
-                    border: `1px solid ${inCart ? 'rgba(0,230,118,0.25)' : S.border}`,
-                    borderRadius: 12,
-                    overflow: 'hidden',
-                  }}
+                  className={`tb-product-row${isExpanded ? ' tb-product-row--expanded' : ''}${inCart ? ' tb-product-row--incart' : ''}${stockWarn ? ' tb-product-row--stock-warn' : ''}`}
                 >
                   <div
+                    className="tb-product-row__head"
                     onClick={() => handleToggleExpand(p.sku)}
-                    style={{
-                      padding: '12px 16px',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 12,
-                    }}
                   >
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: S.text, marginBottom: 2 }}>
-                        {p.product_name}
-                        {inCart && <span style={{ marginLeft: 8, fontSize: 9, color: S.green, fontWeight: 700 }}>IN CART</span>}
+                    <div className="tb-product-row__info">
+                      <div className="tb-product-row__name">
+                        {toTitleCase(p.product_name)}
+                        {inCart && <span className="tb-product-row__incart">In cart</span>}
                       </div>
-                      <div style={{ fontSize: 11, color: S.muted, fontFamily: DM }}>
-                        {p.sku} · {p.brand} · {p.category} · {remaining} in stock
-                      </div>
-                    </div>
-                    <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                      {(Array.isArray(p.sizes) ? p.sizes : String(p.sizes || '').split(', ')).filter(Boolean).map((sz) => (
-                        <span
-                          key={sz}
-                          style={{
-                            fontSize: 9, padding: '2px 6px', borderRadius: 4,
-                            background: 'var(--ro-fill-soft)', color: S.text2,
-                            fontFamily: DM, fontWeight: 600,
-                          }}
-                        >
-                          {sz}
+                      <div className="tb-product-row__meta">
+                        {p.sku} · {p.brand} · {p.category} ·{' '}
+                        <span className={lowStock ? 'tb-product-row__stock tb-product-row__stock--low' : 'tb-product-row__stock'}>
+                          {remaining} in stock
                         </span>
-                      ))}
+                      </div>
                     </div>
-                    <span style={{ fontSize: 13, color: S.muted, transform: isExpanded ? 'rotate(180deg)' : '', transition: 'transform 0.2s' }}>▼</span>
+                    <div className="tb-product-row__sizes">
+                      {(Array.isArray(p.sizes) ? p.sizes : String(p.sizes || '').split(', ')).filter(Boolean).map((sz) => {
+                        const insufficient = isSizeChipInsufficient(p.sku, sz)
+                        return (
+                          <span
+                            key={sz}
+                            className={`tb-size-chip${insufficient ? ' tb-size-chip--disabled' : ''}`}
+                            title={insufficient ? 'Insufficient stock' : undefined}
+                          >
+                            {sz}
+                          </span>
+                        )
+                      })}
+                    </div>
+                    <span className={`tb-product-row__chevron${isExpanded ? ' tb-product-row__chevron--expanded' : ''}`} aria-hidden="true">▼</span>
                   </div>
 
                   {isExpanded && (
@@ -623,13 +571,13 @@ export function TransferBuilder() {
                         <button
                           type="button"
                           onClick={() => handleAddToCart(p)}
-                          disabled={stagingTotal(p.sku) === 0}
+                          disabled={stagingTotal(p.sku) === 0 || overAllocated}
                           style={{
                             padding: '7px 16px', borderRadius: 8, border: 'none',
-                            background: stagingTotal(p.sku) > 0 ? S.accent : S.surface2,
-                            color: stagingTotal(p.sku) > 0 ? '#fff' : S.muted,
+                            background: stagingTotal(p.sku) > 0 && !overAllocated ? S.accent : S.surface2,
+                            color: stagingTotal(p.sku) > 0 && !overAllocated ? '#fff' : S.muted,
                             fontSize: 12, fontWeight: 600, fontFamily: DM,
-                            cursor: stagingTotal(p.sku) > 0 ? 'pointer' : 'not-allowed',
+                            cursor: stagingTotal(p.sku) > 0 && !overAllocated ? 'pointer' : 'not-allowed',
                           }}
                         >
                           + Add to transfer
@@ -649,32 +597,19 @@ export function TransferBuilder() {
         </div>
 
         {/* Right: transfer cart */}
-        <div
-          className="transfer-cart"
-          style={{
-            width: 320,
-            flexShrink: 0,
-            position: 'sticky',
-            top: 80,
-            background: S.surface,
-            border: `1px solid ${S.border}`,
-            borderRadius: 14,
-            overflow: 'hidden',
-          }}
-        >
-          <div style={{ padding: '14px 16px', borderBottom: `1px solid ${S.border}` }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: S.text, textTransform: 'uppercase', letterSpacing: '1.5px' }}>
-              Transfer Cart
-            </div>
-            <div style={{ fontSize: 10, color: S.muted, marginTop: 2 }}>
+        <div className="transfer-cart tb-cart">
+          <div className="tb-cart__header">
+            <div className="tb-cart__title">Transfer cart</div>
+            <div className="tb-cart__summary">
               {cartItems.length} product{cartItems.length !== 1 ? 's' : ''} · {grandTotal} unit{grandTotal !== 1 ? 's' : ''}
             </div>
           </div>
 
-          <div style={{ maxHeight: 380, overflowY: 'auto' }}>
+          <div className="tb-cart__body">
             {cartItems.length === 0 && (
-              <div style={{ padding: 32, textAlign: 'center', color: S.muted, fontSize: 12 }}>
-                No products added yet. Expand a product on the left and pick sizes.
+              <div className="tb-cart__empty">
+                <IconCart size={24} strokeWidth={1.5} className="tb-cart__empty-icon" />
+                <p>No products added yet. Expand a product on the left and pick sizes.</p>
               </div>
             )}
 
@@ -720,10 +655,10 @@ export function TransferBuilder() {
             ))}
           </div>
 
-          <div style={{ padding: '14px 16px', borderTop: `1px solid ${S.border}` }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-              <span style={{ fontSize: 12, fontWeight: 700, color: S.text }}>Grand Total</span>
-              <span style={{ fontSize: 16, fontWeight: 700, color: S.text, fontFamily: DM }}>{grandTotal}</span>
+          <div className="tb-cart__footer">
+            <div className="tb-cart__total">
+              <span className="tb-cart__total-label">Grand Total</span>
+              <span className="tb-cart__total-value">{grandTotal}</span>
             </div>
             <button
               type="button"
@@ -732,19 +667,11 @@ export function TransferBuilder() {
                 cartItems.length === 0 ||
                 (transferType === 'outlet' && assignableUsers.length === 0)
               }
-              style={{
-                width: '100%',
-                padding: '10px 0',
-                borderRadius: 10,
-                border: 'none',
-                background: cartItems.length > 0 && !(transferType === 'outlet' && assignableUsers.length === 0) ? S.accent : S.surface2,
-                color: cartItems.length > 0 && !(transferType === 'outlet' && assignableUsers.length === 0) ? '#fff' : S.muted,
-                fontSize: 13,
-                fontWeight: 700,
-                fontFamily: DM,
-                cursor: cartItems.length > 0 && !(transferType === 'outlet' && assignableUsers.length === 0) ? 'pointer' : 'not-allowed',
-                letterSpacing: '0.5px',
-              }}
+              className={`tb-create-btn${
+                cartItems.length > 0 && !(transferType === 'outlet' && assignableUsers.length === 0)
+                  ? ' tb-create-btn--active'
+                  : ''
+              }`}
             >
               Create Transfer
             </button>

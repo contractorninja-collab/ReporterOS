@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 
-function ProgressBar({ value, color, width = '100%', style }) {
+function ProgressBar({ value, color, width = '100%', style, className = '' }) {
   const [w, setW] = useState(0)
   useEffect(() => {
     const t = setTimeout(() => setW(value), 100)
@@ -9,6 +9,7 @@ function ProgressBar({ value, color, width = '100%', style }) {
 
   return (
     <div
+      className={['progress-bar', className].filter(Boolean).join(' ')}
       style={{
         height: '3px',
         background: 'var(--ro-track-bg)',

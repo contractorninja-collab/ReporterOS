@@ -7,10 +7,12 @@ function KpiCard({
   tagColor,
   accentColor,
   onClick,
+  className = '',
 }) {
   return (
     <div
       onClick={onClick}
+      className={['kpi-card-tile', className].filter(Boolean).join(' ')}
       style={{
         background: 'var(--ro-surface)',
         border: '1px solid var(--ro-border)',
@@ -31,6 +33,7 @@ function KpiCard({
       }}
     >
       <div
+        className="kpi-card-tile__accent"
         style={{
           position: 'absolute',
           top: 0,
@@ -42,6 +45,7 @@ function KpiCard({
       />
 
       <div
+        className="kpi-card-tile__label"
         style={{
           fontSize: '9px',
           color: 'var(--ro-text-muted)',
@@ -54,6 +58,7 @@ function KpiCard({
       </div>
 
       <div
+        className="kpi-card-tile__value"
         style={{
           fontFamily: '"DM Sans"',
           fontSize: '30px',
@@ -65,10 +70,11 @@ function KpiCard({
         {value}
       </div>
 
-      <div style={{ fontSize: '10px', color: 'var(--ro-text-muted)', marginTop: '3px' }}>{sub}</div>
+      <div className="kpi-card-tile__sub" style={{ fontSize: '10px', color: 'var(--ro-text-muted)', marginTop: '3px' }}>{sub}</div>
 
       {tag && (
         <div
+          className="kpi-card-tile__tag"
           style={{
             display: 'inline-block',
             fontSize: '9px',

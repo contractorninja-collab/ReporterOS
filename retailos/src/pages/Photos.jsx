@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo, useLayoutEffect } from 'react'
 import useStore from '../store/useStore'
 import { aggregateSkus } from '../utils/aggregateSkus'
 import {
@@ -9,6 +9,7 @@ import {
   matchFilenameToSku,
   getPhotoCount,
 } from '../utils/photoStorage'
+import { toTitleCase } from '../utils/textFormat.js'
 import {
   IconCamera,
   IconFolder,
@@ -18,6 +19,8 @@ import {
   IconSearch,
   IconEdit,
   IconDelete,
+  IconDisplay,
+  IconPlanning,
 } from '../utils/icons.js'
 
 const S = {
@@ -39,21 +42,17 @@ export function Photos() {
   const addPhotoToMap = useStore((s) => s.addPhotoToMap)
   const removePhotoFromMap = useStore((s) => s.removePhotoFromMap)
   const setPhotoCount = useStore((s) => s.setPhotoCount)
-  const assignments = useStore((s) => s.assignments)
-  const updateAssignment = useStore((s) => s.updateAssignment)
+  const completePhotoAssignmentsForSkus = useStore((s) => s.completePhotoAssignmentsForSkus)
 
   const resolvePhotoTasks = (skuCodes) => {
-    const pending = assignments.filter((a) => a.type === 'photo_needed' && a.status === 'pending')
-    for (const code of skuCodes) {
-      const task = pending.find((a) => a.skuCode === code)
-      if (task) updateAssignment(task.id, { status: 'done' })
-    }
+    completePhotoAssignmentsForSkus(skuCodes)
   }
 
   const productCount = useMemo(() => aggregateSkus(skus).length, [skus])
 
   const [photos, setPhotos] = useState([])
   const [isDragging, setIsDragging] = useState(false)
+  const [isDropHover, setIsDropHover] = useState(false)
   const [isUploading, setIsUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
   const [uploadStats, setUploadStats] = useState(null)
@@ -63,9 +62,13 @@ export function Photos() {
   const [selectedSku, setSelectedSku] = useState(null)
   const [showNamingGuide, setShowNamingGuide] = useState(false)
   const [visibleCount, setVisibleCount] = useState(ITEMS_PER_PAGE)
+  const [selectedPhotoSkus, setSelectedPhotoSkus] = useState(() => new Set())
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false)
+  const [deleteConfirmSku, setDeleteConfirmSku] = useState(null)
   const fileInputRef = useRef(null)
   const replaceInputRef = useRef(null)
   const replaceSkuRef = useRef(null)
+  const selectAllFilteredRef = useRef(null)
 
   useEffect(() => {
     getAllPhotos().then((list) => {
@@ -106,9 +109,66 @@ export function Photos() {
 
   const visiblePhotos = filteredPhotos.slice(0, visibleCount)
 
+  const filteredSkus = useMemo(() => filteredPhotos.map((p) => p.sku), [filteredPhotos])
+  const allFilteredSelected =
+    filteredSkus.length > 0 && filteredSkus.every((s) => selectedPhotoSkus.has(s))
+  const selectedInViewCount = useMemo(
+    () => filteredSkus.filter((s) => selectedPhotoSkus.has(s)).length,
+    [filteredSkus, selectedPhotoSkus],
+  )
+
+  useLayoutEffect(() => {
+    const el = selectAllFilteredRef.current
+    if (!el) return
+    const n = selectedInViewCount
+    const total = filteredSkus.length
+    el.indeterminate = total > 0 && n > 0 && n < total
+  }, [selectedInViewCount, filteredSkus.length])
+
   useEffect(() => {
     setVisibleCount(ITEMS_PER_PAGE)
   }, [searchQuery, filterStatus])
+
+  const togglePhotoSelected = useCallback((sku) => {
+    setSelectedPhotoSkus((prev) => {
+      const next = new Set(prev)
+      if (next.has(sku)) next.delete(sku)
+      else next.add(sku)
+      return next
+    })
+  }, [])
+
+  const toggleSelectAllFiltered = useCallback(() => {
+    setSelectedPhotoSkus((prev) => {
+      const next = new Set(prev)
+      const allOn = filteredSkus.length > 0 && filteredSkus.every((s) => next.has(s))
+      if (allOn) {
+        filteredSkus.forEach((s) => next.delete(s))
+      } else {
+        filteredSkus.forEach((s) => next.add(s))
+      }
+      return next
+    })
+  }, [filteredSkus])
+
+  const handleBulkDelete = useCallback(async () => {
+    const toDelete = [...selectedPhotoSkus].filter((sku) => photos.some((p) => p.sku === sku))
+    if (toDelete.length === 0) return
+    if (!window.confirm(`Delete ${toDelete.length} photo(s)? This cannot be undone.`)) return
+    setIsBulkDeleting(true)
+    try {
+      for (const sku of toDelete) {
+        await deletePhoto(sku)
+        removePhotoFromMap(sku)
+      }
+      setPhotos((prev) => prev.filter((p) => !toDelete.includes(p.sku)))
+      setPhotoCount((prev) => Math.max(0, prev - toDelete.length))
+      setSelectedPhotoSkus(new Set())
+      if (selectedSku && toDelete.includes(selectedSku)) setSelectedSku(null)
+    } finally {
+      setIsBulkDeleting(false)
+    }
+  }, [selectedPhotoSkus, photos, removePhotoFromMap, setPhotoCount, selectedSku])
 
   const handleFiles = useCallback(
     async (fileList) => {
@@ -180,7 +240,7 @@ export function Photos() {
       setIsUploading(false)
       setUploadProgress(100)
     },
-    [skus, photoMap, setPhotoMap, setPhotoCount, assignments, updateAssignment],
+    [skus, photoMap, setPhotoMap, setPhotoCount, completePhotoAssignmentsForSkus],
   )
 
   const handleDelete = async (skuCode) => {
@@ -188,7 +248,23 @@ export function Photos() {
     setPhotos((prev) => prev.filter((p) => p.sku !== skuCode))
     removePhotoFromMap(skuCode)
     setPhotoCount((prev) => prev - 1)
+    setSelectedPhotoSkus((prev) => {
+      if (!prev.has(skuCode)) return prev
+      const next = new Set(prev)
+      next.delete(skuCode)
+      return next
+    })
     if (selectedSku === skuCode) setSelectedSku(null)
+    setDeleteConfirmSku(null)
+  }
+
+  const requestDeletePhoto = (skuCode) => {
+    setDeleteConfirmSku(skuCode)
+  }
+
+  const confirmDeletePhoto = async () => {
+    if (!deleteConfirmSku) return
+    await handleDelete(deleteConfirmSku)
   }
 
   const onReplaceClick = (skuCode) => {
@@ -217,94 +293,15 @@ export function Photos() {
   }
 
   return (
-    <div data-sku-count={productCount}>
-      {/* SECTION 1 — Header */}
-      <div
-        className="fade-up delay-1"
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          marginBottom: '14px',
-          flexWrap: 'wrap',
-          gap: '10px',
-        }}
-      >
-        <div
-          style={{
-            fontFamily: '"DM Sans"',
-            fontSize: '16px',
-            letterSpacing: '2px',
-            color: 'var(--ro-heading)',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-          }}
-        >
-          <div
-            style={{
-              width: '6px',
-              height: '6px',
-              borderRadius: '50%',
-              background: '#2dd4bf',
-              animation: 'blink 2s infinite',
-            }}
-          />
-          PRODUCT PHOTOS
-        </div>
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-          <span
-            style={{
-              background: 'rgba(45,212,191,0.1)',
-              color: '#2dd4bf',
-              fontFamily: '"DM Sans", monospace',
-              fontSize: '11px',
-              padding: '4px 10px',
-              borderRadius: '6px',
-              border: '1px solid rgba(45,212,191,0.2)',
-            }}
-          >
-            {photos.length} photos stored
-          </span>
-          <button
-            type="button"
-            onClick={() => setShowNamingGuide(true)}
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '6px',
-              padding: '6px 12px',
-              borderRadius: '8px',
-              fontSize: '11px',
-              fontWeight: 600,
-              cursor: 'pointer',
-              background: 'transparent',
-              color: 'var(--ro-text-dim)',
-              border: '1px solid var(--ro-border)',
-              fontFamily: '"DM Sans"',
-            }}
-          >
+    <div className="photos-page" data-sku-count={productCount}>
+      <div className="photos-page-header fade-up delay-1">
+        <div className="photos-page-header__actions">
+          <span className="photos-count-chip">{photos.length} photos stored</span>
+          <button type="button" className="photos-naming-guide-btn" onClick={() => setShowNamingGuide(true)}>
+            <IconPlanning size={14} strokeWidth={1.75} className="photos-naming-guide-btn__icon" />
             Naming Guide
           </button>
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '6px',
-              padding: '6px 12px',
-              borderRadius: '8px',
-              fontSize: '11px',
-              fontWeight: 600,
-              cursor: 'pointer',
-              background: S.accent,
-              color: '#fff',
-              border: 'none',
-              fontFamily: '"DM Sans"',
-            }}
-          >
+          <button type="button" className="photos-upload-btn" onClick={() => fileInputRef.current?.click()}>
             + Upload Photos
           </button>
         </div>
@@ -317,38 +314,17 @@ export function Photos() {
         />
       </div>
 
-      {/* SECTION 2 — Info banner */}
-      <div
-        style={{
-          background: 'var(--ro-surface-elevated)',
-          border: '1px solid var(--ro-border)',
-          borderRadius: '10px',
-          padding: '10px 14px',
-          marginBottom: '14px',
-          fontSize: '11px',
-          color: 'var(--ro-text-dim)',
-          lineHeight: 1.6,
-        }}
-        className="fade-up delay-1"
-      >
-        <IconCamera size={28} strokeWidth={1.5} /> Name your photo files using the SKU code and drop them here — the system links them to product cards instantly.{' '}
-        <span style={{ color: 'var(--ro-text)', fontWeight: 600 }}>Accepted formats: JPG, PNG, WEBP.</span>{' '}
-        Example filename:{' '}
-        <span
-          style={{
-            fontFamily: '"DM Sans"',
-            fontSize: '10px',
-            color: '#38bdf8',
-            background: 'rgba(56,189,248,0.08)',
-            padding: '1px 6px',
-            borderRadius: '4px',
-          }}
-        >
-          FIL-TRN-BRA-F-M.jpg
-        </span>
-        {' '}
-        → auto-matches SKU{' '}
-        <span style={{ fontFamily: '"DM Sans"', fontSize: '10px', color: '#38bdf8' }}>FIL-TRN-BRA-F-M</span>
+      <div className="photos-info-banner fade-up delay-1">
+        <IconCamera size={18} strokeWidth={1.75} className="photos-info-banner__icon" />
+        <div className="photos-info-banner__body">
+          Name your photo files using the SKU code and drop them here — the system links them to product cards instantly.{' '}
+          <span className="photos-info-banner__strong">Accepted formats: JPG, PNG, WEBP.</span>{' '}
+          Example filename:{' '}
+          <code className="photos-info-banner__code">FIL-TRN-BRA-F-M.jpg</code>
+          {' '}
+          <span className="photos-info-banner__arrow">→</span> auto-matches SKU{' '}
+          <code className="photos-info-banner__code">FIL-TRN-BRA-F-M</code>
+        </div>
       </div>
 
       {/* SECTION 3 — Drop zone + upload stats */}
@@ -365,6 +341,7 @@ export function Photos() {
       />
 
       <div
+        className={`photos-dropzone fade-up delay-1${isDragging ? ' photos-dropzone--drag' : isDropHover ? ' photos-dropzone--hover' : ''}`}
         onClick={() => !isUploading && fileInputRef.current?.click()}
         onDragOver={(e) => {
           e.preventDefault()
@@ -384,17 +361,9 @@ export function Photos() {
           setIsDragging(false)
           if (!isUploading && e.dataTransfer?.files?.length) handleFiles(e.dataTransfer.files)
         }}
-        style={{
-          border: `2px dashed ${isDragging ? '#2dd4bf' : 'var(--ro-border)'}`,
-          borderRadius: '12px',
-          padding: isUploading ? '20px' : '36px 20px',
-          textAlign: 'center',
-          cursor: isUploading ? 'default' : 'pointer',
-          transition: 'all 0.2s',
-          marginBottom: '16px',
-          background: isDragging ? 'rgba(45,212,191,0.03)' : 'transparent',
-        }}
-        className="fade-up delay-1"
+        onMouseEnter={() => setIsDropHover(true)}
+        onMouseLeave={() => setIsDropHover(false)}
+        style={{ cursor: isUploading ? 'default' : 'pointer' }}
       >
         {isUploading ? (
           <div>
@@ -414,7 +383,7 @@ export function Photos() {
               <div
                 style={{
                   height: '100%',
-                  background: '#2dd4bf',
+                  background: '#7C3AED',
                   borderRadius: '2px',
                   width: `${uploadProgress}%`,
                   transition: 'width 0.3s ease',
@@ -423,16 +392,12 @@ export function Photos() {
             </div>
           </div>
         ) : (
-          <div>
-            <div style={{ fontSize: '32px', marginBottom: '10px' }}>
-              <IconFolder size={28} strokeWidth={1.5} />
+          <div className="photos-dropzone__inner">
+            <div className="photos-dropzone__icon">
+              <IconFolder size={32} strokeWidth={1.5} />
             </div>
-            <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--ro-text)', marginBottom: '4px' }}>
-              Drop photos here or click to browse
-            </div>
-            <div style={{ fontSize: '11px', color: 'var(--ro-text-muted)' }}>
-              Drop hundreds at once — bulk upload supported · JPG, PNG, WEBP
-            </div>
+            <div className="photos-dropzone__label">Drop photos here or click to browse</div>
+            <div className="photos-dropzone__hint">Drop hundreds at once — bulk upload supported · JPG, PNG, WEBP</div>
           </div>
         )}
       </div>
@@ -566,62 +531,22 @@ export function Photos() {
         </div>
       )}
 
-      {/* SECTION 4 — Toolbar: search + filter + view + stats */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '10px',
-          marginBottom: '14px',
-          flexWrap: 'wrap',
-        }}
-        className="fade-up delay-2"
-      >
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '7px',
-            background: 'var(--ro-surface-elevated)',
-            border: '1px solid var(--ro-border)',
-            borderRadius: '8px',
-            padding: '6px 11px',
-            width: '220px',
-          }}
-        >
-          <span style={{ color: 'var(--ro-text-muted)', fontSize: '13px' }}>
+      <div className="photos-toolbar fade-up delay-2">
+        <div className="photos-search">
+          <span className="photos-search__icon">
             <IconSearch size={13} strokeWidth={1.5} />
           </span>
           <input
             type="text"
+            className="photos-search__input"
             placeholder="Search SKU or product name…"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            style={{
-              background: 'none',
-              border: 'none',
-              outline: 'none',
-              color: 'var(--ro-text)',
-              fontSize: '12px',
-              fontFamily: '"DM Sans"',
-              width: '100%',
-            }}
           />
           {searchQuery ? (
-            <span
-              role="button"
-              tabIndex={0}
-              onClick={() => setSearchQuery('')}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault()
-                  setSearchQuery('')
-                }
-              }}
-              style={{ color: 'var(--ro-text-muted)', cursor: 'pointer', fontSize: '12px' }}
-            >
+            <button type="button" className="photos-search__clear" onClick={() => setSearchQuery('')} aria-label="Clear search">
               <IconClose size={14} strokeWidth={1.5} />
-            </span>
+            </button>
           ) : null}
         </div>
 
@@ -636,150 +561,97 @@ export function Photos() {
             label: `No SKU (${photos.filter((p) => !skus.find((s) => s.sku === p.sku)).length})`,
           },
         ].map((f) => (
-          <div
+          <button
             key={f.filterKey}
-            role="button"
-            tabIndex={0}
+            type="button"
+            className={`photos-filter-chip${filterStatus === f.filterKey ? ' photos-filter-chip--active' : ''}`}
             onClick={() => setFilterStatus(f.filterKey)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault()
-                setFilterStatus(f.filterKey)
-              }
-            }}
-            style={{
-              padding: '5px 11px',
-              borderRadius: '20px',
-              fontSize: '11px',
-              fontWeight: 600,
-              cursor: 'pointer',
-              transition: 'all 0.13s',
-              background: filterStatus === f.filterKey ? 'rgba(255,51,51,0.1)' : 'var(--ro-surface-elevated)',
-              border:
-                filterStatus === f.filterKey
-                  ? '1px solid rgba(255,51,51,0.25)'
-                  : '1px solid var(--ro-border)',
-              color: filterStatus === f.filterKey ? '#ff3333' : 'var(--ro-text-muted)',
-            }}
           >
             {f.label}
-          </div>
+          </button>
         ))}
 
-        <div style={{ flex: 1 }} />
+        <div className="photos-toolbar__spacer" />
 
-        <div style={{ fontSize: '11px', color: 'var(--ro-text-muted)', fontFamily: '"DM Sans"' }}>
-          {filteredPhotos.length} photos
-        </div>
-
-        <div
-          style={{
-            display: 'flex',
-            background: 'var(--ro-surface-elevated)',
-            border: '1px solid var(--ro-border)',
-            borderRadius: '8px',
-            overflow: 'hidden',
-          }}
-        >
-          {[
-            { mode: 'grid', icon: 'Grid' },
-            {
-              mode: 'list',
-              icon: <IconList size={14} strokeWidth={1.5} />,
-            },
-          ].map((v) => (
-            <div
-              key={v.mode}
-              role="button"
-              tabIndex={0}
-              onClick={() => setViewMode(v.mode)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault()
-                  setViewMode(v.mode)
-                }
-              }}
-              style={{
-                padding: '6px 10px',
-                cursor: 'pointer',
-                fontSize: '14px',
-                background: viewMode === v.mode ? 'var(--ro-border-hover)' : 'transparent',
-                color: viewMode === v.mode ? 'var(--ro-text)' : 'var(--ro-text-muted)',
-                transition: 'all 0.13s',
-              }}
+        {photos.length > 0 ? (
+          <div className="photos-bulk-toolbar">
+            <label className="photos-bulk-toolbar__select">
+              <input
+                ref={selectAllFilteredRef}
+                type="checkbox"
+                checked={allFilteredSelected}
+                disabled={filteredSkus.length === 0}
+                onChange={toggleSelectAllFiltered}
+                className="pl-bulk-check"
+              />
+              Select all{filteredSkus.length !== photos.length ? ` (${filteredSkus.length} filtered)` : ''}
+            </label>
+            {selectedPhotoSkus.size > 0 ? (
+              <button type="button" className="photos-bulk-clear" onClick={() => setSelectedPhotoSkus(new Set())}>
+                Clear selection ({selectedPhotoSkus.size})
+              </button>
+            ) : null}
+            <button
+              type="button"
+              disabled={selectedPhotoSkus.size === 0 || isBulkDeleting}
+              onClick={handleBulkDelete}
+              className={`photos-bulk-delete${selectedPhotoSkus.size > 0 ? ' photos-bulk-delete--active' : ''}`}
             >
-              {v.icon}
-            </div>
-          ))}
+              <IconDelete size={13} strokeWidth={1.75} />
+              {isBulkDeleting ? 'Deleting…' : `Delete selected (${selectedPhotoSkus.size})`}
+            </button>
+          </div>
+        ) : null}
+
+        <div className="photos-toolbar__count">{filteredPhotos.length} photos</div>
+
+        <div className="photos-view-toggle">
+          <button
+            type="button"
+            className={`photos-view-toggle__btn${viewMode === 'grid' ? ' photos-view-toggle__btn--active' : ''}`}
+            onClick={() => setViewMode('grid')}
+          >
+            <IconDisplay size={14} strokeWidth={1.75} />
+            Grid
+          </button>
+          <button
+            type="button"
+            className={`photos-view-toggle__btn${viewMode === 'list' ? ' photos-view-toggle__btn--active' : ''}`}
+            onClick={() => setViewMode('list')}
+          >
+            <IconList size={14} strokeWidth={1.75} />
+            List
+          </button>
         </div>
       </div>
 
-      {/* SECTION 5A — Grid view */}
       {viewMode === 'grid' && (
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(5, 1fr)',
-            gap: '10px',
-            marginBottom: '22px',
-          }}
-          className="fade-up delay-2"
-        >
+        <div className="photos-grid fade-up delay-2">
           {visiblePhotos.map((photo) => {
             const skuRecord = skus.find((s) => s.sku === photo.sku)
             const isMatched = !!skuRecord
+            const fileSizeKb = (photo.size ?? 0) / 1024
+            const showFileSize = fileSizeKb > 0
 
             return (
-              <div
-                key={photo.sku}
-                style={{
-                  background: 'var(--ro-surface)',
-                  border: `1px solid ${isMatched ? 'var(--ro-border)' : 'rgba(255,136,0,0.2)'}`,
-                  borderRadius: '11px',
-                  overflow: 'hidden',
-                  cursor: 'pointer',
-                  transition: 'all 0.18s',
-                  position: 'relative',
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.borderColor = isMatched ? 'var(--ro-border-hover)' : 'rgba(255,136,0,0.4)'
-                  e.currentTarget.style.transform = 'scale(1.02)'
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.borderColor = isMatched ? 'var(--ro-border)' : 'rgba(255,136,0,0.2)'
-                  e.currentTarget.style.transform = ''
-                }}
-              >
-                <div
-                  style={{
-                    position: 'absolute',
-                    top: '6px',
-                    left: '6px',
-                    zIndex: 2,
-                    fontSize: '9px',
-                    fontWeight: 700,
-                    textTransform: 'uppercase',
-                    padding: '2px 6px',
-                    borderRadius: '4px',
-                    letterSpacing: '0.5px',
-                    background: isMatched ? 'rgba(0,230,118,0.15)' : 'rgba(255,136,0,0.15)',
-                    color: isMatched ? '#00e676' : '#ff8800',
-                  }}
-                >
-                  {isMatched ? 'Matched' : '! No SKU'}
-                </div>
+              <div key={photo.sku} className={`photos-grid-card${isMatched ? '' : ' photos-grid-card--unmatched'}`}>
+                <label className="photos-grid-check" onClick={(e) => e.stopPropagation()}>
+                  <input
+                    type="checkbox"
+                    checked={selectedPhotoSkus.has(photo.sku)}
+                    onChange={() => togglePhotoSelected(photo.sku)}
+                    onClick={(e) => e.stopPropagation()}
+                    className="photos-grid-check__input pl-bulk-check"
+                  />
+                </label>
 
-                <div style={{ height: '120px', overflow: 'hidden', position: 'relative', background: '#000' }}>
+                <div className="photos-grid-card__media">
+                  {!isMatched && <span className="photos-grid-badge photos-grid-badge--nosku">No SKU</span>}
+                  {isMatched && <span className="photos-grid-badge photos-grid-badge--matched">Matched</span>}
                   <img
                     src={photo.url}
                     alt={photo.sku}
-                    style={{
-                      width: '100%',
-                      height: '100%',
-                      objectFit: 'cover',
-                      objectPosition: 'center',
-                      display: 'block',
-                    }}
+                    className="photos-grid-card__img"
                     onClick={(e) => {
                       e.stopPropagation()
                       setSelectedSku(photo.sku)
@@ -787,78 +659,38 @@ export function Photos() {
                   />
                 </div>
 
-                <div style={{ padding: '8px 10px' }}>
-                  <div
-                    style={{
-                      fontSize: '11px',
-                      fontWeight: 600,
-                      color: 'var(--ro-text)',
-                      marginBottom: '1px',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    {skuRecord ? skuRecord.product_name : photo.filename}
+                <div className="photos-grid-card__body">
+                  <div className="photos-grid-card__title">
+                    {skuRecord ? toTitleCase(skuRecord.product_name) : photo.filename}
                   </div>
-                  <div
-                    style={{
-                      fontFamily: '"DM Sans"',
-                      fontSize: '9px',
-                      color: 'var(--ro-text-muted)',
-                      marginBottom: '6px',
-                    }}
-                  >
-                    {photo.sku}
-                  </div>
-                  <div style={{ fontSize: '9px', color: 'var(--ro-text-muted)', marginBottom: '6px' }}>
-                    {((photo.size ?? 0) / 1024).toFixed(0)} KB
-                  </div>
+                  <div className="photos-grid-card__sku">{photo.sku}</div>
+                  {showFileSize && (
+                    <div className="photos-grid-card__size">{fileSizeKb.toFixed(0)} KB</div>
+                  )}
 
-                  <div style={{ display: 'flex', gap: '4px' }}>
+                  <div className="photos-grid-card__actions">
                     <button
                       type="button"
+                      className="photos-grid-card__replace"
                       onClick={(e) => {
                         e.stopPropagation()
                         onReplaceClick(photo.sku)
                       }}
-                      style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        padding: '2px 7px',
-                        borderRadius: '6px',
-                        fontSize: '9px',
-                        fontWeight: 600,
-                        cursor: 'pointer',
-                        background: 'var(--ro-surface-elevated)',
-                        color: 'var(--ro-text-dim)',
-                        border: '1px solid var(--ro-border)',
-                        fontFamily: '"DM Sans"',
-                      }}
                     >
-                      <IconEdit size={14} strokeWidth={1.5} /> Replace
+                      <IconEdit size={12} strokeWidth={1.75} className="photos-grid-card__replace-icon" />
+                      Replace
                     </button>
                     <button
                       type="button"
+                      className="photos-grid-card__delete"
+                      title={`Delete photo for ${photo.sku}`}
+                      aria-label={`Delete photo for ${photo.sku}`}
                       onClick={(e) => {
                         e.stopPropagation()
-                        handleDelete(photo.sku)
-                      }}
-                      style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        padding: '2px 7px',
-                        borderRadius: '6px',
-                        fontSize: '9px',
-                        fontWeight: 600,
-                        cursor: 'pointer',
-                        background: 'rgba(255,51,51,0.08)',
-                        color: '#ff3333',
-                        border: '1px solid rgba(255,51,51,0.2)',
-                        fontFamily: '"DM Sans"',
+                        requestDeletePhoto(photo.sku)
                       }}
                     >
-                      <IconDelete size={14} strokeWidth={1.5} />
+                      <IconDelete size={15} strokeWidth={1.75} />
                     </button>
                   </div>
                 </div>
@@ -866,40 +698,10 @@ export function Photos() {
             )
           })}
 
-          <div
-            role="button"
-            tabIndex={0}
-            onClick={() => fileInputRef.current?.click()}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault()
-                fileInputRef.current?.click()
-              }
-            }}
-            style={{
-              background: 'var(--ro-surface)',
-              border: '2px dashed var(--ro-border)',
-              borderRadius: '11px',
-              overflow: 'hidden',
-              cursor: 'pointer',
-              transition: 'all 0.18s',
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              justifyContent: 'center',
-              minHeight: '200px',
-              gap: '8px',
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.borderColor = 'rgba(45,212,191,0.3)'
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.borderColor = 'var(--ro-border)'
-            }}
-          >
-            <div style={{ fontSize: '28px', color: 'var(--ro-text-muted)' }}>＋</div>
-            <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--ro-text-muted)' }}>Add more</div>
-          </div>
+          <button type="button" className="photos-grid-add" onClick={() => fileInputRef.current?.click()}>
+            <span className="photos-grid-add__icon">＋</span>
+            <span className="photos-grid-add__label">Add more</span>
+          </button>
         </div>
       )}
 
@@ -918,6 +720,20 @@ export function Photos() {
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ borderBottom: '1px solid var(--ro-border)' }}>
+                <th
+                  className="photos-list-select-header"
+                  style={{
+                    padding: '9px 10px',
+                    textAlign: 'center',
+                    fontSize: '9px',
+                    fontWeight: 700,
+                    textTransform: 'uppercase',
+                    letterSpacing: '1.5px',
+                    color: 'var(--ro-text-muted)',
+                    whiteSpace: 'nowrap',
+                    width: '44px',
+                  }}
+                />
                 {['Photo', 'SKU Code', 'Product Name', 'Brand', 'Size', 'Match Status', 'Actions'].map((h) => (
                   <th
                     key={h}
@@ -954,6 +770,15 @@ export function Photos() {
                       e.currentTarget.style.background = ''
                     }}
                   >
+                    <td style={{ padding: '8px 10px', textAlign: 'center', verticalAlign: 'middle', width: '44px' }}>
+                      <input
+                        type="checkbox"
+                        checked={selectedPhotoSkus.has(photo.sku)}
+                        onChange={() => togglePhotoSelected(photo.sku)}
+                        className="photos-list-select__input"
+                        style={{ width: 15, height: 15, cursor: 'pointer', verticalAlign: 'middle' }}
+                      />
+                    </td>
                     <td style={{ padding: '8px 14px' }}>
                       <button
                         type="button"
@@ -1061,7 +886,7 @@ export function Photos() {
                         </button>
                         <button
                           type="button"
-                          onClick={() => handleDelete(photo.sku)}
+                          onClick={() => requestDeletePhoto(photo.sku)}
                           style={{
                             display: 'inline-flex',
                             alignItems: 'center',
@@ -1178,7 +1003,7 @@ export function Photos() {
                       marginBottom: '10px',
                     }}
                   >
-                    {photo.sku} · {((photo.size ?? 0) / 1024).toFixed(0)} KB
+                    {photo.sku}{(photo.size ?? 0) > 0 ? ` · ${((photo.size ?? 0) / 1024).toFixed(0)} KB` : ''}
                   </div>
                   <div style={{ display: 'flex', gap: '8px' }}>
                     <button
@@ -1201,7 +1026,7 @@ export function Photos() {
                     <button
                       type="button"
                       onClick={() => {
-                        handleDelete(photo.sku)
+                        requestDeletePhoto(photo.sku)
                         setSelectedSku(null)
                       }}
                       style={{
@@ -1224,6 +1049,27 @@ export function Photos() {
             </div>
           )
         })()}
+
+      {deleteConfirmSku && (
+        <div
+          className="photos-delete-modal-backdrop"
+          role="presentation"
+          onClick={() => setDeleteConfirmSku(null)}
+        >
+          <div className="photos-delete-modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+            <div className="photos-delete-modal__title">Delete photo for {deleteConfirmSku}?</div>
+            <p className="photos-delete-modal__body">This cannot be undone.</p>
+            <div className="photos-delete-modal__actions">
+              <button type="button" className="photos-delete-modal__btn photos-delete-modal__btn--ghost" onClick={() => setDeleteConfirmSku(null)}>
+                Cancel
+              </button>
+              <button type="button" className="photos-delete-modal__btn photos-delete-modal__btn--danger" onClick={confirmDeletePhoto}>
+                Delete photo
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Naming Guide modal */}
       {showNamingGuide && (
