@@ -440,7 +440,7 @@ export function Bestsellers() {
   )
 
   // ── Enrich products with period data ────────────────────────────────────────
-  function enrichProducts(prods) {
+  const enrichProducts = useCallback((prods) => {
     if (hasEventSales) {
       return prods.map((s) => {
         const ev = salesData[s.sku]
@@ -454,9 +454,9 @@ export function Bestsellers() {
       _periodSold: s.sold_quantity ?? 0,
       _periodRevenue: s._salesRevenue ?? 0,
     }))
-  }
+  }, [hasEventSales, salesData])
 
-  function sortBest(arr) {
+  const sortBest = useCallback((arr) => {
     const sorted = [...arr]
     switch (rankMode) {
       case 'revenue': sorted.sort((a, b) => b._periodRevenue - a._periodRevenue); break
@@ -464,9 +464,9 @@ export function Bestsellers() {
       default: { const p = (s) => sellThroughPct(s, hasEventSales, skuImportTotals); sorted.sort((a, b) => p(b) - p(a)) }
     }
     return sorted
-  }
+  }, [rankMode, hasEventSales, skuImportTotals])
 
-  function sortWorst(arr) {
+  const sortWorst = useCallback((arr) => {
     const sorted = [...arr]
     switch (rankMode) {
       case 'revenue': sorted.sort((a, b) => a._periodRevenue - b._periodRevenue); break
@@ -474,7 +474,7 @@ export function Bestsellers() {
       default: { const p = (s) => sellThroughPct(s, hasEventSales, skuImportTotals); sorted.sort((a, b) => p(a) - p(b)) }
     }
     return sorted
-  }
+  }, [rankMode, hasEventSales, skuImportTotals])
 
   // ── Compute previous-period rankings for comparison ─────────────────────────
   const prevRankMap = useMemo(() => {
@@ -489,12 +489,12 @@ export function Bestsellers() {
     const map = {}
     sorted.forEach((s, i) => { map[s.sku] = i + 1 })
     return map
-  }, [prevSalesData, showCompare, filteredProducts, rankMode, hasEventSales])
+  }, [prevSalesData, showCompare, filteredProducts, sortBest])
 
   const allRankedSkus = useMemo(() => {
     const filtered = enrichProducts(filteredProducts).filter((s) => hasSoldForRanking(s, hasEventSales))
     return sortBest(filtered)
-  }, [filteredProducts, rankMode, hasEventSales, salesData, skuImportTotals])
+  }, [filteredProducts, hasEventSales, enrichProducts, sortBest])
 
   const rankedSkus = useMemo(() => {
     if (showAllSold) return allRankedSkus
@@ -533,7 +533,7 @@ export function Bestsellers() {
       filteredProducts.filter((s) => !bestSkuSet.has(s.sku))
     ).filter((s) => hasPositivePeriodSales(s, hasEventSales))
     return sortWorst(filtered).slice(0, limit === 20 ? 10 : 5)
-  }, [filteredProducts, rankMode, limit, hasEventSales, salesData, rankedSkus])
+  }, [filteredProducts, limit, hasEventSales, rankedSkus, enrichProducts, sortWorst])
 
   const emptyRankedMessage = (() => {
     if (products.length === 0 && isSeasonFilterActive(activeSeason)) {

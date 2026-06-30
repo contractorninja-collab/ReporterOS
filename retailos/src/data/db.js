@@ -20,12 +20,50 @@ const dbPath = path.resolve(DATA_DIR, 'retailos.db')
 const db = new Database(dbPath)
 
 db.pragma('journal_mode = WAL')
+// WAL + NORMAL is the recommended durable-but-fast combo: writers don't fsync on
+// every commit, which keeps large import transactions from stalling the single
+// Node thread. busy_timeout lets a read that lands mid-import wait for the lock
+// instead of throwing SQLITE_BUSY (which surfaced as "internal server error").
+db.pragma('synchronous = NORMAL')
+db.pragma('busy_timeout = 10000')
 
 function uid() { return crypto.randomUUID() }
 
 function roundMoney(value) {
   const n = Number(value) || 0
   return Math.round(n * 100) / 100
+}
+
+function logJsonRecovery(context, reason) {
+  const table = context?.table || 'unknown_table'
+  const column = context?.column || 'unknown_column'
+  const id = context?.id != null && context.id !== '' ? ` id=${context.id}` : ''
+  console.warn(`[db] Recovered malformed JSON in ${table}.${column}${id}: ${reason}`)
+}
+
+function safeJsonParse(value, fallback, context = {}) {
+  if (value == null || value === '') return fallback
+  if (typeof value !== 'string') return value
+  try {
+    return JSON.parse(value)
+  } catch (err) {
+    logJsonRecovery(context, err?.message || 'parse failed')
+    return fallback
+  }
+}
+
+function safeJsonArray(value, context = {}) {
+  const parsed = safeJsonParse(value, [], context)
+  if (Array.isArray(parsed)) return parsed
+  logJsonRecovery(context, `expected array, got ${Array.isArray(parsed) ? 'array' : typeof parsed}`)
+  return []
+}
+
+function safeJsonObject(value, context = {}) {
+  const parsed = safeJsonParse(value, {}, context)
+  if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed
+  logJsonRecovery(context, `expected object, got ${Array.isArray(parsed) ? 'array' : typeof parsed}`)
+  return {}
 }
 
 const BCRYPT_ROUNDS = 10
@@ -37,22 +75,33 @@ export function hashPin(plain) {
 
 /**
  * @param {string} plain
- * @param {string|null|undefined} stored — bcrypt hash or legacy plaintext (migrated on startup)
+ * @param {string|null|undefined} stored — bcrypt hash; legacy plaintext is migrated on startup
  */
 export function verifyPin(plain, stored) {
   if (stored == null || stored === '') return false
   if (typeof stored === 'string' && stored.startsWith('$2')) {
     return bcrypt.compareSync(String(plain), stored)
   }
-  return String(plain) === String(stored)
+  return false
 }
 
 function migratePlaintextPinsToBcrypt() {
-  const rows = db.prepare('SELECT id, pin FROM users WHERE pin IS NOT NULL AND pin != \'\'').all()
+  const rows = db.prepare('SELECT id, pin, pin_plain FROM users').all()
   for (const r of rows) {
-    if (typeof r.pin === 'string' && r.pin.startsWith('$2')) continue
-    const hash = hashPin(r.pin)
+    const existing = String(r.pin || '')
+    if (existing.startsWith('$2')) continue
+    const legacyPlain = existing || String(r.pin_plain || '')
+    if (!legacyPlain) continue
+    const hash = hashPin(legacyPlain)
     db.prepare('UPDATE users SET pin = ? WHERE id = ?').run(hash, r.id)
+  }
+}
+
+function clearStoredPlaintextPins() {
+  try {
+    db.prepare("UPDATE users SET pin_plain = NULL WHERE pin_plain IS NOT NULL AND pin_plain != ''").run()
+  } catch {
+    /* legacy column may not exist yet */
   }
 }
 
@@ -306,15 +355,12 @@ function migrateSequentialUserCredentials() {
     if (s !== 0) return s
     return String(a.name ?? '').localeCompare(String(b.name ?? ''), undefined, { sensitivity: 'base' })
   })
-  const update = db.prepare('UPDATE users SET user_code = @user_code, pin = @pin, pin_plain = @pin_plain WHERE id = @id')
+  const update = db.prepare('UPDATE users SET user_code = @user_code WHERE id = @id')
   const tx = db.transaction(() => {
     sorted.forEach((row, index) => {
-      const pin = randomPin()
       update.run({
         id: row.id,
         user_code: String(10001 + index),
-        pin: hashPin(pin),
-        pin_plain: pin,
       })
     })
     setSetting('sequential_user_credentials_v1', 'done')
@@ -322,22 +368,80 @@ function migrateSequentialUserCredentials() {
   tx()
 }
 
+const insertInventoryEventStmt = db.prepare(`
+  INSERT INTO inventory_events (
+    event_id, event_type, sku, product_name, barcode, size,
+    quantity, signed_quantity, unit_price, revenue, event_date,
+    source_kind, source_ref, created_at
+  )
+  VALUES (
+    @event_id, @event_type, @sku, @product_name, @barcode, @size,
+    @quantity, @signed_quantity, @unit_price, @revenue, @event_date,
+    @source_kind, @source_ref, @created_at
+  )
+`)
+
 function upsertInventoryEvent(event) {
-  db.prepare(`
-    INSERT INTO inventory_events (
-      event_id, event_type, sku, product_name, barcode, size,
-      quantity, signed_quantity, unit_price, revenue, event_date,
-      source_kind, source_ref, created_at
-    )
-    VALUES (
-      @event_id, @event_type, @sku, @product_name, @barcode, @size,
-      @quantity, @signed_quantity, @unit_price, @revenue, @event_date,
-      @source_kind, @source_ref, @created_at
-    )
-  `).run(event)
+  insertInventoryEventStmt.run(event)
+}
+
+const INVENTORY_REFRESH_LOG_ROWS = 1000
+const INVENTORY_REFRESH_LOG_MS = 250
+
+function inventoryRefreshLog(label, stats) {
+  const elapsedMs = Date.now() - stats.startedAt
+  const rowsTouched = Number(stats.scanned || 0) + Number(stats.deleted || 0) + Number(stats.inserted || 0)
+  if (rowsTouched < INVENTORY_REFRESH_LOG_ROWS && elapsedMs < INVENTORY_REFRESH_LOG_MS) return
+  console.log(
+    `[db] Inventory events ${label}: scanned ${stats.scanned || 0}, deleted ${stats.deleted || 0}, inserted ${stats.inserted || 0}, ${elapsedMs}ms`,
+  )
+}
+
+function inventoryEventFromIntakeRow(row) {
+  const qty = Math.max(0, Math.round(Number(row.quantity_added) || 0))
+  if (qty <= 0) return null
+  return {
+    event_id: `intake:${row.id}`,
+    event_type: 'IMPORT',
+    sku: row.sku ?? '',
+    product_name: row.product_name ?? '',
+    barcode: normalizeBarcodeValue(row.barcode ?? '') || '',
+    size: row.size ?? '',
+    quantity: qty,
+    signed_quantity: qty,
+    unit_price: null,
+    revenue: 0,
+    event_date: row.imported_at ?? new Date().toISOString(),
+    source_kind: 'intake_import',
+    source_ref: row.import_id ?? null,
+    created_at: row.imported_at ?? new Date().toISOString(),
+  }
+}
+
+function inventoryEventFromSalesRow(row) {
+  const units = Math.round(Number(row.units_sold) || 0)
+  if (units === 0) return null
+  const qty = Math.abs(units)
+  return {
+    event_id: `sales:${row.id}`,
+    event_type: units > 0 ? 'SALE' : 'RETURN',
+    sku: row.sku ?? '',
+    product_name: row.product_name ?? '',
+    barcode: '',
+    size: row.size ?? '',
+    quantity: qty,
+    signed_quantity: units > 0 ? -qty : qty,
+    unit_price: Math.abs(Number(row.price_sold) || 0),
+    revenue: Number(row.revenue) || 0,
+    event_date: row.event_date ?? new Date().toISOString().slice(0, 10),
+    source_kind: 'reporting_import',
+    source_ref: row.import_id ?? null,
+    created_at: row.created_at ?? new Date().toISOString(),
+  }
 }
 
 function rebuildInventoryEvents() {
+  const startedAt = Date.now()
   const clear = db.prepare('DELETE FROM inventory_events')
   const intakeRows = db.prepare(`
     SELECT
@@ -359,57 +463,133 @@ function rebuildInventoryEvents() {
     FROM sales_events
   `).all()
 
+  let deleted = 0
+  let inserted = 0
   const tx = db.transaction(() => {
-    clear.run()
+    deleted = clear.run().changes
 
     for (const row of intakeRows) {
-      const qty = Math.max(0, Math.round(Number(row.quantity_added) || 0))
-      if (qty <= 0) continue
-      upsertInventoryEvent({
-        event_id: `intake:${row.id}`,
-        event_type: 'IMPORT',
-        sku: row.sku ?? '',
-        product_name: row.product_name ?? '',
-        barcode: normalizeBarcodeValue(row.barcode ?? '') || '',
-        size: row.size ?? '',
-        quantity: qty,
-        signed_quantity: qty,
-        unit_price: null,
-        revenue: 0,
-        event_date: row.imported_at ?? new Date().toISOString(),
-        source_kind: 'intake_import',
-        source_ref: row.import_id ?? null,
-        created_at: row.imported_at ?? new Date().toISOString(),
-      })
+      const event = inventoryEventFromIntakeRow(row)
+      if (event) {
+        upsertInventoryEvent(event)
+        inserted += 1
+      }
     }
 
     for (const row of salesRows) {
-      const units = Math.round(Number(row.units_sold) || 0)
-      if (units === 0) continue
-      const qty = Math.abs(units)
-      const eventType = units > 0 ? 'SALE' : 'RETURN'
-      upsertInventoryEvent({
-        event_id: `sales:${row.id}`,
-        event_type: eventType,
-        sku: row.sku ?? '',
-        product_name: row.product_name ?? '',
-        barcode: '',
-        size: row.size ?? '',
-        quantity: qty,
-        signed_quantity: units > 0 ? -qty : qty,
-        unit_price: Math.abs(Number(row.price_sold) || 0),
-        revenue: Number(row.revenue) || 0,
-        event_date: row.event_date ?? new Date().toISOString().slice(0, 10),
-        source_kind: 'reporting_import',
-        source_ref: row.import_id ?? null,
-        created_at: row.created_at ?? new Date().toISOString(),
-      })
+      const event = inventoryEventFromSalesRow(row)
+      if (event) {
+        upsertInventoryEvent(event)
+        inserted += 1
+      }
     }
   })
 
   tx()
+  inventoryRefreshLog('full rebuild', {
+    startedAt,
+    scanned: intakeRows.length + salesRows.length,
+    deleted,
+    inserted,
+  })
 }
-;(function backfillImportHistoryTotalUnits() {
+
+function rebuildInventoryEventsForKeys(onlyKeys, label = 'scoped refresh') {
+  if (!(onlyKeys instanceof Set) || onlyKeys.size === 0) return { deleted: 0, inserted: 0 }
+  const startedAt = Date.now()
+  const keys = [...onlyKeys].map((key) => {
+    const pipe = key.indexOf('|')
+    return pipe >= 0 ? { sku: key.slice(0, pipe), size: key.slice(pipe + 1) } : null
+  }).filter(Boolean)
+  if (!keys.length) return { deleted: 0, inserted: 0 }
+
+  const del = db.prepare(`
+    DELETE FROM inventory_events
+    WHERE sku = @sku
+      AND TRIM(COALESCE(size, '')) = @size
+  `)
+  const intake = db.prepare(`
+    SELECT
+      il.id,
+      il.import_id,
+      il.sku,
+      il.size,
+      il.quantity_added,
+      il.imported_at,
+      il.gender,
+      il.barcode,
+      il.product_name
+    FROM import_lines il
+    WHERE il.import_id IN (SELECT id FROM import_history)
+      AND il.sku = @sku
+      AND TRIM(COALESCE(il.size, '')) = @size
+      AND COALESCE(il.quantity_added, 0) > 0
+  `)
+  const sales = db.prepare(`
+    SELECT id, sku, product_name, size, units_sold, price_sold, revenue, event_date, import_id, order_id, exchange_group_id, created_at
+    FROM sales_events
+    WHERE sku = @sku
+      AND TRIM(COALESCE(size, '')) = @size
+  `)
+
+  let deleted = 0
+  let inserted = 0
+  let scanned = 0
+  db.transaction(() => {
+    for (const key of keys) {
+      deleted += del.run(key).changes
+      const intakeRows = intake.all(key)
+      const salesRows = sales.all(key)
+      scanned += intakeRows.length + salesRows.length
+      for (const row of intakeRows) {
+        const event = inventoryEventFromIntakeRow(row)
+        if (event) {
+          upsertInventoryEvent(event)
+          inserted += 1
+        }
+      }
+      for (const row of salesRows) {
+        const event = inventoryEventFromSalesRow(row)
+        if (event) {
+          upsertInventoryEvent(event)
+          inserted += 1
+        }
+      }
+    }
+  })()
+  inventoryRefreshLog(label, { startedAt, scanned, deleted, inserted })
+  return { deleted, inserted }
+}
+
+function deleteInventoryEventsForSkuCodes(skuCodes, label = 'sku purge') {
+  const codes = [...new Set((skuCodes || []).map((code) => String(code || '').trim()).filter(Boolean))]
+  if (!codes.length) return 0
+  const startedAt = Date.now()
+  const del = db.prepare('DELETE FROM inventory_events WHERE sku = ?')
+  let deleted = 0
+  db.transaction(() => {
+    for (const code of codes) deleted += del.run(code).changes
+  })()
+  inventoryRefreshLog(label, { startedAt, scanned: 0, deleted, inserted: 0 })
+  return deleted
+}
+
+function deleteInventoryEventsBySource(sourceKind, sourceRef, label) {
+  const startedAt = Date.now()
+  const deleted = sourceRef == null
+    ? db.prepare('DELETE FROM inventory_events WHERE source_kind = ?').run(sourceKind).changes
+    : db.prepare('DELETE FROM inventory_events WHERE source_kind = ? AND source_ref = ?').run(sourceKind, sourceRef).changes
+  inventoryRefreshLog(label, { startedAt, scanned: 0, deleted, inserted: 0 })
+  return deleted
+}
+// ── Data-mutating backfill steps ────────────────────────────────────────────
+// The functions below CHANGE row data (not schema). They are idempotent (safe to
+// re-run) and are orchestrated by `runStartupDataBackfills()` near the end of this
+// module. They are intentionally NOT executed inline at definition time so the
+// orchestrator can sequence them, log them, and be gated/triggered explicitly
+// (see RETAILOS_SKIP_STARTUP_BACKFILLS and scripts/run-data-backfills.mjs).
+
+function backfillImportHistoryTotalUnits() {
   try {
     const needs = db.prepare(
       "SELECT id FROM import_history WHERE total_units IS NULL OR total_units = 0"
@@ -421,10 +601,10 @@ function rebuildInventoryEvents() {
       if (t > 0) upd.run(t, id)
     }
   } catch { /* ignore */ }
-})()
+}
 
 // Fixes rows where merge/import zeroed cost_price when on-hand was 0 — backfill from another size of same sku
-;(function repairSkusZeroCostFromSkuPeers() {
+function repairSkusZeroCostFromSkuPeers() {
   try {
     const r = db.prepare(`
       UPDATE skus SET cost_price = (
@@ -442,7 +622,7 @@ function rebuildInventoryEvents() {
       console.log(`[db] Repaired cost_price on ${r.changes} sku row(s) (copied from same-SKU line with cost)`)
     }
   } catch { /* ignore */ }
-})()
+}
 
 // Exact duplicate sales_event rows (e.g. reporting confirm run multiple times before replace=1) inflate Bestsellers revenue 2–3×.
 // Keep one row per (sku, size, day, units, revenue). Omit price_sold from the key: tiny float drift (91 vs 90.999) would split a duplicate group.
@@ -462,7 +642,7 @@ export function runDedupeSalesEvents() {
     .run().changes
 }
 
-;(function runDedupeOnStartup() {
+function runDedupeOnStartup() {
   try {
     if (!db.prepare('SELECT COUNT(*) AS c FROM sales_events').get().c) return
     const n = runDedupeSalesEvents()
@@ -474,7 +654,7 @@ export function runDedupeSalesEvents() {
   } catch (e) {
     console.warn('[db] dedupe sales_events failed:', e)
   }
-})()
+}
 
 function repairReportingLineTotalRevenue() {
   const fixEvents = db.prepare(`
@@ -527,7 +707,7 @@ function repairReportingLineTotalRevenue() {
 }
 
 // Rename legacy shops: Shop 1 → Ring Mall, Shop 2 → Village
-;(function migrateRetailShopNames() {
+function migrateRetailShopNames() {
   const pairs = [
     ['Shop 1', 'Ring Mall'],
     ['Shop 2', 'Village'],
@@ -542,7 +722,7 @@ function repairReportingLineTotalRevenue() {
       db.prepare('UPDATE users SET name = REPLACE(name, ?, ?) WHERE name LIKE ?').run(oldS, newS, `%${oldS}%`)
     } catch { /* ignore */ }
   }
-})()
+}
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS notifications (
@@ -597,6 +777,71 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_activity_log_category_created ON activity_log (category, created_at DESC);
 `)
 
+db.exec(`
+  CREATE INDEX IF NOT EXISTS idx_skus_deleted_sku_size ON skus (deleted_at, sku, size);
+  CREATE INDEX IF NOT EXISTS idx_skus_sku_normsize_deleted ON skus (sku, TRIM(COALESCE(size, '')), deleted_at);
+  CREATE INDEX IF NOT EXISTS idx_skus_import_id ON skus (_importId);
+  CREATE INDEX IF NOT EXISTS idx_skus_season_deleted_sku ON skus (season, deleted_at, sku);
+  CREATE INDEX IF NOT EXISTS idx_skus_brand ON skus (brand);
+  CREATE INDEX IF NOT EXISTS idx_skus_sale_list ON skus (sale_list_id, sale_active);
+
+  CREATE INDEX IF NOT EXISTS idx_import_history_imported_at ON import_history (imported_at DESC);
+  CREATE INDEX IF NOT EXISTS idx_import_history_imported_by ON import_history (imported_by_user_id, imported_at DESC);
+
+  CREATE INDEX IF NOT EXISTS idx_import_lines_import_id ON import_lines (import_id);
+  CREATE INDEX IF NOT EXISTS idx_import_lines_import_sku_normsize ON import_lines (import_id, sku, TRIM(COALESCE(size, '')));
+  CREATE INDEX IF NOT EXISTS idx_import_lines_sku_normsize_imported ON import_lines (sku, TRIM(COALESCE(size, '')), imported_at);
+  CREATE INDEX IF NOT EXISTS idx_import_lines_sku_imported ON import_lines (sku, imported_at);
+
+  CREATE INDEX IF NOT EXISTS idx_sales_events_import_id ON sales_events (import_id);
+  CREATE INDEX IF NOT EXISTS idx_sales_events_sku_normsize_date ON sales_events (sku, TRIM(COALESCE(size, '')), event_date);
+  CREATE INDEX IF NOT EXISTS idx_sales_events_sku_date ON sales_events (sku, event_date);
+  CREATE INDEX IF NOT EXISTS idx_sales_events_event_date ON sales_events (event_date);
+  CREATE INDEX IF NOT EXISTS idx_sales_events_exchange_group ON sales_events (exchange_group_id);
+  CREATE INDEX IF NOT EXISTS idx_sales_events_order_id ON sales_events (order_id);
+
+  CREATE INDEX IF NOT EXISTS idx_inventory_events_sku_normsize ON inventory_events (sku, TRIM(COALESCE(size, '')));
+  CREATE INDEX IF NOT EXISTS idx_inventory_events_sku_date ON inventory_events (sku, event_date);
+  CREATE INDEX IF NOT EXISTS idx_inventory_events_source ON inventory_events (source_kind, source_ref);
+
+  CREATE INDEX IF NOT EXISTS idx_users_user_code ON users (user_code);
+  CREATE INDEX IF NOT EXISTS idx_users_shop_role ON users (shop, role);
+
+  CREATE INDEX IF NOT EXISTS idx_assignments_created ON assignments (createdAt DESC);
+  CREATE INDEX IF NOT EXISTS idx_assignments_sku ON assignments (skuCode);
+  CREATE INDEX IF NOT EXISTS idx_assignments_shop_status ON assignments (shop, status);
+  CREATE INDEX IF NOT EXISTS idx_assignments_assigned_status ON assignments (assignedTo, status);
+
+  CREATE INDEX IF NOT EXISTS idx_outlet_transfers_created ON outlet_transfers (createdAt DESC);
+  CREATE INDEX IF NOT EXISTS idx_outlet_transfers_status_created ON outlet_transfers (status, createdAt DESC);
+  CREATE INDEX IF NOT EXISTS idx_outlet_transfers_assigned ON outlet_transfers (assignedTo, status);
+  CREATE INDEX IF NOT EXISTS idx_outlet_transfers_created_by ON outlet_transfers (createdBy, createdAt DESC);
+
+  CREATE INDEX IF NOT EXISTS idx_store_transfers_created ON store_transfers (createdAt DESC);
+  CREATE INDEX IF NOT EXISTS idx_store_transfers_from_status ON store_transfers (fromShop, status);
+  CREATE INDEX IF NOT EXISTS idx_store_transfers_to_status ON store_transfers (toShop, status);
+  CREATE INDEX IF NOT EXISTS idx_store_transfers_assigned ON store_transfers (assignedTo, status);
+  CREATE INDEX IF NOT EXISTS idx_store_transfers_created_by ON store_transfers (createdBy, createdAt DESC);
+
+  CREATE INDEX IF NOT EXISTS idx_markdown_lists_created ON markdown_lists (createdAt DESC);
+  CREATE INDEX IF NOT EXISTS idx_markdown_lists_shop_status ON markdown_lists (shop, status);
+  CREATE INDEX IF NOT EXISTS idx_markdown_lists_assigned_status ON markdown_lists (assignedTo, status);
+  CREATE INDEX IF NOT EXISTS idx_markdown_lists_kind_status ON markdown_lists (kind, status);
+
+  CREATE INDEX IF NOT EXISTS idx_sale_change_reports_created ON sale_change_reports (createdAt DESC);
+  CREATE INDEX IF NOT EXISTS idx_sale_change_reports_shop_created ON sale_change_reports (shop, createdAt DESC);
+  CREATE INDEX IF NOT EXISTS idx_sale_change_reports_assigned ON sale_change_reports (assignedTo, createdAt DESC);
+  CREATE INDEX IF NOT EXISTS idx_sale_change_reports_list ON sale_change_reports (listId);
+
+  CREATE INDEX IF NOT EXISTS idx_sales_snapshots_timestamp ON sales_snapshots (timestamp);
+  CREATE INDEX IF NOT EXISTS idx_notifications_created ON notifications (createdAt DESC);
+  CREATE INDEX IF NOT EXISTS idx_notifications_user_read_created ON notifications (userId, read, createdAt DESC);
+  CREATE INDEX IF NOT EXISTS idx_shifts_user_open ON shifts (user_id, clock_out);
+  CREATE INDEX IF NOT EXISTS idx_shifts_clock_out_in ON shifts (clock_out, clock_in);
+  CREATE INDEX IF NOT EXISTS idx_shifts_clock_in ON shifts (clock_in DESC);
+  CREATE INDEX IF NOT EXISTS idx_shifts_shop_clock_in ON shifts (shop, clock_in DESC);
+`)
+
 // Seed default users if the table is empty
 const userCount = db.prepare('SELECT COUNT(*) AS c FROM users').get().c
 if (userCount === 0) {
@@ -610,12 +855,15 @@ if (userCount === 0) {
     { id: 'u-cto', name: 'CTO', role: 'executive', shop: null, pin: '9003', user_code: '90003' },
     { id: 'u-outlet', name: 'Outlet Manager', role: 'outlet', shop: 'Outlet', pin: '8001', user_code: '80001' },
   ]
-  const ins = db.prepare('INSERT INTO users (id, name, role, shop, pin, pin_plain, user_code) VALUES (@id, @name, @role, @shop, @pin, @pin, @user_code)')
-  const tx = db.transaction(() => { for (const u of defaultUsers) ins.run(u) })
+  const ins = db.prepare('INSERT INTO users (id, name, role, shop, pin, user_code) VALUES (@id, @name, @role, @shop, @pin, @user_code)')
+  const tx = db.transaction(() => {
+    for (const u of defaultUsers) ins.run({ ...u, pin: hashPin(u.pin) })
+  })
   tx()
 }
 
 migratePlaintextPinsToBcrypt()
+clearStoredPlaintextPins()
 migrateSequentialUserCredentials()
 
 // ── SKUs ────────────────────────────────────────────────────────────────────
@@ -899,24 +1147,115 @@ export function insertSkus(skusArray) {
   tx(skusArray)
   if (skusArray.some((s) => s?._importId)) {
     const seasonRollover = maybeStartSeasonFromIntake(skusArray)
-    syncSkuCatalogFromLedgers()
-    rebuildInventoryEvents()
+    const batchKeys = new Set(
+      skusArray
+        .filter((s) => s?._importId)
+        .map((s) => catalogLedgerKey(s.sku, s.size)),
+    )
+    syncSkuCatalogFromLedgers({ onlyKeys: batchKeys })
+    rebuildInventoryEventsForKeys(batchKeys, `scoped intake import (${skusArray.length} input row(s))`)
     return { count: skusArray.length, seasonRollover }
   }
   return skusArray.length
 }
 
+function affectedImportLedgerKeys(importId) {
+  const keys = new Map()
+  const add = (row) => {
+    const sku = String(row?.sku ?? '').trim()
+    if (!sku) return
+    const size = normalizedEventSizeKey(row?.size)
+    keys.set(catalogLedgerKey(sku, size), { sku, size })
+  }
+  db.prepare('SELECT sku, size FROM import_lines WHERE import_id = ?').all(importId).forEach(add)
+  db.prepare('SELECT sku, size FROM skus WHERE _importId = ?').all(importId).forEach(add)
+  db.prepare('SELECT sku, size FROM sales_events WHERE import_id = ?').all(importId).forEach(add)
+  return [...keys.values()]
+}
+
+function reconcileSalesEventsForImportDeletion(keys) {
+  if (!Array.isArray(keys) || keys.length === 0) {
+    return { salesEventsDeleted: 0, salesEventsAdjusted: 0 }
+  }
+  const remainingQtyStmt = db.prepare(`
+    SELECT COALESCE(SUM(quantity_added), 0) AS qty
+    FROM import_lines
+    WHERE sku = @sku
+      AND TRIM(COALESCE(size, '')) = @size
+  `)
+  const netSoldStmt = db.prepare(`
+    SELECT COALESCE(SUM(units_sold), 0) AS sold
+    FROM sales_events
+    WHERE sku = @sku
+      AND TRIM(COALESCE(size, '')) = @size
+  `)
+  const saleRowsStmt = db.prepare(`
+    SELECT rowid, units_sold, price_sold, revenue
+    FROM sales_events
+    WHERE sku = @sku
+      AND TRIM(COALESCE(size, '')) = @size
+      AND units_sold > 0
+    ORDER BY event_date DESC, created_at DESC, rowid DESC
+  `)
+  const deleteEventStmt = db.prepare('DELETE FROM sales_events WHERE rowid = ?')
+  const updateEventStmt = db.prepare(`
+    UPDATE sales_events
+    SET units_sold = @units_sold,
+        revenue = @revenue,
+        price_sold = @price_sold
+    WHERE rowid = @rowid
+  `)
+
+  let salesEventsDeleted = 0
+  let salesEventsAdjusted = 0
+  for (const key of keys) {
+    const params = { sku: key.sku, size: key.size }
+    const remainingQty = Math.max(0, Math.round(Number(remainingQtyStmt.get(params)?.qty) || 0))
+    const netSold = Math.round(Number(netSoldStmt.get(params)?.sold) || 0)
+    let excess = netSold - remainingQty
+    if (excess <= 0) continue
+
+    for (const row of saleRowsStmt.all(params)) {
+      if (excess <= 0) break
+      const units = Math.max(0, Math.round(Number(row.units_sold) || 0))
+      if (units <= 0) continue
+      if (units <= excess) {
+        salesEventsDeleted += deleteEventStmt.run(row.rowid).changes
+        excess -= units
+        continue
+      }
+      const nextUnits = units - excess
+      const unitRevenue = units !== 0 ? (Number(row.revenue) || 0) / units : Number(row.price_sold) || 0
+      const nextRevenue = roundMoney(unitRevenue * nextUnits)
+      const nextPrice = nextUnits !== 0 ? roundMoney(nextRevenue / nextUnits) : 0
+      salesEventsAdjusted += updateEventStmt.run({
+        rowid: row.rowid,
+        units_sold: nextUnits,
+        revenue: nextRevenue,
+        price_sold: nextPrice,
+      }).changes
+      excess = 0
+    }
+  }
+  return { salesEventsDeleted, salesEventsAdjusted }
+}
+
 /**
- * Remove import_lines + skus for a batch; then drop assignments and sales_events
- * for any sku code that no longer has any sku row (product fully gone from inventory).
- * @returns {{ skuRowsDeleted: number, fullyRemovedSkuCodes: string[] }}
+ * Remove an import batch from all ledgers/projections. Sales events directly tied
+ * to the deleted import are removed; remaining sales for affected SKU sizes are
+ * trimmed only when remaining intake can no longer cover them.
+ * @returns {{ skuRowsDeleted: number, fullyRemovedSkuCodes: string[], salesEventsDeleted: number, salesEventsAdjusted: number }}
  */
 function deleteSkusByImportCore(importId) {
-  const beforeRows = db.prepare('SELECT sku FROM skus WHERE _importId = ?').all(importId)
-  const skuCodes = [...new Set(beforeRows.map((r) => r.sku).filter(Boolean))]
+  const affectedKeys = affectedImportLedgerKeys(importId)
+  const affectedKeySet = new Set(affectedKeys.map((key) => catalogLedgerKey(key.sku, key.size)))
+  const skuCodes = [...new Set(affectedKeys.map((r) => r.sku).filter(Boolean))]
 
+  const directlyDeletedSales = db.prepare('DELETE FROM sales_events WHERE import_id = ?').run(importId).changes
   db.prepare('DELETE FROM import_lines WHERE import_id = ?').run(importId)
   const skuRowsDeleted = db.prepare('DELETE FROM skus WHERE _importId = ?').run(importId).changes
+  const reconciled = reconcileSalesEventsForImportDeletion(affectedKeys)
+  syncSkuCatalogFromLedgers()
 
   const fullyRemovedSkuCodes = []
   for (const code of skuCodes) {
@@ -924,11 +1263,15 @@ function deleteSkusByImportCore(importId) {
     if (n === 0) {
       fullyRemovedSkuCodes.push(code)
       db.prepare('DELETE FROM assignments WHERE skuCode = ?').run(code)
-      db.prepare('DELETE FROM sales_events WHERE sku = ?').run(code)
     }
   }
-  rebuildInventoryEvents()
-  return { skuRowsDeleted, fullyRemovedSkuCodes }
+  rebuildInventoryEventsForKeys(affectedKeySet, `scoped import deletion (${importId})`)
+  return {
+    skuRowsDeleted,
+    fullyRemovedSkuCodes,
+    salesEventsDeleted: directlyDeletedSales + reconciled.salesEventsDeleted,
+    salesEventsAdjusted: reconciled.salesEventsAdjusted,
+  }
 }
 
 export function deleteSkusByImport(importId) {
@@ -1061,7 +1404,7 @@ function purgeSkuByCodeCore(code) {
 export function purgeSkuByCode(code) {
   return db.transaction(() => {
     const result = purgeSkuByCodeCore(code)
-    if (result.fullyRemoved) rebuildInventoryEvents()
+    if (result.fullyRemoved) deleteInventoryEventsForSkuCodes([code], `sku purge (${code})`)
     return result
   })()
 }
@@ -1084,7 +1427,7 @@ export function purgeExpiredBinnedSkus() {
       const r = purgeSkuByCodeCore(row.sku)
       if (r.fullyRemoved) purgedCodes.push(row.sku)
     }
-    if (purgedCodes.length) rebuildInventoryEvents()
+    if (purgedCodes.length) deleteInventoryEventsForSkuCodes(purgedCodes, `expired bin purge (${purgedCodes.length} sku(s))`)
   })()
   return { purgedCodes }
 }
@@ -1162,9 +1505,9 @@ export function getImportCsvFileMeta(importId) {
 
 export function deleteImportRecord(importId) {
   return db.transaction(() => {
-    const { skuRowsDeleted, fullyRemovedSkuCodes } = deleteSkusByImportCore(importId)
+    const result = deleteSkusByImportCore(importId)
     const importHistoryDeleted = db.prepare('DELETE FROM import_history WHERE id = ?').run(importId).changes
-    return { skuRowsDeleted, fullyRemovedSkuCodes, importHistoryDeleted }
+    return { ...result, importHistoryDeleted }
   })()
 }
 
@@ -1263,7 +1606,7 @@ function backfillImportLineCostsFromCatalog() {
   return { fillExactSize, fillSkuFallback, fillMetadata }
 }
 
-;(function backfillImportLineCostsOnStartup() {
+function backfillImportLineCostsOnStartup() {
   try {
     const { fillExactSize, fillSkuFallback, fillMetadata } = backfillImportLineCostsFromCatalog()
     if (fillExactSize > 0 || fillSkuFallback > 0 || fillMetadata > 0) {
@@ -1272,17 +1615,17 @@ function backfillImportLineCostsFromCatalog() {
   } catch (e) {
     console.warn('[db] import_lines cost backfill failed:', e.message)
   }
-})()
+}
 
-;(function rebuildInventoryEventsOnStartup() {
+function rebuildInventoryEventsOnStartup() {
   try {
     rebuildInventoryEvents()
   } catch (e) {
     console.warn('[db] rebuild inventory_events failed:', e)
   }
-})()
+}
 
-;(function repairReportingLineTotalsOnStartup() {
+function repairReportingLineTotalsOnStartup() {
   try {
     if (!db.prepare('SELECT COUNT(*) AS c FROM sales_events').get().c) return
     const { fixEvents, fixSkuAvg } = repairReportingLineTotalRevenue()
@@ -1294,7 +1637,7 @@ function backfillImportLineCostsFromCatalog() {
   } catch (e) {
     console.warn('[db] repair reporting line-total revenue failed:', e)
   }
-})()
+}
 
 /** Fold inconsistent category spellings (FOOTWEAR/FTW, APP, ...) into canonical names. */
 function normalizeStoredCategories() {
@@ -1317,7 +1660,7 @@ function normalizeStoredCategories() {
   return changed
 }
 
-;(function normalizeStoredCategoriesOnStartup() {
+function normalizeStoredCategoriesOnStartup() {
   try {
     const changed = normalizeStoredCategories()
     if (changed > 0) {
@@ -1326,7 +1669,7 @@ function normalizeStoredCategories() {
   } catch (e) {
     console.warn('[db] normalize categories failed:', e)
   }
-})()
+}
 
 /** Map sku code -> total quantity imported from successful import history. */
 export function getLifetimeImportedBySku() {
@@ -1450,7 +1793,8 @@ export function getDistinctSkuBrands() {
  * @param {string} q — trimmed search; empty returns structure for "all" from client overview
  */
 export function getProductNameReport(searchQuery = '', options = {}) {
-  const needle = String(searchQuery || '').trim().toLowerCase()
+  const query = String(searchQuery || '').trim()
+  const needle = query.toLowerCase()
   const seasonFilter = normalizeSeasonInput(options.season)
   const seasonActive = seasonFilter && seasonFilter.toLowerCase() !== 'all'
   const seasonClause = seasonActive ? " AND TRIM(COALESCE(season, '')) = ?" : ''
@@ -1476,7 +1820,7 @@ export function getProductNameReport(searchQuery = '', options = {}) {
   })
   if (!skuCodes.length) {
     return {
-      query: q,
+      query,
       rows: [],
       totals: emptyTotals,
       byGender: {
@@ -1695,7 +2039,7 @@ export function getProductNameReport(searchQuery = '', options = {}) {
   const avgRoi = cogs > 0 ? (totalProfit / cogs) * 100 : 0
 
   return {
-    query: q,
+    query,
     rows,
     totals: { stock, remaining, sold, cogs, totalRevenue, totalProfit, avgRoi, totalInvestment },
     byGender,
@@ -1803,16 +2147,11 @@ export function toPublicUser(row) {
 }
 
 export function toExecutiveUser(row) {
-  const user = toPublicUser(row)
-  if (!user) return null
-  return {
-    ...user,
-    pin_plain: row.pin_plain || '',
-  }
+  return toPublicUser(row)
 }
 
 export function getAllUsers() {
-  return db.prepare('SELECT id, name, role, shop, user_code, pin_plain FROM users ORDER BY CAST(user_code AS INTEGER), name COLLATE NOCASE').all()
+  return db.prepare('SELECT id, name, role, shop, user_code FROM users ORDER BY CAST(user_code AS INTEGER), name COLLATE NOCASE').all()
 }
 
 /** Directory without login codes — safe for any authenticated user. */
@@ -1853,18 +2192,18 @@ export function addUser(user) {
   const pinPlain = randomPin()
   const code = nextUserCode()
   const pinStored = hashPin(pinPlain)
-  db.prepare('INSERT INTO users (id, name, role, shop, pin, pin_plain, user_code) VALUES (@id, @name, @role, @shop, @pin, @pin_plain, @user_code)')
-    .run({ id, name: user.name ?? '', role: user.role ?? 'manager', shop: user.shop ?? null, pin: pinStored, pin_plain: pinPlain, user_code: code })
+  db.prepare('INSERT INTO users (id, name, role, shop, pin, user_code) VALUES (@id, @name, @role, @shop, @pin, @user_code)')
+    .run({ id, name: user.name ?? '', role: user.role ?? 'manager', shop: user.shop ?? null, pin: pinStored, user_code: code })
   const row = db.prepare('SELECT * FROM users WHERE id = ?').get(id)
-  return toExecutiveUser(row)
+  return { ...toExecutiveUser(row), one_time_pin: pinPlain }
 }
 
 export function regenerateUserPin(userId) {
   const pin = randomPin()
-  const result = db.prepare('UPDATE users SET pin = ?, pin_plain = ? WHERE id = ?').run(hashPin(pin), pin, userId)
+  const result = db.prepare('UPDATE users SET pin = ?, pin_plain = NULL WHERE id = ?').run(hashPin(pin), userId)
   if (!result.changes) return null
   const row = db.prepare('SELECT * FROM users WHERE id = ?').get(userId)
-  return toExecutiveUser(row)
+  return { ...toExecutiveUser(row), one_time_pin: pin }
 }
 
 export function removeUser(userId) {
@@ -1927,14 +2266,18 @@ export function updateAssignment(id, changes) {
 
 export function getAllOutletTransfers() {
   return db.prepare('SELECT * FROM outlet_transfers ORDER BY createdAt DESC').all().map((r) => ({
-    ...r, items: JSON.parse(r.items || '[]'),
+    ...r,
+    items: safeJsonArray(r.items, { table: 'outlet_transfers', column: 'items', id: r.id }),
   }))
 }
 
 export function getOutletTransferById(id) {
   const row = db.prepare('SELECT * FROM outlet_transfers WHERE id = ?').get(id)
   if (!row) return null
-  return { ...row, items: JSON.parse(row.items || '[]') }
+  return {
+    ...row,
+    items: safeJsonArray(row.items, { table: 'outlet_transfers', column: 'items', id: row.id }),
+  }
 }
 
 export function insertOutletTransfer(t) {
@@ -1960,14 +2303,21 @@ export function updateOutletTransfer(id, changes) {
   if (!fields.length) return null
   db.prepare(`UPDATE outlet_transfers SET ${fields.join(', ')} WHERE id = @id`).run(values)
   const row = db.prepare('SELECT * FROM outlet_transfers WHERE id = ?').get(id)
-  return row ? { ...row, items: JSON.parse(row.items || '[]') } : null
+  return row
+    ? {
+        ...row,
+        items: safeJsonArray(row.items, { table: 'outlet_transfers', column: 'items', id: row.id }),
+      }
+    : null
 }
 
 // ── Store transfers ─────────────────────────────────────────────────────────
 
 export function getAllStoreTransfers() {
   return db.prepare('SELECT * FROM store_transfers ORDER BY createdAt DESC').all().map((r) => ({
-    ...r, items: JSON.parse(r.items || '[]'), item_statuses: JSON.parse(r.item_statuses || '{}'),
+    ...r,
+    items: safeJsonArray(r.items, { table: 'store_transfers', column: 'items', id: r.id }),
+    item_statuses: safeJsonObject(r.item_statuses, { table: 'store_transfers', column: 'item_statuses', id: r.id }),
   }))
 }
 
@@ -1976,8 +2326,8 @@ export function getStoreTransferById(id) {
   if (!row) return null
   return {
     ...row,
-    items: JSON.parse(row.items || '[]'),
-    item_statuses: JSON.parse(row.item_statuses || '{}'),
+    items: safeJsonArray(row.items, { table: 'store_transfers', column: 'items', id: row.id }),
+    item_statuses: safeJsonObject(row.item_statuses, { table: 'store_transfers', column: 'item_statuses', id: row.id }),
   }
 }
 
@@ -2010,7 +2360,7 @@ export function updateStoreTransfer(id, changes) {
   const { fields, values } = buildUpdate(keysPresent)
   try {
     db.prepare(`UPDATE store_transfers SET ${fields.join(', ')} WHERE id = @id`).run(values)
-  } catch (e) {
+  } catch {
     const fallbackKeys = keysPresent.filter((k) => k !== 'item_statuses')
     if (fallbackKeys.length) {
       const fb = buildUpdate(fallbackKeys)
@@ -2018,7 +2368,13 @@ export function updateStoreTransfer(id, changes) {
     }
   }
   const row = db.prepare('SELECT * FROM store_transfers WHERE id = ?').get(id)
-  return row ? { ...row, items: JSON.parse(row.items || '[]'), item_statuses: JSON.parse(row.item_statuses || '{}') } : null
+  return row
+    ? {
+        ...row,
+        items: safeJsonArray(row.items, { table: 'store_transfers', column: 'items', id: row.id }),
+        item_statuses: safeJsonObject(row.item_statuses, { table: 'store_transfers', column: 'item_statuses', id: row.id }),
+      }
+    : null
 }
 
 // ── Markdown / sale lists ───────────────────────────────────────────────────
@@ -2027,8 +2383,8 @@ function toMarkdownList(row) {
   if (!row) return null
   return {
     ...row,
-    items: JSON.parse(row.items || '[]'),
-    item_statuses: JSON.parse(row.item_statuses || '{}'),
+    items: safeJsonArray(row.items, { table: 'markdown_lists', column: 'items', id: row.id }),
+    item_statuses: safeJsonObject(row.item_statuses, { table: 'markdown_lists', column: 'item_statuses', id: row.id }),
   }
 }
 
@@ -2101,10 +2457,10 @@ export function appendItemsToMarkdownList(listId, newItems) {
 
 function toSaleChangeReport(row) {
   if (!row) return null
-  const rawStatuses = JSON.parse(row.item_statuses || '{}')
+  const rawStatuses = safeJsonObject(row.item_statuses, { table: 'sale_change_reports', column: 'item_statuses', id: row.id })
   return {
     ...row,
-    changes: JSON.parse(row.changes || '[]'),
+    changes: safeJsonArray(row.changes, { table: 'sale_change_reports', column: 'changes', id: row.id }),
     item_statuses: normalizeSaleChangeItemStatuses(rawStatuses, row.shop),
   }
 }
@@ -2288,7 +2644,9 @@ export function clearSaleForList(listId) {
 
 export function getAllSnapshots() {
   return db.prepare('SELECT * FROM sales_snapshots ORDER BY timestamp ASC').all().map((r) => ({
-    id: r.id, timestamp: r.timestamp, products: JSON.parse(r.products || '{}'),
+    id: r.id,
+    timestamp: r.timestamp,
+    products: safeJsonObject(r.products, { table: 'sales_snapshots', column: 'products', id: r.id }),
   }))
 }
 
@@ -2548,7 +2906,6 @@ function buildBuyingReportContext({ since, until, season } = {}) {
   const rawSkus = getAllSkus().filter((s) => !seasonActive || normalizeSeasonInput(s.season) === seasonFilter)
   const shipmentMeta = getShipmentMetaBySku()
   const products = aggregateSkus(rawSkus, shipmentMeta)
-  const bySku = new Map(products.map((p) => [p.sku, p]))
   const skuCodes = products.map((p) => p.sku).filter(Boolean)
   const importTotals = getLifetimeImportedBySku()
   const lifetimeSoldMap = lifetimeSoldBySku(skuCodes)
@@ -2972,11 +3329,28 @@ export function getMarkdownRiskReport(q = {}) {
 /** Remove all reporting sales events (weekly dashboard KPIs). Does not change SKU on-hand or sold_quantity on skus. */
 export function deleteAllSalesEvents() {
   const deleted = db.prepare('DELETE FROM sales_events').run().changes
-  rebuildInventoryEvents()
+  deleteInventoryEventsBySource('reporting_import', null, 'cleared reporting inventory events')
+  return deleted
+}
+
+export function deleteSalesEventsByImportId(importId) {
+  const id = String(importId || '').trim()
+  if (!id) return 0
+  const affectedKeys = new Set(
+    db.prepare('SELECT sku, size FROM sales_events WHERE import_id = ?')
+      .all(id)
+      .map((row) => catalogLedgerKey(row.sku, row.size)),
+  )
+  const deleted = db.prepare('DELETE FROM sales_events WHERE import_id = ?').run(id).changes
+  if (deleted > 0) {
+    syncSkuCatalogFromLedgers({ onlyKeys: affectedKeys })
+    deleteInventoryEventsBySource('reporting_import', id, `deleted reporting import (${id})`)
+  }
   return deleted
 }
 
 export function insertSalesEvents(events) {
+  const affectedKeys = new Set((events || []).map((event) => catalogLedgerKey(event?.sku, event?.size)))
   const ins = db.prepare(`
     INSERT INTO sales_events (id, sku, product_name, size, units_sold, price_sold, revenue, event_date, import_id, order_id, exchange_group_id, created_at)
     VALUES (@id, @sku, @product_name, @size, @units_sold, @price_sold, @revenue, @event_date, @import_id, @order_id, @exchange_group_id, @created_at)
@@ -2989,18 +3363,18 @@ export function insertSalesEvents(events) {
         product_name: e.product_name ?? '',
         size: e.size ?? '',
         units_sold: e.units_sold ?? 0,
-          price_sold: e.price_sold ?? 0,
-          revenue: e.revenue ?? 0,
-          event_date: e.event_date ?? new Date().toISOString().slice(0, 10),
-          import_id: e.import_id ?? null,
-          order_id: e.order_id ?? '',
-          exchange_group_id: e.exchange_group_id ?? '',
-          created_at: e.created_at ?? new Date().toISOString(),
-        })
-      }
+        price_sold: e.price_sold ?? 0,
+        revenue: e.revenue ?? 0,
+        event_date: e.event_date ?? new Date().toISOString().slice(0, 10),
+        import_id: e.import_id ?? null,
+        order_id: e.order_id ?? '',
+        exchange_group_id: e.exchange_group_id ?? '',
+        created_at: e.created_at ?? new Date().toISOString(),
+      })
+    }
   })
   tx(events)
-  rebuildInventoryEvents()
+  rebuildInventoryEventsForKeys(affectedKeys, `scoped sales append (${events.length} input row(s))`)
   return events.length
 }
 
@@ -3010,12 +3384,96 @@ function normalizedEventSizeKey(size) {
   return String(size).trim()
 }
 
+function catalogLedgerKey(sku, size) {
+  return `${String(sku ?? '')}|${normalizedEventSizeKey(size)}`
+}
+
+function syncSkuCatalogFromLedgersScoped(onlyKeys) {
+  const syncQtyOne = db.prepare(`
+    UPDATE skus
+    SET quantity = (
+      SELECT COALESCE(SUM(il.quantity_added), 0)
+      FROM import_lines il
+      WHERE il.import_id IN (SELECT id FROM import_history)
+        AND il.sku = @sku
+        AND TRIM(COALESCE(il.size, '')) = @size
+    )
+    WHERE sku = @sku
+      AND TRIM(COALESCE(size, '')) = @size
+      AND EXISTS (
+        SELECT 1
+        FROM import_lines il
+        WHERE il.import_id IN (SELECT id FROM import_history)
+          AND il.sku = @sku
+          AND TRIM(COALESCE(il.size, '')) = @size
+      )
+  `)
+  const syncImportDatesOne = db.prepare(`
+    UPDATE skus
+    SET
+      import_date = (
+        SELECT MIN(il.imported_at)
+        FROM import_lines il
+        WHERE il.import_id IN (SELECT id FROM import_history)
+          AND il.sku = @sku
+          AND TRIM(COALESCE(il.size, '')) = @size
+      ),
+      last_import_date = (
+        SELECT MAX(il.imported_at)
+        FROM import_lines il
+        WHERE il.import_id IN (SELECT id FROM import_history)
+          AND il.sku = @sku
+          AND TRIM(COALESCE(il.size, '')) = @size
+      )
+    WHERE sku = @sku
+      AND TRIM(COALESCE(size, '')) = @size
+  `)
+  const syncSoldOne = db.prepare(`
+    UPDATE skus
+    SET sold_quantity = COALESCE((
+      SELECT SUM(se.units_sold)
+      FROM sales_events se
+      WHERE se.sku = @sku
+        AND TRIM(COALESCE(se.size, '')) = @size
+    ), 0)
+    WHERE sku = @sku
+      AND TRIM(COALESCE(size, '')) = @size
+  `)
+
+  let syncQty = 0
+  let syncImportDates = 0
+  let syncSold = 0
+  for (const key of onlyKeys) {
+    const pipe = key.indexOf('|')
+    if (pipe < 0) continue
+    const sku = key.slice(0, pipe)
+    const size = key.slice(pipe + 1)
+    syncQty += syncQtyOne.run({ sku, size }).changes
+    syncImportDates += syncImportDatesOne.run({ sku, size }).changes
+    syncSold += syncSoldOne.run({ sku, size }).changes
+  }
+
+  return {
+    insertedMissingImport: 0,
+    syncQty,
+    syncImportDates,
+    syncSold,
+    insertedEventOnly: 0,
+    syncEventOnly: 0,
+  }
+}
+
 /**
  * Keep the catalog projection aligned with the append-only ledgers:
  * - quantity comes from intake import_lines (deduped exactly like Product Lookup)
  * - sold_quantity comes from signed reporting sales_events
+ * @param {{ onlyKeys?: Set<string> }} [options] — when set, sync only those sku|size keys (faster on import)
  */
-function syncSkuCatalogFromLedgers() {
+function syncSkuCatalogFromLedgers(options = {}) {
+  const onlyKeys = options.onlyKeys
+  if (onlyKeys instanceof Set && onlyKeys.size > 0) {
+    return syncSkuCatalogFromLedgersScoped(onlyKeys)
+  }
   const templateBySku = db.prepare(`
     SELECT barcode, product_name, price_sold, price_tag, cost_price, import_date, gender, season, category, brand
     FROM skus
@@ -3239,7 +3697,7 @@ function syncSkuCatalogFromLedgers() {
   }
 }
 
-;(function syncSkuCatalogProjectionOnStartup() {
+function syncSkuCatalogProjectionOnStartup() {
   try {
     const { insertedMissingImport, syncQty, syncSold, insertedEventOnly, syncEventOnly } = syncSkuCatalogFromLedgers()
     if (insertedMissingImport > 0 || syncQty > 0 || syncSold > 0 || insertedEventOnly > 0 || syncEventOnly > 0) {
@@ -3248,7 +3706,7 @@ function syncSkuCatalogFromLedgers() {
   } catch (e) {
     console.warn('[db] SKU catalog projection sync failed:', e.message)
   }
-})()
+}
 
 /**
  * Reporting import: replace rows by (sku, sale calendar day, size), while preserving separate
@@ -3296,6 +3754,7 @@ export function replaceSalesEventsForReportingImport(events) {
       u !== 0 && Math.abs(m.revenue) > 1e-9 ? m.revenue / u : 0
     list.push(m)
   }
+  const affectedKeys = new Set(list.map((event) => catalogLedgerKey(event.sku, event.size)))
 
   const del = db.prepare(`
     DELETE FROM sales_events
@@ -3325,15 +3784,15 @@ export function replaceSalesEventsForReportingImport(events) {
         product_name: e.product_name ?? '',
         size: e.size ?? '',
         units_sold: e.units_sold ?? 0,
-          price_sold: e.price_sold ?? 0,
-          revenue: e.revenue ?? 0,
-          event_date: e.event_date,
-          import_id: e.import_id ?? null,
-          order_id: e.order_id ?? '',
-          exchange_group_id: e.exchange_group_id ?? '',
-          created_at: e.created_at ?? new Date().toISOString(),
-        })
-      }
+        price_sold: e.price_sold ?? 0,
+        revenue: e.revenue ?? 0,
+        event_date: e.event_date,
+        import_id: e.import_id ?? null,
+        order_id: e.order_id ?? '',
+        exchange_group_id: e.exchange_group_id ?? '',
+        created_at: e.created_at ?? new Date().toISOString(),
+      })
+    }
   })
   tx(list)
   const removed = runDedupeSalesEvents()
@@ -3343,7 +3802,7 @@ export function replaceSalesEventsForReportingImport(events) {
     )
   }
   syncSkuCatalogFromLedgers()
-  rebuildInventoryEvents()
+  rebuildInventoryEventsForKeys(affectedKeys, `scoped reporting import replace (${events.length} input row(s), ${list.length} merged row(s))`)
   return list.length
 }
 
@@ -3652,9 +4111,7 @@ export function backfillActivityLogFromLegacyIfEmpty() {
     for (const r of ot) {
       const by = userNameOr(r.createdBy, 'Unknown')
       let n = 0
-      try {
-        n = JSON.parse(r.items || '[]').length
-      } catch { /* */ }
+      n = safeJsonArray(r.items, { table: 'outlet_transfers', column: 'items', id: r.id }).length
       ins.run(
         `bf-ot-${r.id}`,
         r.createdAt || new Date().toISOString(),
@@ -3674,9 +4131,7 @@ export function backfillActivityLogFromLegacyIfEmpty() {
     for (const r of st) {
       const by = userNameOr(r.createdBy, 'Unknown')
       let n = 0
-      try {
-        n = JSON.parse(r.items || '[]').length
-      } catch { /* */ }
+      n = safeJsonArray(r.items, { table: 'store_transfers', column: 'items', id: r.id }).length
       ins.run(
         `bf-st-${r.id}`,
         r.createdAt || new Date().toISOString(),
@@ -3728,9 +4183,7 @@ export function backfillActivityLogFromLegacyIfEmpty() {
     const snaps = db.prepare('SELECT * FROM sales_snapshots ORDER BY timestamp ASC').all()
     for (const r of snaps) {
       let keys = 0
-      try {
-        keys = Object.keys(JSON.parse(r.products || '{}')).length
-      } catch { /* */ }
+      keys = Object.keys(safeJsonObject(r.products, { table: 'sales_snapshots', column: 'products', id: r.id })).length
       ins.run(
         `bf-snap-${r.id}`,
         r.timestamp || new Date().toISOString(),
@@ -3789,4 +4242,63 @@ export function backfillActivityLogFromLegacyIfEmpty() {
 
   tx()
   return { skipped: false, inserted }
+}
+
+// ── Data-mutating backfill orchestrator ─────────────────────────────────────
+//
+// Schema-safe setup (CREATE TABLE/INDEX, ALTER TABLE ADD COLUMN, default-user
+// seed, and the security-critical PIN hashing) runs unconditionally above — it
+// must always be applied for the app to function safely.
+//
+// The steps below only repair/rebuild EXISTING row data. Each is idempotent
+// (re-running is a no-op once data is clean) and self-logging. They run in
+// dependency order: ledger fills/repairs first, then projection rebuilds that
+// read from those ledgers.
+//
+// By default this runs automatically on import to preserve dashboard/data
+// correctness. Set RETAILOS_SKIP_STARTUP_BACKFILLS=1 to disable the automatic
+// pass (e.g. in production) and instead run them in a controlled maintenance
+// window via `node scripts/run-data-backfills.mjs`.
+const STARTUP_DATA_BACKFILL_STEPS = [
+  ['backfill_import_history_total_units', backfillImportHistoryTotalUnits],
+  ['repair_skus_zero_cost_from_peers', repairSkusZeroCostFromSkuPeers],
+  ['dedupe_sales_events', runDedupeOnStartup],
+  ['migrate_retail_shop_names', migrateRetailShopNames],
+  ['backfill_import_line_costs', backfillImportLineCostsOnStartup],
+  ['rebuild_inventory_events', rebuildInventoryEventsOnStartup],
+  ['repair_reporting_line_totals', repairReportingLineTotalsOnStartup],
+  ['normalize_stored_categories', normalizeStoredCategoriesOnStartup],
+  ['sync_sku_catalog_projection', syncSkuCatalogProjectionOnStartup],
+]
+
+/**
+ * Run every data-mutating backfill/repair step in dependency order. Idempotent.
+ * A failure in one step is logged and does not abort the remaining steps
+ * (matching the previous per-step try/catch behavior).
+ * @param {{ logger?: { log: Function, warn: Function } }} [options]
+ * @returns {{ ran: string[], failed: Array<{ step: string, error: string }> }}
+ */
+export function runStartupDataBackfills({ logger = console } = {}) {
+  const ran = []
+  const failed = []
+  for (const [name, step] of STARTUP_DATA_BACKFILL_STEPS) {
+    try {
+      step()
+      ran.push(name)
+    } catch (e) {
+      failed.push({ step: name, error: e?.message || String(e) })
+      logger.warn(`[db] startup backfill step "${name}" failed:`, e?.message || e)
+    }
+  }
+  return { ran, failed }
+}
+
+const SKIP_STARTUP_BACKFILLS =
+  process.env.RETAILOS_SKIP_STARTUP_BACKFILLS === '1' ||
+  process.env.RETAILOS_SKIP_STARTUP_BACKFILLS === 'true'
+
+if (SKIP_STARTUP_BACKFILLS) {
+  console.log('[db] Skipping automatic data backfills (RETAILOS_SKIP_STARTUP_BACKFILLS set) — run scripts/run-data-backfills.mjs to apply them.')
+} else {
+  runStartupDataBackfills()
 }

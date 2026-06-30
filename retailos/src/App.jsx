@@ -1,34 +1,38 @@
-import { useState, useEffect, Component } from 'react'
+import { useState, useEffect, Component, lazy, Suspense } from 'react'
 import { Routes, Route, NavLink, useLocation } from 'react-router-dom'
 import { useStore } from './store/useStore'
 import { Sidebar } from './components/Sidebar.jsx'
 import { Topbar } from './components/Topbar.jsx'
 import { IconDashboard, IconPlanning, IconPlus, IconImport, IconMenu } from './utils/icons.js'
-import { Dashboard } from './pages/Dashboard.jsx'
-import { Lifecycle } from './pages/Lifecycle.jsx'
-import { Bestsellers } from './pages/Bestsellers.jsx'
-import { Reports } from './pages/Reports.jsx'
-import { ImportCSV } from './pages/ImportCSV.jsx'
-import { Photos } from './pages/Photos.jsx'
-import { Footwear } from './pages/Footwear.jsx'
-import { Apparel } from './pages/Apparel.jsx'
-import { Accessories } from './pages/Accessories.jsx'
-import { MyTasks } from './pages/MyTasks.jsx'
-import { OutletTransfers } from './pages/OutletTransfers.jsx'
-import { StoreTransfers } from './pages/StoreTransfers.jsx'
-import { UserManagement } from './pages/UserManagement.jsx'
-import { ProductLookup } from './pages/ProductLookup.jsx'
-import { BuyPlanning } from './pages/BuyPlanning.jsx'
-import { TransferBuilder } from './pages/TransferBuilder.jsx'
-import MarkdownBuilder from './pages/MarkdownBuilder.jsx'
-import MarkdownLists from './pages/MarkdownLists.jsx'
-import { ShiftBoard } from './pages/ShiftBoard.jsx'
-import { SmartAlerts } from './pages/SmartAlerts.jsx'
-import { ActivityLog } from './pages/ActivityLog.jsx'
-import { RecycleBin } from './pages/RecycleBin.jsx'
 import { RequireExecutive } from './components/RequireExecutive.jsx'
 import { isExecutive } from './utils/roles.js'
 import * as api from './api/client.js'
+
+const lazyNamed = (loader, exportName) =>
+  lazy(() => loader().then((mod) => ({ default: mod[exportName] })))
+
+const Dashboard = lazyNamed(() => import('./pages/Dashboard.jsx'), 'Dashboard')
+const Lifecycle = lazyNamed(() => import('./pages/Lifecycle.jsx'), 'Lifecycle')
+const Bestsellers = lazyNamed(() => import('./pages/Bestsellers.jsx'), 'Bestsellers')
+const Reports = lazyNamed(() => import('./pages/Reports.jsx'), 'Reports')
+const ImportCSV = lazyNamed(() => import('./pages/ImportCSV.jsx'), 'ImportCSV')
+const Photos = lazyNamed(() => import('./pages/Photos.jsx'), 'Photos')
+const Footwear = lazyNamed(() => import('./pages/Footwear.jsx'), 'Footwear')
+const Apparel = lazyNamed(() => import('./pages/Apparel.jsx'), 'Apparel')
+const Accessories = lazyNamed(() => import('./pages/Accessories.jsx'), 'Accessories')
+const MyTasks = lazyNamed(() => import('./pages/MyTasks.jsx'), 'MyTasks')
+const OutletTransfers = lazyNamed(() => import('./pages/OutletTransfers.jsx'), 'OutletTransfers')
+const StoreTransfers = lazyNamed(() => import('./pages/StoreTransfers.jsx'), 'StoreTransfers')
+const UserManagement = lazyNamed(() => import('./pages/UserManagement.jsx'), 'UserManagement')
+const ProductLookup = lazyNamed(() => import('./pages/ProductLookup.jsx'), 'ProductLookup')
+const BuyPlanning = lazyNamed(() => import('./pages/BuyPlanning.jsx'), 'BuyPlanning')
+const TransferBuilder = lazyNamed(() => import('./pages/TransferBuilder.jsx'), 'TransferBuilder')
+const MarkdownBuilder = lazy(() => import('./pages/MarkdownBuilder.jsx'))
+const MarkdownLists = lazy(() => import('./pages/MarkdownLists.jsx'))
+const ShiftBoard = lazyNamed(() => import('./pages/ShiftBoard.jsx'), 'ShiftBoard')
+const SmartAlerts = lazyNamed(() => import('./pages/SmartAlerts.jsx'), 'SmartAlerts')
+const ActivityLog = lazyNamed(() => import('./pages/ActivityLog.jsx'), 'ActivityLog')
+const RecycleBin = lazyNamed(() => import('./pages/RecycleBin.jsx'), 'RecycleBin')
 
 class AppErrorBoundary extends Component {
   constructor(props) {
@@ -103,7 +107,6 @@ function GlowBackground({ children }) {
 }
 
 function LoginScreen() {
-  const users = useStore((s) => s.users)
   const _apiOnline = useStore((s) => s._apiOnline)
   const setActiveUser = useStore((s) => s.setActiveUser)
   const initFromServer = useStore((s) => s.initFromServer)
@@ -135,14 +138,9 @@ function LoginScreen() {
       }
       return
     }
-    const user = users.find((u) => u.user_code === code)
-    if (!user || user.pin !== pin) {
-      setError('Invalid code or PIN')
-      setShake(true)
-      setTimeout(() => setShake(false), 500)
-      return
-    }
-    setActiveUser(user)
+    setError('Server unavailable. Please reconnect to sign in.')
+    setShake(true)
+    setTimeout(() => setShake(false), 500)
   }
 
   const loginInputStyle = {
@@ -397,6 +395,24 @@ function ApiOfflineBanner() {
   )
 }
 
+function RouteLoading() {
+  return (
+    <div
+      style={{
+        minHeight: 240,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        color: 'var(--ro-text-muted)',
+        fontFamily: '"DM Sans", sans-serif',
+        fontSize: 14,
+      }}
+    >
+      Loading page…
+    </div>
+  )
+}
+
 function App() {
   const location = useLocation()
   const skus = useStore((s) => s.skus)
@@ -543,30 +559,32 @@ function App() {
           }}
         >
           <div style={{ flex: 1, minHeight: 0 }}>
-            <Routes>
-              <Route path="/" element={<Dashboard />} />
-              <Route path="/smart-alerts" element={<SmartAlerts />} />
-              <Route path="/lifecycle" element={<Lifecycle />} />
-              <Route path="/bestsellers" element={<Bestsellers />} />
-              <Route path="/reports" element={<RequireExecutive><Reports /></RequireExecutive>} />
-              <Route path="/activity-log" element={<RequireExecutive><ActivityLog /></RequireExecutive>} />
-              <Route path="/lookup" element={<RequireExecutive><ProductLookup /></RequireExecutive>} />
-              <Route path="/buy-planning" element={<RequireExecutive><BuyPlanning /></RequireExecutive>} />
-              <Route path="/import" element={<RequireExecutive><ImportCSV /></RequireExecutive>} />
-              <Route path="/photos" element={<RequireExecutive><Photos /></RequireExecutive>} />
-              <Route path="/bin" element={<RequireExecutive><RecycleBin /></RequireExecutive>} />
-              <Route path="/catalog/footwear" element={<Footwear />} />
-              <Route path="/catalog/apparel" element={<Apparel />} />
-              <Route path="/catalog/accessories" element={<Accessories />} />
-              <Route path="/tasks" element={<MyTasks />} />
-              <Route path="/new-transfer" element={<TransferBuilder />} />
-              <Route path="/outlet" element={<OutletTransfers />} />
-              <Route path="/transfers" element={<StoreTransfers />} />
-              <Route path="/markdown" element={<MarkdownLists />} />
-              <Route path="/new-markdown" element={<MarkdownBuilder />} />
-              <Route path="/users" element={<RequireExecutive><UserManagement /></RequireExecutive>} />
-              <Route path="/shift-board" element={<ShiftBoard />} />
-            </Routes>
+            <Suspense fallback={<RouteLoading />}>
+              <Routes>
+                <Route path="/" element={<Dashboard />} />
+                <Route path="/smart-alerts" element={<SmartAlerts />} />
+                <Route path="/lifecycle" element={<Lifecycle />} />
+                <Route path="/bestsellers" element={<Bestsellers />} />
+                <Route path="/reports" element={<RequireExecutive><Reports /></RequireExecutive>} />
+                <Route path="/activity-log" element={<RequireExecutive><ActivityLog /></RequireExecutive>} />
+                <Route path="/lookup" element={<RequireExecutive><ProductLookup /></RequireExecutive>} />
+                <Route path="/buy-planning" element={<RequireExecutive><BuyPlanning /></RequireExecutive>} />
+                <Route path="/import" element={<RequireExecutive><ImportCSV /></RequireExecutive>} />
+                <Route path="/photos" element={<RequireExecutive><Photos /></RequireExecutive>} />
+                <Route path="/bin" element={<RequireExecutive><RecycleBin /></RequireExecutive>} />
+                <Route path="/catalog/footwear" element={<Footwear />} />
+                <Route path="/catalog/apparel" element={<Apparel />} />
+                <Route path="/catalog/accessories" element={<Accessories />} />
+                <Route path="/tasks" element={<MyTasks />} />
+                <Route path="/new-transfer" element={<TransferBuilder />} />
+                <Route path="/outlet" element={<OutletTransfers />} />
+                <Route path="/transfers" element={<StoreTransfers />} />
+                <Route path="/markdown" element={<MarkdownLists />} />
+                <Route path="/new-markdown" element={<MarkdownBuilder />} />
+                <Route path="/users" element={<RequireExecutive><UserManagement /></RequireExecutive>} />
+                <Route path="/shift-board" element={<ShiftBoard />} />
+              </Routes>
+            </Suspense>
           </div>
 
           <div className="app-footer">

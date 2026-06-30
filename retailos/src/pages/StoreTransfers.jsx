@@ -565,7 +565,7 @@ function StoreTransferTable({ batch, onSkuClick }) {
   )
 }
 
-function CompletedSummary({ batch, getUserName, expanded: forceExpanded, onSkuClick }) {
+function CompletedSummary({ batch, expanded: forceExpanded, onSkuClick }) {
   const photoMap = useStore((s) => s.photoMap)
   const statuses = batch.item_statuses || {}
   const entries = Object.entries(statuses)
@@ -1011,7 +1011,7 @@ export function StoreTransfers() {
                       )}
 
                       {isCompleted && (
-                        <CompletedSummary batch={batch} getUserName={getUserName} expanded={tab === 'history'} onSkuClick={handleSkuClick} />
+                        <CompletedSummary batch={batch} expanded={tab === 'history'} onSkuClick={handleSkuClick} />
                       )}
 
                       <div className="ot-batch-card__footer transfer-batch-actions">

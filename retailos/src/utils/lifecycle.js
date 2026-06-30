@@ -101,11 +101,8 @@ export function getReorderVerdict(row) {
   const stocked = Number(row.stock) || 0
   const sellThrough = stocked > 0 ? (sold / stocked) * 100 : 0
   const roi = Number(row.roi) || 0
-  const totalCost = Number(row.totalCost) || 0
-  const profit = Number(row.profit) || 0
   const days = getDaysInStore(row.first_import_date)
   const velocity = days > 0 ? sold / days : 0
-  const marginPerUnit = sold > 0 ? profit / sold : 0
 
   if (days < 30 || stocked < 3) {
     return {

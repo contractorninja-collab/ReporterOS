@@ -33,7 +33,7 @@ function PinDisplay({ userId, pin, revealedUserId, onToggleReveal }) {
   const isRevealed = revealedUserId === userId
   return (
     <span className={`um-user-row__pin${isRevealed ? ' um-user-row__pin--revealed' : ''}`}>
-      PIN {isRevealed ? pin : '••••'}
+      New PIN {isRevealed ? pin : '••••'}
       <button
         type="button"
         className="um-pin-toggle"
@@ -239,15 +239,15 @@ export function UserManagement() {
                     </div>
                     <div className="um-field um-field--pin">
                       <label className="um-label">PIN</label>
-                      {u.pin_plain ? (
+                      {u.one_time_pin ? (
                         <PinDisplay
                           userId={u.id}
-                          pin={u.pin_plain}
+                          pin={u.one_time_pin}
                           revealedUserId={revealedPinUserId}
                           onToggleReveal={togglePinReveal}
                         />
                       ) : (
-                        <div className="um-code-preview um-code-preview--readonly">—</div>
+                        <div className="um-code-preview um-code-preview--readonly">Reset to show once</div>
                       )}
                     </div>
                   </div>
@@ -302,10 +302,10 @@ export function UserManagement() {
                   {u.user_code && (
                     <span className="um-user-row__id">ID #{u.user_code}</span>
                   )}
-                  {u.pin_plain && (
+                  {u.one_time_pin && (
                     <PinDisplay
                       userId={u.id}
-                      pin={u.pin_plain}
+                      pin={u.one_time_pin}
                       revealedUserId={revealedPinUserId}
                       onToggleReveal={togglePinReveal}
                     />

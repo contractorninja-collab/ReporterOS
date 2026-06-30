@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { IconChevronDown, IconCheck } from '../utils/icons.js'
 
 /**
@@ -20,10 +20,10 @@ export default function BrandSelect({
   const isControlled = controlledOpen !== undefined
   const isOpen = isControlled ? controlledOpen : internalOpen
 
-  const setOpen = (next) => {
+  const setOpen = useCallback((next) => {
     if (isControlled) onOpenChange?.(next)
     else setInternalOpen(next)
-  }
+  }, [isControlled, onOpenChange])
 
   const isActiveFilter = value !== allValue
   const allOption = { value: allValue, label: allLabel }
@@ -45,7 +45,7 @@ export default function BrandSelect({
       document.removeEventListener('mousedown', onDocClick)
       document.removeEventListener('keydown', onEsc)
     }
-  }, [isOpen])
+  }, [isOpen, setOpen])
 
   return (
     <div

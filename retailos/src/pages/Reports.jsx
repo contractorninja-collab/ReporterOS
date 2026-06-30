@@ -221,11 +221,6 @@ function ProductCell({ name, sku }) {
 const MOVER_COLUMNS_FAST = moverColumns('fast')
 const MOVER_COLUMNS_SLOW = moverColumns('slow')
 
-function profitValueColor(value) {
-  const n = Number(value) || 0
-  return n < 0 ? '#DC2626' : '#111'
-}
-
 function profitCellColor(profit) {
   const p = Number(profit) || 0
   if (p < 0) return '#DC2626'

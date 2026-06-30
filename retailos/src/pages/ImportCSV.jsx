@@ -1,34 +1,15 @@
 import { useState, useRef, useId, useMemo, useEffect } from 'react'
 import { useStore } from '../store/useStore'
 import {
-  parseCSV,
   sumIntakeInvestmentPreview,
   mergeDuplicateSkuSizeRows,
   validateReportingRow,
-  skuSizeKey,
-  reportingLineRevenueFromRow,
-  classifyReportingMovement,
 } from '../utils/csvParser'
 import { buildSnapshot } from '../utils/salesSnapshots'
 import { importStatusBadgeClass } from '../utils/statusBadge.js'
 import { normalizeBarcodeValue } from '../utils/barcodeFormat.js'
 import * as api from '../api/client'
 import { IconPackage, IconImport, IconFolder, IconClock, IconDownload, IconLifecycle, IconDelete } from '../utils/icons.js'
-
-/**
- * Match reporting row to catalog: exact sku+size first, then sku+blank size, then any row with same sku.
- */
-function findExistingSkuRow(existingMap, allSkus, sku, size) {
-  const k = skuSizeKey(sku, size)
-  if (existingMap.has(k)) return existingMap.get(k)
-  const kEmpty = skuSizeKey(sku, '')
-  if (existingMap.has(kEmpty)) return existingMap.get(kEmpty)
-  const want = String(sku ?? '').trim()
-  for (const s of allSkus) {
-    if (String(s.sku ?? '').trim() === want) return s
-  }
-  return null
-}
 
 /** Mirrors csvParser.validateRow — required fields for New Arrivals Intake */
 function isValidSkuRow(row) {
@@ -66,15 +47,6 @@ function formatSaleDateDdMmYy(d) {
   const mm = String(d.getMonth() + 1).padStart(2, '0')
   const yy = String(d.getFullYear()).slice(-2)
   return `${dd}.${mm}.${yy}`
-}
-
-/** YYYY-MM-DD in local time (matches sale_date calendar day). */
-function toIsoDateLocal(d) {
-  if (!(d instanceof Date) || Number.isNaN(d.getTime())) return null
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  return `${y}-${m}-${day}`
 }
 
 const INTAKE_FIELD_PILLS = [
@@ -137,6 +109,21 @@ const S = {
 }
 
 const IMPORT_COST_AUDIT_TOLERANCE = 1
+const LARGE_CSV_PROGRESS_BYTES = 1024 * 1024
+
+function createImportCsvWorker() {
+  return new Worker(new URL('../workers/importCsv.worker.js', import.meta.url), { type: 'module' })
+}
+
+function initialParseProgress(file, label = 'Preparing CSV') {
+  const mb = file?.size ? file.size / (1024 * 1024) : 0
+  const sizeLabel = file?.size >= LARGE_CSV_PROGRESS_BYTES ? ` (${mb.toFixed(1)} MB)` : ''
+  return {
+    phase: 'queued',
+    progress: 0,
+    detail: `${label}${sizeLabel}`,
+  }
+}
 
 function FieldPillList({ pills }) {
   return (
@@ -164,6 +151,7 @@ function ImportUploadTile({
   isHover,
   loading,
   error,
+  progress,
   onDownloadTemplate,
   onFile,
 }) {
@@ -225,7 +213,7 @@ function ImportUploadTile({
             <IconFolder size={28} strokeWidth={1.5} />
           </div>
           <div className="import-dropzone__label">
-            {loading ? 'Parsing...' : 'Drop your CSV here or click to browse'}
+            {loading ? (progress?.phase === 'grouping' ? 'Preparing import...' : 'Parsing...') : 'Drop your CSV here or click to browse'}
           </div>
           <div className="import-dropzone__hint">Supports .csv · Max 50MB</div>
         </div>
@@ -244,6 +232,20 @@ function ImportUploadTile({
       />
 
       {error && <p className="import-upload-section__error">{error}</p>}
+      {progress && (
+        <div className="import-upload-progress" role="status" aria-live="polite">
+          <div className="import-upload-progress__meta">
+            <span>{progress.detail || progress.phase || 'Working'}</span>
+            <span>{Math.max(0, Math.min(100, Math.round(progress.progress || 0)))}%</span>
+          </div>
+          <div className="import-upload-progress__track" aria-hidden="true">
+            <div
+              className="import-upload-progress__bar"
+              style={{ width: `${Math.max(4, Math.min(100, Math.round(progress.progress || 0)))}%` }}
+            />
+          </div>
+        </div>
+      )}
 
       <div className="import-field-pills-label">CSV columns:</div>
       <FieldPillList pills={fieldPills} />
@@ -608,7 +610,7 @@ function PreviewSection({
 function formatImportError(err) {
   if (!err) return 'Import failed'
   if (err.message === 'Failed to fetch' || err.name === 'TypeError') {
-    return 'Could not reach the API. Start the RetailOS server (npm run server on port 3001), keep Vite running, then retry.'
+    return 'Could not reach the API or the request timed out. If this is the live server, ask your host to raise nginx proxy_read_timeout and client_max_body_size (see DEPLOYMENT-SECURITY.md), then retry.'
   }
   return err.message || 'Import failed'
 }
@@ -632,7 +634,6 @@ export function ImportCSV() {
   const importSkusBatch = useStore((s) => s.importSkusBatch)
   const setSkus = useStore((s) => s.setSkus)
   const addImportRecord = useStore((s) => s.addImportRecord)
-  const deleteImport = useStore((s) => s.deleteImport)
   const importHistory = useStore((s) => s.importHistory)
   const addAssignments = useStore((s) => s.addAssignments)
   const addSalesSnapshot = useStore((s) => s.addSalesSnapshot)
@@ -651,6 +652,11 @@ export function ImportCSV() {
 
   const fileInputIntakeRef = useRef(null)
   const fileInputReportingRef = useRef(null)
+  const workerRef = useRef(null)
+  const workerTasksRef = useRef(new Map())
+  const workerTaskSeqRef = useRef(0)
+  const activeIntakeParseRef = useRef(null)
+  const activeReportingParseRef = useRef(null)
 
   const [isDraggingIntake, setIsDraggingIntake] = useState(false)
   const [isHoverIntake, setIsHoverIntake] = useState(false)
@@ -660,6 +666,7 @@ export function ImportCSV() {
   const [loadingIntake, setLoadingIntake] = useState(false)
   const [errorIntake, setErrorIntake] = useState(null)
   const [confirmingIntake, setConfirmingIntake] = useState(false)
+  const [parseProgressIntake, setParseProgressIntake] = useState(null)
 
   const [isDraggingReporting, setIsDraggingReporting] = useState(false)
   const [isHoverReporting, setIsHoverReporting] = useState(false)
@@ -669,6 +676,7 @@ export function ImportCSV() {
   const [loadingReporting, setLoadingReporting] = useState(false)
   const [errorReporting, setErrorReporting] = useState(null)
   const [confirmingReporting, setConfirmingReporting] = useState(false)
+  const [parseProgressReporting, setParseProgressReporting] = useState(null)
 
   /** Shown after a successful confirm — cleared on next upload or dismiss */
   const [successBanner, setSuccessBanner] = useState(null)
@@ -676,6 +684,53 @@ export function ImportCSV() {
   useEffect(() => {
     refreshImportHistory()
   }, [refreshImportHistory])
+
+  useEffect(() => () => {
+    workerRef.current?.terminate()
+    workerRef.current = null
+    for (const task of workerTasksRef.current.values()) {
+      task.reject(new Error('CSV processing was cancelled.'))
+    }
+    workerTasksRef.current.clear()
+  }, [])
+
+  function getImportWorker() {
+    if (workerRef.current) return workerRef.current
+    const worker = createImportCsvWorker()
+    worker.onmessage = (event) => {
+      const { type, id, progress, phase, detail, result, error } = event.data || {}
+      const task = workerTasksRef.current.get(id)
+      if (!task) return
+      if (type === 'progress') {
+        task.onProgress?.({ phase, progress, detail })
+        return
+      }
+      workerTasksRef.current.delete(id)
+      if (type === 'result') {
+        task.resolve(result)
+      } else {
+        task.reject(new Error(error || 'CSV processing failed'))
+      }
+    }
+    worker.onerror = (event) => {
+      const err = new Error(event.message || 'CSV worker failed')
+      for (const task of workerTasksRef.current.values()) task.reject(err)
+      workerTasksRef.current.clear()
+      workerRef.current?.terminate()
+      workerRef.current = null
+    }
+    workerRef.current = worker
+    return worker
+  }
+
+  function runWorkerTask(task, payload, onProgress) {
+    const worker = getImportWorker()
+    const id = `import-${Date.now()}-${workerTaskSeqRef.current += 1}`
+    return new Promise((resolve, reject) => {
+      workerTasksRef.current.set(id, { resolve, reject, onProgress })
+      worker.postMessage({ id, task, payload })
+    })
+  }
 
   function runValidation(skus) {
     const errors = []
@@ -713,18 +768,30 @@ export function ImportCSV() {
   async function handleFileIntake(file) {
     if (!file) {
       setErrorIntake('No file received on drop. Use click to browse, or drag a .csv from File Explorer.')
+      setParseProgressIntake(null)
       return
     }
     if (!file.name.toLowerCase().endsWith('.csv')) {
       setErrorIntake('Please choose a .csv file')
+      setParseProgressIntake(null)
       return
     }
     setErrorIntake(null)
     setSuccessBanner(null)
     setLoadingIntake(true)
     setValidationErrorsIntake([])
+    setParseProgressIntake(initialParseProgress(file, 'Preparing intake CSV'))
+    const parseToken = Symbol('intake-parse')
+    activeIntakeParseRef.current = parseToken
     try {
-      const skus = await parseCSV(file)
+      const { rows: skus, validationErrors } = await runWorkerTask(
+        'parse',
+        { file, mode: 'intake' },
+        (progress) => {
+          if (activeIntakeParseRef.current === parseToken) setParseProgressIntake(progress)
+        },
+      )
+      if (activeIntakeParseRef.current !== parseToken) return
       if (skus.length === 0) {
         setErrorIntake(
           'No rows loaded. Add at least one data row with barcode and sku, keep the header row exactly as in the template, and use comma or semicolon separators (Excel EU: export as CSV or use semicolons).',
@@ -736,32 +803,49 @@ export function ImportCSV() {
       }
       setPendingFileIntake(file)
       setPendingSkusIntake(skus)
-      setValidationErrorsIntake(runValidation(skus))
+      setValidationErrorsIntake(Array.isArray(validationErrors) ? validationErrors : runValidation(skus))
     } catch (err) {
       setErrorIntake(formatImportError(err) || 'Failed to parse CSV')
       setPendingFileIntake(null)
       setPendingSkusIntake([])
       setValidationErrorsIntake([])
     } finally {
-      setLoadingIntake(false)
+      if (activeIntakeParseRef.current === parseToken) {
+        setLoadingIntake(false)
+        window.setTimeout(() => {
+          if (activeIntakeParseRef.current === parseToken) setParseProgressIntake(null)
+        }, 500)
+      }
     }
   }
 
   async function handleFileReporting(file) {
     if (!file) {
       setErrorReporting('No file received on drop. Use click to browse, or drag a .csv from File Explorer.')
+      setParseProgressReporting(null)
       return
     }
     if (!file.name.toLowerCase().endsWith('.csv')) {
       setErrorReporting('Please choose a .csv file')
+      setParseProgressReporting(null)
       return
     }
     setErrorReporting(null)
     setSuccessBanner(null)
     setLoadingReporting(true)
     setValidationErrorsReporting([])
+    setParseProgressReporting(initialParseProgress(file, 'Preparing reporting CSV'))
+    const parseToken = Symbol('reporting-parse')
+    activeReportingParseRef.current = parseToken
     try {
-      const skus = await parseCSV(file)
+      const { rows: skus, validationErrors } = await runWorkerTask(
+        'parse',
+        { file, mode: 'reporting' },
+        (progress) => {
+          if (activeReportingParseRef.current === parseToken) setParseProgressReporting(progress)
+        },
+      )
+      if (activeReportingParseRef.current !== parseToken) return
       if (skus.length === 0) {
         setErrorReporting(
           'No rows loaded. Add at least one data row with barcode and sku, keep the header row exactly as in the template, and use comma or semicolon separators (Excel EU: export as CSV or use semicolons).',
@@ -773,14 +857,19 @@ export function ImportCSV() {
       }
       setPendingFileReporting(file)
       setPendingSkusReporting(skus)
-      setValidationErrorsReporting(runReportingValidation(skus))
+      setValidationErrorsReporting(Array.isArray(validationErrors) ? validationErrors : runReportingValidation(skus))
     } catch (err) {
       setErrorReporting(formatImportError(err) || 'Failed to parse CSV')
       setPendingFileReporting(null)
       setPendingSkusReporting([])
       setValidationErrorsReporting([])
     } finally {
-      setLoadingReporting(false)
+      if (activeReportingParseRef.current === parseToken) {
+        setLoadingReporting(false)
+        window.setTimeout(() => {
+          if (activeReportingParseRef.current === parseToken) setParseProgressReporting(null)
+        }, 500)
+      }
     }
   }
 
@@ -795,6 +884,8 @@ export function ImportCSV() {
       summaryLabel,
     } = options
     const importId = presetImportId || crypto.randomUUID?.() || `imp-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    const rollbackOnFailure = importKind === 'intake' && persistImportHistory
+    let importRecordAttempted = false
     const normalized = validSkus.map((s) => ({
       ...s,
       _importId: attachImportIdToSkus ? importId : null,
@@ -803,82 +894,110 @@ export function ImportCSV() {
     const merged = mergeDuplicateSkuSizeRows(normalized, {
       allowSignedSold: importKind === 'reporting',
     })
-    let seasonRollover = null
-    if (persistSkus) {
-      seasonRollover = await importSkusBatch(merged)
-    }
-    if (importKind === 'intake' && persistSkus) {
-      const expectedTotal = sumIntakeInvestmentPreview(merged)
-      const audit = await api.fetchImportCostAudit({ importId, expectedTotal })
-      const diff = Math.abs(Number(audit?.difference) || 0)
-      if (diff > IMPORT_COST_AUDIT_TOLERANCE) {
-        throw new Error(
-          `Import cost audit failed: preview €${expectedTotal.toFixed(2)} but saved ledger €${Number(audit?.ledgerInvestment || 0).toFixed(2)}.`,
-        )
+    try {
+      let seasonRollover = null
+      if (persistImportHistory) {
+        importRecordAttempted = true
+        await addImportRecord({
+          id: importId,
+          filename: pendingFile?.name || 'import.csv',
+          date: new Date().toISOString(),
+          count: merged.length,
+          productCount: new Set(merged.map((s) => s.sku)).size,
+          totalUnits: summaryUnits ?? merged.reduce((sum, s) => sum + (Number(s.quantity) || 0), 0),
+        })
       }
-    }
-    if (persistImportHistory) {
-      await addImportRecord({
-        id: importId,
-        filename: pendingFile?.name || 'import.csv',
-        date: new Date().toISOString(),
-        count: merged.length,
-        productCount: new Set(merged.map((s) => s.sku)).size,
-        totalUnits: summaryUnits ?? merged.reduce((sum, s) => sum + (Number(s.quantity) || 0), 0),
-      })
-    }
-    if (pendingFile) {
-      const csvText = await pendingFile.text()
-      await api.postImportCsvFile({
-        importId,
-        filename: pendingFile.name || 'import.csv',
-        csvText,
-      })
-    }
-    if (importKind === 'intake' && persistSkus && persistImportHistory) {
-      await assertProductLookupCostMatchesLedger()
-    }
-
-    if (persistSkus) {
-      const uniqueSkuCodes = [...new Set(merged.map((s) => s.sku))]
-      const skuFirstRow = new Map()
-      for (const s of merged) {
-        if (!skuFirstRow.has(s.sku)) skuFirstRow.set(s.sku, s)
+      if (persistSkus) {
+        seasonRollover = await importSkusBatch(merged)
       }
-      const currentPhotoMap = useStore.getState().photoMap
-      const manager = users.find((u) => u.role === 'manager') || users[0]
-      const photoTasks = []
-      for (const code of uniqueSkuCodes) {
-        if (!currentPhotoMap[code]) {
-          const product = skuFirstRow.get(code)
-          photoTasks.push({
-            type: 'photo_needed',
-            skuCode: code,
-            productName: product?.product_name || code,
-            assignedTo: manager?.id || '',
-            assignedBy: activeUser?.id || '',
-            shop: manager?.shop || '',
-            status: 'pending',
-            note: 'No product photo — please upload one',
-          })
+      if (importKind === 'intake' && persistSkus) {
+        const expectedTotal = sumIntakeInvestmentPreview(merged)
+        const audit = await api.fetchImportCostAudit({ importId, expectedTotal })
+        const diff = Math.abs(Number(audit?.difference) || 0)
+        if (diff > IMPORT_COST_AUDIT_TOLERANCE) {
+          throw new Error(
+            `Import cost audit failed: preview €${expectedTotal.toFixed(2)} but saved ledger €${Number(audit?.ledgerInvestment || 0).toFixed(2)}.`,
+          )
         }
       }
-      if (photoTasks.length > 0) addAssignments(photoTasks)
+      if (pendingFile) {
+        await api.postImportCsvFile({
+          importId,
+          filename: pendingFile.name || 'import.csv',
+          file: pendingFile,
+        })
+      }
+      if (importKind === 'intake' && persistSkus && persistImportHistory) {
+        await assertProductLookupCostMatchesLedger()
+      }
 
-      const allSkus = useStore.getState().skus
-      addSalesSnapshot(buildSnapshot(allSkus))
-    }
+      if (persistSkus) {
+        const uniqueSkuCodes = [...new Set(merged.map((s) => s.sku))]
+        const skuFirstRow = new Map()
+        for (const s of merged) {
+          if (!skuFirstRow.has(s.sku)) skuFirstRow.set(s.sku, s)
+        }
+        const currentPhotoMap = useStore.getState().photoMap
+        const manager = users.find((u) => u.role === 'manager') || users[0]
+        const photoTasks = []
+        for (const code of uniqueSkuCodes) {
+          if (!currentPhotoMap[code]) {
+            const product = skuFirstRow.get(code)
+            photoTasks.push({
+              type: 'photo_needed',
+              skuCode: code,
+              productName: product?.product_name || code,
+              assignedTo: manager?.id || '',
+              assignedBy: activeUser?.id || '',
+              shop: manager?.shop || '',
+              status: 'pending',
+              note: 'No product photo — please upload one',
+            })
+          }
+        }
+        if (photoTasks.length > 0) addAssignments(photoTasks)
 
-    const distinctProducts = new Set(merged.map((s) => s.sku)).size
-    const totalUnits = merged.reduce((sum, s) => sum + (Number(s.quantity) || 0), 0)
+        const allSkus = useStore.getState().skus
+        addSalesSnapshot(buildSnapshot(allSkus))
+      }
 
-    return {
-      count: merged.length,
-      distinctProducts,
-      totalUnits: summaryUnits ?? totalUnits,
-      totalUnitsLabel: summaryLabel ?? 'total units',
-      filename: pendingFile?.name || 'import.csv',
-      seasonRollover,
+      const distinctProducts = new Set(merged.map((s) => s.sku)).size
+      const totalUnits = merged.reduce((sum, s) => sum + (Number(s.quantity) || 0), 0)
+
+      return {
+        count: merged.length,
+        distinctProducts,
+        totalUnits: summaryUnits ?? totalUnits,
+        totalUnitsLabel: summaryLabel ?? 'total units',
+        filename: pendingFile?.name || 'import.csv',
+        seasonRollover,
+      }
+    } catch (err) {
+      if (rollbackOnFailure && importRecordAttempted) {
+        let rollbackOk = true
+        try {
+          await api.deleteImportById(importId)
+        } catch {
+          rollbackOk = false
+        }
+        const [freshSkus, freshHistory] = await Promise.all([
+          api.fetchSkus().catch(() => null),
+          api.fetchImportHistory().catch(() => null),
+        ])
+        if (Array.isArray(freshSkus)) setSkus(freshSkus)
+        if (Array.isArray(freshHistory)) useStore.setState({ importHistory: freshHistory })
+        await Promise.all([
+          refreshSkuImportTotals(),
+          refreshWeeklySales(),
+        ])
+        if (!rollbackOk) {
+          throw new Error(
+            `${err?.message || 'Import failed'} Import rollback could not be verified; check Recent Imports before retrying.`,
+          )
+        }
+        throw new Error(`${err?.message || 'Import failed'} The failed intake import was rolled back; no import history row was kept.`)
+      }
+      throw err
     }
   }
 
@@ -927,21 +1046,24 @@ export function ImportCSV() {
     setConfirmingReporting(true)
     setErrorReporting(null)
     const reportingImportId = crypto.randomUUID?.() || `imp-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    let salesEventsAttempted = false
     try {
       const existingSkus = useStore.getState().skus
-      const knownSkuCodes = new Set(existingSkus.map((s) => s.sku))
-      const existingMap = new Map()
-      for (const s of existingSkus) {
-        existingMap.set(skuSizeKey(s.sku, s.size), s)
-      }
+      setParseProgressReporting({ phase: 'grouping', progress: 0, detail: 'Preparing reporting rows' })
+      const {
+        mergedSkus,
+        salesEvents,
+        skippedCount,
+        skippedSkus,
+        recognizedCount,
+        reportingNetUnits,
+      } = await runWorkerTask(
+        'buildReportingPlan',
+        { rows: validSkus, existingSkus, reportingImportId },
+        (progress) => setParseProgressReporting(progress),
+      )
 
-      const recognized = validSkus.filter((row) => knownSkuCodes.has(row.sku))
-      const skippedCount = validSkus.length - recognized.length
-      const skippedSkus = [...new Set(
-        validSkus.filter((row) => !knownSkuCodes.has(row.sku)).map((row) => row.sku),
-      )]
-
-      if (recognized.length === 0) {
+      if (recognizedCount === 0) {
         setErrorReporting(
           skippedCount > 0
             ? `All ${skippedCount} rows belong to unrecognized SKUs (not imported via New Arrivals). Import only processes products that exist in the system.`
@@ -951,105 +1073,6 @@ export function ImportCSV() {
         return
       }
 
-      const bySkuSize = new Map()
-      for (const row of recognized) {
-        const key = skuSizeKey(row.sku, row.size)
-        const movement = classifyReportingMovement(row)
-        const unitsAbs = Math.abs(Math.round(Number(row.sold_quantity) || 0))
-        const units = movement === 'RETURN' ? -unitsAbs : unitsAbs
-        if (!bySkuSize.has(key)) bySkuSize.set(key, { rows: [], increment: 0, revenue: 0 })
-        const b = bySkuSize.get(key)
-        b.rows.push(row)
-        b.increment += units
-        b.revenue += reportingLineRevenueFromRow(row)
-      }
-
-      const eventGroups = new Map()
-      for (const row of recognized) {
-        const d = row.sale_date
-        const eventDate = d instanceof Date ? toIsoDateLocal(d) : null
-        if (!eventDate) continue
-        const movement = classifyReportingMovement(row)
-        const direction = movement === 'RETURN' ? 'RETURN' : movement === 'SALE' ? 'SALE' : 'UNKNOWN'
-        const gk = `${skuSizeKey(row.sku, row.size)}|${eventDate}|${direction}`
-        const unitsAbs = Math.abs(Math.round(Number(row.sold_quantity) || 0))
-        const units = movement === 'RETURN' ? -unitsAbs : unitsAbs
-        if (!eventGroups.has(gk)) {
-          eventGroups.set(gk, {
-            sku: row.sku,
-            size: row.size ?? '',
-            eventDate,
-            units: 0,
-            revenue: 0,
-            grossSold: 0,
-            grossReturned: 0,
-          })
-        }
-        const eg = eventGroups.get(gk)
-        if (movement === 'SALE') {
-          eg.grossSold += units
-        } else if (movement === 'RETURN') {
-          eg.grossReturned += unitsAbs
-        }
-        eg.units += units
-        eg.revenue += reportingLineRevenueFromRow(row)
-      }
-
-      const mergedSkus = []
-      for (const [key, { increment, revenue, rows }] of bySkuSize) {
-        const pipe = key.indexOf('|')
-        const sku = key.slice(0, pipe)
-        const size = key.slice(pipe + 1)
-        const existing = findExistingSkuRow(existingMap, existingSkus, sku, size)
-        const firstRow = rows[0]
-        const oldSold = Number(existing?.sold_quantity) || 0
-        const fromBatch =
-          increment !== 0 && Math.abs(revenue) > 1e-9 ? revenue / increment : null
-        const avgPrice =
-          fromBatch != null
-            ? fromBatch
-            : (Number(firstRow?.price_sold) || Number(existing?.price_sold) || 0)
-        mergedSkus.push({
-          ...firstRow,
-          sku,
-          size,
-          product_name: existing?.product_name || '',
-          price_sold: avgPrice,
-          price_tag: existing?.price_tag ?? 0,
-          cost_price: existing?.cost_price ?? 0,
-          import_date: existing?.import_date || firstRow.import_date || new Date().toISOString(),
-          quantity: existing?.quantity ?? 0,
-          sold_quantity: oldSold + increment,
-          gender: existing?.gender || '',
-          season: existing?.season || '',
-          category: existing?.category || '',
-          brand: existing?.brand || '',
-          barcode: existing?.barcode || firstRow.barcode,
-        })
-      }
-
-      const salesEvents = []
-      for (const eg of eventGroups.values()) {
-        if (eg.grossSold === 0 && eg.grossReturned === 0) continue
-        const existing = findExistingSkuRow(existingMap, existingSkus, eg.sku, eg.size)
-        const ppu =
-          eg.units !== 0 && Math.abs(eg.revenue) > 1e-9 ? eg.revenue / eg.units : 0
-        salesEvents.push({
-          sku: eg.sku,
-          product_name: existing?.product_name ?? '',
-          size: eg.size ?? '',
-          units_sold: eg.units,
-          price_sold: ppu,
-          revenue: eg.revenue,
-          event_date: eg.eventDate,
-          import_id: reportingImportId,
-        })
-      }
-
-      if (salesEvents.length > 0) {
-        await api.postSalesEvents(salesEvents, true)
-      }
-      const reportingNetUnits = recognized.reduce((sum, row) => sum + (Number(row.sold_quantity) || 0), 0)
       const result = await commitImport(mergedSkus, pendingFileReporting, {
         importKind: 'reporting',
         presetImportId: reportingImportId,
@@ -1059,6 +1082,12 @@ export function ImportCSV() {
         summaryUnits: reportingNetUnits,
         summaryLabel: 'net units',
       })
+
+      // Sales dashboards are updated only after the import record and source CSV archive both exist.
+      if (salesEvents.length > 0) {
+        salesEventsAttempted = true
+        await api.postSalesEvents(salesEvents, true)
+      }
       const freshSkus = await api.fetchSkus().catch(() => null)
       if (Array.isArray(freshSkus)) setSkus(freshSkus)
       refreshSkuImportTotals()
@@ -1078,25 +1107,54 @@ export function ImportCSV() {
       setPendingSkusReporting([])
       setValidationErrorsReporting([])
     } catch (err) {
-      setErrorReporting(formatImportError(err))
+      let salesRollbackOk = true
+      try {
+        if (salesEventsAttempted) {
+          try {
+            await api.deleteSalesEventsByImportId(reportingImportId)
+          } catch {
+            salesRollbackOk = false
+          }
+        }
+        await api.deleteImportById(reportingImportId).catch(() => null)
+        refreshWeeklySales()
+        refreshImportHistory()
+        const freshSkus = await api.fetchSkus().catch(() => null)
+        if (Array.isArray(freshSkus)) setSkus(freshSkus)
+      } catch {
+        /* best-effort cleanup; show the original import error below */
+      }
+      const message = formatImportError(err)
+      setErrorReporting(
+        salesEventsAttempted
+          ? salesRollbackOk
+            ? `${message} Sales dashboard changes for this import were rolled back; refresh the page if the totals still look stale.`
+            : `${message} Import status is uncertain because rollback could not be verified. Refresh the page and check sales totals before importing again.`
+          : message,
+      )
     } finally {
       setConfirmingReporting(false)
+      window.setTimeout(() => setParseProgressReporting(null), 500)
     }
   }
 
   function handleClearIntake() {
+    activeIntakeParseRef.current = null
     setPendingFileIntake(null)
     setPendingSkusIntake([])
     setValidationErrorsIntake([])
     setErrorIntake(null)
+    setParseProgressIntake(null)
     setSuccessBanner(null)
   }
 
   function handleClearReporting() {
+    activeReportingParseRef.current = null
     setPendingFileReporting(null)
     setPendingSkusReporting([])
     setValidationErrorsReporting([])
     setErrorReporting(null)
+    setParseProgressReporting(null)
     setSuccessBanner(null)
   }
 
@@ -1143,7 +1201,7 @@ export function ImportCSV() {
 
   async function handleDeleteImport(importId) {
     try {
-      await deleteImport(importId)
+      await api.deleteImportById(importId)
     } catch {
       /* keep list; server state unchanged */
     } finally {
@@ -1270,6 +1328,7 @@ export function ImportCSV() {
             isHover={isHoverIntake}
             loading={loadingIntake}
             error={errorIntake}
+            progress={parseProgressIntake}
             onDownloadTemplate={handleDownloadNewArrivalsTemplate}
             onFile={{
               setDragging: setIsDraggingIntake,
@@ -1291,6 +1350,7 @@ export function ImportCSV() {
             isHover={isHoverReporting}
             loading={loadingReporting}
             error={errorReporting}
+            progress={parseProgressReporting}
             onDownloadTemplate={handleDownloadReportingTemplate}
             onFile={{
               setDragging: setIsDraggingReporting,

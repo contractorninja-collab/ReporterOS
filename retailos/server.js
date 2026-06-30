@@ -24,8 +24,8 @@ import {
   getAllSaleChangeReports, getSaleChangeReportById, saleChangeReportVisibleToUser,
   toggleSaleChangeItemMarked,
   getAllSnapshots, insertSnapshot,
-  getSoldQuantityMap, getSalesBySku, getSalesSummaryForSku, getSalesAggregatedByDay, getExchangePairs, hasAnySalesEvents,
-  insertSalesEvents, replaceSalesEventsForReportingImport, deleteAllSalesEvents, getWeeklySales,
+  getSoldQuantityMap, getSalesBySku, getSalesSummaryForSku, getSalesAggregatedByDay, getExchangePairs,
+  replaceSalesEventsForReportingImport,
   getExecutiveBuyingReport, getBrandProductivityReport, getReturnsExchangeReport, getSizeCurveHealthReport, getMarkdownRiskReport,
   getCategoryProductivityReport, getMoversReport,
   getNotifications, getNotificationById, insertNotification, markNotificationRead,
@@ -34,6 +34,8 @@ import {
   appendActivityLog, getActivityLog, backfillActivityLogFromLegacyIfEmpty,
   getProductTypeLabels, getProductTypeLabel, upsertProductTypeLabel, normalizeProductType,
 } from './src/data/db.js'
+import * as salesEvents from './src/data/salesEvents.js'
+import { createSalesEventsRouter } from './src/server/routes/salesEventsRoutes.js'
 import { pickPrimaryLanIp } from './pickLanIp.mjs'
 import {
   buildReportingTemplateCsv,
@@ -88,6 +90,8 @@ const jwtSecretKey = new TextEncoder().encode(JWT_SECRET)
 const COOKIE_NAME = 'retailos_session'
 
 const SAFE_SKU_PARAM = /^[A-Za-z0-9._-]{1,64}$/
+const destructiveRequestKeys = new Map()
+const DESTRUCTIVE_KEY_TTL_MS = 15 * 60 * 1000
 
 function assertSafeSku(sku) {
   if (!SAFE_SKU_PARAM.test(String(sku || ''))) {
@@ -482,11 +486,150 @@ const uploadPhotoMem = multer({
   limits: { fileSize: 8 * 1024 * 1024 },
 })
 
+const uploadImportCsv = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 50 * 1024 * 1024 },
+})
+
+function uploadImportCsvSingle(req, res, next) {
+  uploadImportCsv.single('file')(req, res, (err) => {
+    if (err) return safeImportError(res, err, req, err.statusCode || 400)
+    next()
+  })
+}
+
+function archiveImportCsv(req, importId, filename, csvText) {
+  const meta = writeImportCsvFile(importId, filename, csvText)
+  attachImportCsvFile(importId, meta)
+  act(req.authUser, {
+    category: 'inventory',
+    action: 'csv_archived',
+    entityType: 'import_batch',
+    entityId: importId,
+    summary: `Archived source CSV for import ${importId}`,
+    meta,
+  })
+  return meta
+}
+
 function safeError(res, e, status = 500) {
   console.error(e)
   const code = typeof e.statusCode === 'number' ? e.statusCode : status
   const msg = code >= 500 && IS_PROD ? 'Internal server error' : (e?.message || 'Error')
   res.status(code).json({ error: msg })
+}
+
+function destructiveConfirmValue(action, target) {
+  return `${action}:${String(target || '')}`
+}
+
+function pruneDestructiveRequestKeys(now = Date.now()) {
+  for (const [key, ts] of destructiveRequestKeys.entries()) {
+    if (now - ts > DESTRUCTIVE_KEY_TTL_MS) destructiveRequestKeys.delete(key)
+  }
+}
+
+function readDestructiveConfirmation(req) {
+  return req.get('x-destructive-confirm') || req.body?.confirmAction || req.query?.confirmAction || ''
+}
+
+function readIdempotencyKey(req) {
+  return req.get('idempotency-key') || req.body?.idempotencyKey || ''
+}
+
+function requireDestructiveConfirmation(req, res, action, target) {
+  const expected = destructiveConfirmValue(action, target)
+  const provided = String(readDestructiveConfirmation(req))
+  if (provided !== expected) {
+    return res.status(400).json({
+      error: 'Server-side confirmation required for this destructive action.',
+      code: 'DESTRUCTIVE_CONFIRMATION_REQUIRED',
+      expectedConfirm: expected,
+    })
+  }
+  const idempotencyKey = String(readIdempotencyKey(req)).trim()
+  if (!/^[A-Za-z0-9._:-]{16,160}$/.test(idempotencyKey)) {
+    return res.status(400).json({
+      error: 'Idempotency key required for this destructive action.',
+      code: 'IDEMPOTENCY_KEY_REQUIRED',
+    })
+  }
+  pruneDestructiveRequestKeys()
+  const replayKey = `${req.authUser?.id || 'unknown'}:${action}:${target}:${idempotencyKey}`
+  if (destructiveRequestKeys.has(replayKey)) {
+    return res.status(409).json({
+      error: 'Duplicate destructive request blocked.',
+      code: 'DESTRUCTIVE_REPLAY_BLOCKED',
+    })
+  }
+  destructiveRequestKeys.set(replayKey, Date.now())
+  return null
+}
+
+function makeErrorId() {
+  return `err_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
+}
+
+function classifyImportError(e, fallbackStatus = 500) {
+  const status = typeof e?.statusCode === 'number' ? e.statusCode : fallbackStatus
+  const raw = String(e?.message || '')
+  const lower = raw.toLowerCase()
+  if (status === 400 || status === 404 || status === 413) {
+    if (lower.includes('invalid import id')) {
+      return { status: 400, code: 'IMPORT_INVALID_ID', message: 'Import id is invalid.' }
+    }
+    if (lower.includes('csv content is required')) {
+      return { status: 400, code: 'IMPORT_CSV_REQUIRED', message: 'CSV content is required.' }
+    }
+    if (lower.includes('not a valid reporting csv')) {
+      return { status: 400, code: 'IMPORT_INVALID_REPORTING_CSV', message: 'Archived file is not a valid reporting CSV.' }
+    }
+    if (lower.includes('history record not found')) {
+      return { status: 404, code: 'IMPORT_NOT_FOUND', message: 'Import history record was not found.' }
+    }
+    if (lower.includes('csv file not archived')) {
+      return { status: 404, code: 'IMPORT_ARCHIVE_MISSING', message: 'No archived CSV is available for this import.' }
+    }
+    if (lower.includes('archived csv file not found')) {
+      return { status: 404, code: 'IMPORT_ARCHIVE_FILE_MISSING', message: 'Archived CSV file is missing from storage.' }
+    }
+    if (lower.includes('invalid archived csv path')) {
+      return { status: 400, code: 'IMPORT_ARCHIVE_INVALID', message: 'Archived CSV path is invalid.' }
+    }
+    if (e?.code === 'LIMIT_FILE_SIZE' || lower.includes('file too large') || lower.includes('too large')) {
+      return { status: 413, code: 'IMPORT_FILE_TOO_LARGE', message: 'CSV file is too large.' }
+    }
+    return { status, code: 'IMPORT_BAD_REQUEST', message: raw || 'Import request is invalid.' }
+  }
+  return {
+    status: status >= 400 && status < 600 ? status : 500,
+    code: 'IMPORT_INTERNAL_ERROR',
+    message: 'Import failed due to a server error. Please try again or contact support with the error id.',
+  }
+}
+
+function importErrorPayload(e, fallbackStatus = 500) {
+  return classifyImportError(e, fallbackStatus)
+}
+
+function safeImportError(res, e, req, status = 500) {
+  const id = makeErrorId()
+  const payload = importErrorPayload(e, status)
+  console.error('[import]', {
+    id,
+    method: req?.method,
+    path: req?.path,
+    status: payload.status,
+    code: payload.code,
+    userId: req?.authUser?.id,
+    message: e?.message,
+    stack: e?.stack,
+  })
+  res.status(payload.status).json({
+    error: payload.message,
+    code: payload.code,
+    errorId: id,
+  })
 }
 
 /** Append audit row; user from JWT (req.authUser). */
@@ -543,6 +686,11 @@ function outletTransferVisibleToUser(t, user) {
   return t.createdBy === user.id || t.assignedTo === user.id
 }
 
+function outletTransferAssignedToUpdateAllowed(user, nextAssignedTo) {
+  if (user.role === 'executive') return true
+  return nextAssignedTo == null || nextAssignedTo === '' || nextAssignedTo === user.id
+}
+
 function storeTransferVisibleToUser(t, user) {
   if (user.role === 'executive') return true
   return (
@@ -551,6 +699,149 @@ function storeTransferVisibleToUser(t, user) {
     t.createdBy === user.id ||
     t.assignedTo === user.id
   )
+}
+
+function storeTransferUserRole(t, user) {
+  if (user.role === 'executive') return { executive: true, sender: true, receiver: true }
+  const shop = user.shop ?? ''
+  return {
+    executive: false,
+    sender: (shop && t.fromShop === shop) || t.createdBy === user.id,
+    receiver: (shop && t.toShop === shop) || t.assignedTo === user.id,
+  }
+}
+
+function flattenStoreTransferItems(items) {
+  const lines = []
+  for (const it of Array.isArray(items) ? items : []) {
+    if (Array.isArray(it?.sizeBreakdown) && it.sizeBreakdown.length > 0) {
+      for (const sb of it.sizeBreakdown) {
+        lines.push({
+          key: `${String(it.skuCode ?? '')}|${String(sb.size ?? '')}`,
+          qty: Number(sb.qty) || 0,
+        })
+      }
+      continue
+    }
+    const sizes = String(it?.sizes || '').split(',').map((s) => s.trim()).filter(Boolean)
+    if (sizes.length > 0) {
+      const perSize = Math.ceil((Number(it.totalQty ?? it.quantity) || 0) / sizes.length)
+      for (const size of sizes) lines.push({ key: `${String(it.skuCode ?? '')}|${size}`, qty: perSize })
+    } else {
+      lines.push({
+        key: `${String(it?.skuCode ?? '')}|One Size`,
+        qty: Number(it?.totalQty ?? it?.quantity) || 0,
+      })
+    }
+  }
+  return lines
+}
+
+function validateStoreTransferItemStatuses(row, statuses) {
+  if (!statuses || typeof statuses !== 'object' || Array.isArray(statuses)) {
+    const err = new Error('item_statuses must be an object')
+    err.statusCode = 400
+    throw err
+  }
+  const expected = new Map(flattenStoreTransferItems(row.items).map((line) => [line.key, line.qty]))
+  const allowedStatuses = new Set(['', 'done', 'missing', 'partial'])
+  for (const [key, entry] of Object.entries(statuses)) {
+    if (!expected.has(key)) {
+      const err = new Error('item_statuses contains a product that is not in this transfer')
+      err.statusCode = 400
+      throw err
+    }
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+      const err = new Error('item_statuses entries must be objects')
+      err.statusCode = 400
+      throw err
+    }
+    const lineQty = Math.max(0, Number(expected.get(key)) || 0)
+    const status = entry.status == null ? '' : String(entry.status)
+    if (!allowedStatuses.has(status)) {
+      const err = new Error('Invalid item status')
+      err.statusCode = 400
+      throw err
+    }
+    const received = entry.received == null ? lineQty : Number(entry.received)
+    const missing = entry.missing == null ? 0 : Number(entry.missing)
+    if (!Number.isFinite(received) || !Number.isFinite(missing) || received < 0 || missing < 0) {
+      const err = new Error('Receipt quantities must be valid non-negative numbers')
+      err.statusCode = 400
+      throw err
+    }
+    if (received > lineQty || missing > lineQty || received + missing > lineQty) {
+      const err = new Error('Receipt quantities cannot exceed the transfer quantity')
+      err.statusCode = 400
+      throw err
+    }
+  }
+}
+
+function validateStoreTransferUpdate(row, user, changes) {
+  if (user.role === 'executive') {
+    if (Object.prototype.hasOwnProperty.call(changes || {}, 'item_statuses')) {
+      validateStoreTransferItemStatuses(row, changes.item_statuses)
+    }
+    return null
+  }
+  const roles = storeTransferUserRole(row, user)
+  const has = (k) => Object.prototype.hasOwnProperty.call(changes || {}, k)
+  const nextStatus = has('status') ? String(changes.status || '') : String(row.status || 'pending')
+
+  if (has('items')) {
+    if (!roles.sender || String(row.status || 'pending') !== 'pending') {
+      const err = new Error('Only the sending shop can edit items before receipt starts')
+      err.statusCode = 403
+      throw err
+    }
+    if (!Array.isArray(changes.items)) {
+      const err = new Error('items must be an array')
+      err.statusCode = 400
+      throw err
+    }
+  }
+
+  if (has('receivedAt')) {
+    if (!roles.receiver) {
+      const err = new Error('Only the receiving shop can mark a transfer received')
+      err.statusCode = 403
+      throw err
+    }
+  }
+
+  if (has('item_statuses')) {
+    if (!roles.receiver) {
+      const err = new Error('Only the receiving shop can update receipt quantities')
+      err.statusCode = 403
+      throw err
+    }
+    if (!(String(row.status || 'pending') === 'in_progress' || nextStatus === 'completed')) {
+      const err = new Error('Receipt quantities can only be updated after receipt starts')
+      err.statusCode = 403
+      throw err
+    }
+    validateStoreTransferItemStatuses(row, changes.item_statuses)
+  }
+
+  if (has('status') && !strEq(changes.status, row.status)) {
+    const current = String(row.status || 'pending')
+    if (!roles.receiver) {
+      const err = new Error('Only the receiving shop can update transfer status')
+      err.statusCode = 403
+      throw err
+    }
+    const allowed =
+      (current === 'pending' && nextStatus === 'in_progress') ||
+      (current === 'in_progress' && nextStatus === 'completed')
+    if (!allowed) {
+      const err = new Error('Invalid store transfer status transition')
+      err.statusCode = 403
+      throw err
+    }
+  }
+
+  return null
 }
 
 function strEq(a, b) {
@@ -646,6 +937,15 @@ app.use(cors({
 app.use(cookieParser())
 app.use(express.json({ limit: '50mb' }))
 
+app.use((err, req, res, next) => {
+  if (err?.type === 'entity.too.large') {
+    return res.status(413).json({
+      error: 'Upload too large. Raise nginx client_max_body_size (e.g. 50m) and proxy_read_timeout on the server.',
+    })
+  }
+  next(err)
+})
+
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 40,
@@ -727,7 +1027,7 @@ app.get('/api/activity-log', requireExecutive, (req, res) => {
       since: typeof req.query.since === 'string' ? req.query.since : undefined,
       until: typeof req.query.until === 'string' ? req.query.until : undefined,
     }))
-  } catch (e) { safeError(res, e) }
+  } catch (e) { safeImportError(res, e, req) }
 })
 
 app.get('/api/auth/me', (req, res) => {
@@ -793,6 +1093,8 @@ app.post('/api/skus/:code/restore', requireExecutive, (req, res) => {
 app.delete('/api/skus/:code/purge', requireExecutive, (req, res) => {
   try {
     assertSafeSku(req.params.code)
+    const blocked = requireDestructiveConfirmation(req, res, 'purge-sku', req.params.code)
+    if (blocked) return
     const result = purgeSkuByCode(req.params.code)
     if (!result.skuRowsDeleted) return res.status(404).json({ error: 'SKU not found' })
     act(req.authUser, {
@@ -822,7 +1124,7 @@ app.post('/api/skus', requireExecutive, (req, res) => {
       meta: { count: req.body.length, seasonRollover },
     })
     res.json({ added, seasonRollover })
-  } catch (e) { safeError(res, e) }
+  } catch (e) { safeImportError(res, e, req) }
 })
 
 app.get('/api/shipment-meta', (req, res) => {
@@ -832,6 +1134,8 @@ app.get('/api/shipment-meta', (req, res) => {
 
 app.delete('/api/skus/import/:importId', requireExecutive, (req, res) => {
   try {
+    const blocked = requireDestructiveConfirmation(req, res, 'delete-import', req.params.importId)
+    if (blocked) return
     const result = deleteImportRecord(req.params.importId)
     for (const code of result.fullyRemovedSkuCodes) {
       removeExistingPhotosForSku(code)
@@ -846,12 +1150,16 @@ app.delete('/api/skus/import/:importId', requireExecutive, (req, res) => {
         skuRowsDeleted: result.skuRowsDeleted,
         importHistoryDeleted: result.importHistoryDeleted,
         fullyRemovedSkuCodes: result.fullyRemovedSkuCodes,
+        salesEventsDeleted: result.salesEventsDeleted,
+        salesEventsAdjusted: result.salesEventsAdjusted,
       },
     })
     res.json({
       deleted: result.importHistoryDeleted,
       skuRowsDeleted: result.skuRowsDeleted,
       fullyRemovedSkuCodes: result.fullyRemovedSkuCodes,
+      salesEventsDeleted: result.salesEventsDeleted,
+      salesEventsAdjusted: result.salesEventsAdjusted,
     })
   } catch (e) { safeError(res, e) }
 })
@@ -875,39 +1183,47 @@ app.get('/api/import-cost-audit', (req, res) => {
   } catch (e) { safeError(res, e) }
 })
 
-app.post('/api/import-files', requireExecutive, (req, res) => {
+app.post('/api/import-files', requireExecutive, uploadImportCsvSingle, (req, res) => {
   try {
     const importId = String(req.body?.importId || '').trim()
-    const filename = String(req.body?.filename || 'import.csv')
-    const csvText = req.body?.csvText
-    const meta = writeImportCsvFile(importId, filename, csvText)
-    attachImportCsvFile(importId, meta)
-    act(req.authUser, {
-      category: 'inventory',
-      action: 'csv_archived',
-      entityType: 'import_batch',
-      entityId: importId,
-      summary: `Archived source CSV for import ${importId}`,
-      meta,
-    })
+    const filename = String(req.body?.filename || req.file?.originalname || 'import.csv')
+    let csvText
+    if (req.file?.buffer) {
+      csvText = req.file.buffer.toString('utf8')
+    } else {
+      csvText = req.body?.csvText
+    }
+    const meta = archiveImportCsv(req, importId, filename, csvText)
     res.json(meta)
-  } catch (e) { safeError(res, e) }
+  } catch (e) { safeImportError(res, e, req) }
 })
 
 app.get('/api/import-files/:importId/download', requireExecutive, (req, res) => {
   try {
     const meta = getImportCsvFileMeta(req.params.importId)
-    if (!meta?.csv_file_path) return res.status(404).json({ error: 'CSV file not archived for this import' })
+    if (!meta?.csv_file_path) {
+      const err = new Error('CSV file not archived for this import')
+      err.statusCode = 404
+      throw err
+    }
 
     const absPath = path.resolve(DATA_DIR, meta.csv_file_path)
     const archiveRoot = path.resolve(IMPORT_ARCHIVE_DIR)
     if (!absPath.startsWith(`${archiveRoot}${path.sep}`)) {
-      return res.status(400).json({ error: 'Invalid archived CSV path' })
+      const err = new Error('Invalid archived CSV path')
+      err.statusCode = 400
+      throw err
     }
-    if (!fs.existsSync(absPath)) return res.status(404).json({ error: 'Archived CSV file not found on disk' })
+    if (!fs.existsSync(absPath)) {
+      const err = new Error('Archived CSV file not found on disk')
+      err.statusCode = 404
+      throw err
+    }
 
-    res.download(absPath, meta.filename || meta.csv_file_name || 'import.csv')
-  } catch (e) { safeError(res, e) }
+    res.download(absPath, meta.filename || meta.csv_file_name || 'import.csv', (err) => {
+      if (err && !res.headersSent) safeImportError(res, err, req)
+    })
+  } catch (e) { safeImportError(res, e, req) }
 })
 
 app.get('/api/product-report', (req, res) => {
@@ -1056,7 +1372,7 @@ app.post('/api/import-history', requireExecutive, (req, res) => {
       meta: { filename: rec.filename, count: rec.count, totalUnits: rec.totalUnits ?? 0 },
     })
     res.json(rec)
-  } catch (e) { safeError(res, e) }
+  } catch (e) { safeImportError(res, e, req) }
 })
 
 app.post('/api/import-history/reprocess-reporting', requireExecutive, (req, res) => {
@@ -1069,7 +1385,8 @@ app.post('/api/import-history/reprocess-reporting', requireExecutive, (req, res)
         results.push(reprocessArchivedReportingImport(h.id))
       } catch (e) {
         if (e?.statusCode === 400) {
-          skipped.push({ importId: h.id, filename: h.filename, reason: e.message })
+          const safe = importErrorPayload(e, e.statusCode)
+          skipped.push({ importId: h.id, filename: h.filename, reason: safe.message, code: safe.code })
           continue
         }
         throw e
@@ -1107,7 +1424,7 @@ app.post('/api/import-history/reprocess-reporting', requireExecutive, (req, res)
       meta: { processed: results.length, skippedImports: skipped.length, totals: payload.totals },
     })
     res.json(payload)
-  } catch (e) { safeError(res, e, e.statusCode || 500) }
+  } catch (e) { safeImportError(res, e, req, e.statusCode || 500) }
 })
 
 app.post('/api/import-history/:id/reprocess-reporting', requireExecutive, (req, res) => {
@@ -1122,11 +1439,13 @@ app.post('/api/import-history/:id/reprocess-reporting', requireExecutive, (req, 
       meta: result,
     })
     res.json(result)
-  } catch (e) { safeError(res, e, e.statusCode || 500) }
+  } catch (e) { safeImportError(res, e, req, e.statusCode || 500) }
 })
 
 app.delete('/api/import-history/:id', requireExecutive, (req, res) => {
   try {
+    const blocked = requireDestructiveConfirmation(req, res, 'delete-import', req.params.id)
+    if (blocked) return
     const result = deleteImportRecord(req.params.id)
     for (const code of result.fullyRemovedSkuCodes) {
       removeExistingPhotosForSku(code)
@@ -1141,14 +1460,18 @@ app.delete('/api/import-history/:id', requireExecutive, (req, res) => {
         importHistoryDeleted: result.importHistoryDeleted,
         skuRowsDeleted: result.skuRowsDeleted,
         fullyRemovedSkuCodes: result.fullyRemovedSkuCodes,
+        salesEventsDeleted: result.salesEventsDeleted,
+        salesEventsAdjusted: result.salesEventsAdjusted,
       },
     })
     res.json({
       deleted: result.importHistoryDeleted,
       skuRowsDeleted: result.skuRowsDeleted,
       fullyRemovedSkuCodes: result.fullyRemovedSkuCodes,
+      salesEventsDeleted: result.salesEventsDeleted,
+      salesEventsAdjusted: result.salesEventsAdjusted,
     })
-  } catch (e) { safeError(res, e) }
+  } catch (e) { safeImportError(res, e, req) }
 })
 
 // ── Users ───────────────────────────────────────────────────────────────────
@@ -1212,6 +1535,8 @@ app.post('/api/users/:id/regenerate-pin', requireExecutive, (req, res) => {
 
 app.delete('/api/users/:id', requireExecutive, (req, res) => {
   try {
+    const blocked = requireDestructiveConfirmation(req, res, 'delete-user', req.params.id)
+    if (blocked) return
     const changes = removeUser(req.params.id)
     act(req.authUser, {
       category: 'user',
@@ -1397,6 +1722,13 @@ app.put('/api/outlet-transfers/:id', (req, res) => {
     if (!outletTransferVisibleToUser(row, req.authUser)) {
       return res.status(403).json({ error: 'Forbidden' })
     }
+    if (
+      Object.prototype.hasOwnProperty.call(req.body || {}, 'assignedTo') &&
+      !strEq(req.body.assignedTo, row.assignedTo) &&
+      !outletTransferAssignedToUpdateAllowed(req.authUser, req.body.assignedTo)
+    ) {
+      return res.status(403).json({ error: 'Can only assign outlet transfer to yourself' })
+    }
     const updated = updateOutletTransfer(req.params.id, req.body)
     if (!updated) return res.status(404).json({ error: 'Not found' })
     act(req.authUser, {
@@ -1454,6 +1786,7 @@ app.put('/api/store-transfers/:id', (req, res) => {
     if (!storeTransferVisibleToUser(row, req.authUser)) {
       return res.status(403).json({ error: 'Forbidden' })
     }
+    validateStoreTransferUpdate(row, req.authUser, req.body || {})
     const updated = updateStoreTransfer(req.params.id, req.body)
     if (!updated) return res.status(404).json({ error: 'Not found' })
     act(req.authUser, {
@@ -1724,51 +2057,14 @@ app.get('/api/sales/exchanges', (req, res) => {
   } catch (e) { safeError(res, e) }
 })
 
-app.get('/api/sales/events/has-any', (req, res) => {
-  try { res.json({ has: hasAnySalesEvents() }) }
-  catch (e) { safeError(res, e) }
-})
-
-app.post('/api/sales-events', requireExecutive, (req, res) => {
-  try {
-    if (!Array.isArray(req.body)) return res.status(400).json({ error: 'Expected array' })
-    const replace = req.query.replace === '1' || req.query.replace === 'true'
-    const count = replace
-      ? replaceSalesEventsForReportingImport(req.body)
-      : insertSalesEvents(req.body)
-    act(req.authUser, {
-      category: 'sales_event',
-      action: 'imported',
-      entityType: 'sales_events',
-      entityId: null,
-      summary: `Sales events import — ${count} rows`,
-      meta: { count },
-    })
-    res.json({ inserted: count })
-  } catch (e) { safeError(res, e) }
-})
-
-app.delete('/api/sales-events', requireExecutive, (req, res) => {
-  try {
-    const n = deleteAllSalesEvents()
-    act(req.authUser, {
-      category: 'sales_event',
-      action: 'cleared',
-      entityType: 'sales_events',
-      entityId: null,
-      summary: `Cleared all sales events (${n} rows)`,
-      meta: { deleted: n },
-    })
-    res.json({ deleted: n })
-  } catch (e) { safeError(res, e) }
-})
-
-app.get('/api/sales/weekly', (req, res) => {
-  try {
-    const weeks = parseInt(req.query.weeks, 10) || 8
-    res.json(getWeeklySales(weeks))
-  } catch (e) { safeError(res, e) }
-})
+app.use('/api', createSalesEventsRouter({
+  requireExecutive,
+  requireDestructiveConfirmation,
+  safeError,
+  safeImportError,
+  act,
+  salesEvents,
+}))
 
 // ── Photos ──────────────────────────────────────────────────────────────────
 
@@ -1940,13 +2236,25 @@ if (fs.existsSync(distDir)) {
 
 const LISTEN_HOST = process.env.LISTEN_HOST || '0.0.0.0'
 const server = app.listen(PORT, LISTEN_HOST, () => {
-  const lan = pickPrimaryLanIp()
-  console.log(`intelRetail API — http://localhost:${PORT}`)
-  console.log(`intelRetail API — http://${lan}:${PORT}  ← same host both PCs use on this LAN (override: RETAILOS_LAN_IP)`)
-  console.log(`LAN app:  With Vite (npm run dev:full) use one URL on every PC:  http://${lan}:5173`)
-  console.log('          If the other PC cannot connect, allow Node.js through Windows Firewall (Private).')
-  console.log(`Database: ${path.resolve(DATA_DIR, 'retailos.db')}`)
-  console.log(`Photos:   ${PHOTOS_DIR}`)
+  if (IS_PROD) {
+    // Production: one concise line. Avoid LAN/dev guidance and local paths.
+    console.log(`intelRetail API listening on ${LISTEN_HOST}:${PORT} (production)`)
+  } else {
+    // Development: keep the LAN/Vite/firewall hints and local paths that help on a dev LAN.
+    const lan = pickPrimaryLanIp()
+    console.log(`intelRetail API — http://localhost:${PORT}`)
+    console.log(`intelRetail API — http://${lan}:${PORT}  ← same host both PCs use on this LAN (override: RETAILOS_LAN_IP)`)
+    console.log(`LAN app:  With Vite (npm run dev:full) use one URL on every PC:  http://${lan}:5173`)
+    console.log('          If the other PC cannot connect, allow Node.js through Windows Firewall (Private).')
+    console.log(`Database: ${path.resolve(DATA_DIR, 'retailos.db')}`)
+    console.log(`Photos:   ${PHOTOS_DIR}`)
+    console.log(`Imports:  ${IMPORT_ARCHIVE_DIR}`)
+  }
+  try {
+    fs.accessSync(IMPORT_ARCHIVE_DIR, fs.constants.W_OK)
+  } catch {
+    console.error(`[import] WARNING: imports directory is not writable: ${IMPORT_ARCHIVE_DIR}`)
+  }
   try {
     const bf = backfillActivityLogFromLegacyIfEmpty()
     if (!bf.skipped) console.log(`[activity-log] Backfilled ${bf.inserted} legacy event(s)`)
@@ -1974,7 +2282,7 @@ const server = app.listen(PORT, LISTEN_HOST, () => {
   if (IS_PROD && corsAllowedOrigins.length === 0) {
     console.warn('[security] CORS_ORIGINS is empty — browser clients with an Origin header will be blocked. Set CORS_ORIGINS to your HTTPS site(s), comma-separated.')
   }
-  if (LISTEN_HOST !== '0.0.0.0') {
+  if (!IS_PROD && LISTEN_HOST !== '0.0.0.0') {
     console.log(`Listen:   ${LISTEN_HOST} (set LISTEN_HOST=0.0.0.0 for all interfaces)`)
   }
 })

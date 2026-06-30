@@ -73,7 +73,7 @@ Legend: **Auth** = valid session cookie. **Exec** = `role === 'executive'`.
 **Residual / accepted risks**
 
 - Helmet `contentSecurityPolicy` remains disabled; tighten CSP when you have a stable asset list for the SPA.
-- JSON body limit is `10mb` (reduced from 20mb); large imports may need streaming or exec-only paths if you hit limits.
+- JSON body limit is `50mb` in Express; **nginx** defaults to **1mb** — large CSV imports need `client_max_body_size 50m` and longer `proxy_read_timeout` (see section 3).
 - Service worker (`public/sw.js`) caching: review after deploy for stale shell / cache behavior (operational, not auth).
 
 ---
@@ -86,6 +86,30 @@ Legend: **Auth** = valid session cookie. **Exec** = `role === 'executive'`.
 4. **SQLite** — Restrict file permissions on `retailos.db`; schedule encrypted backups; test a restore on a copy.
 5. **Firewall** — Do not expose the Node port publicly if the proxy handles external traffic.
 6. **Logging** — Avoid logging PINs, raw cookies, or JWTs; rotate logs as needed.
+
+### nginx (required for CSV imports)
+
+RetailOS uploads CSV archives as **multipart** (not JSON). nginx must allow large bodies and long-running import requests:
+
+```nginx
+server {
+    # ...
+    client_max_body_size 50m;
+    proxy_read_timeout 300s;
+    proxy_send_timeout 300s;
+
+    location /api/ {
+        proxy_pass http://127.0.0.1:3001;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+Ensure `DATA_DIR` (or the app root) is **writable** for `retailos.db`, `photos/`, and `imports/` — import failures with `EACCES` in server logs mean fix directory permissions.
 
 ---
 

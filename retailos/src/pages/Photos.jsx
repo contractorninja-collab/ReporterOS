@@ -44,10 +44,6 @@ export function Photos() {
   const setPhotoCount = useStore((s) => s.setPhotoCount)
   const completePhotoAssignmentsForSkus = useStore((s) => s.completePhotoAssignmentsForSkus)
 
-  const resolvePhotoTasks = (skuCodes) => {
-    completePhotoAssignmentsForSkus(skuCodes)
-  }
-
   const productCount = useMemo(() => aggregateSkus(skus).length, [skus])
 
   const [photos, setPhotos] = useState([])
@@ -182,7 +178,6 @@ export function Photos() {
       setUploadStats(null)
 
       const toSave = []
-      let matchedCount = 0
       let unmatchedCount = 0
       const unmatchedNames = []
 
@@ -190,7 +185,6 @@ export function Photos() {
         const skuCode = matchFilenameToSku(file.name, skus)
         if (skuCode) {
           toSave.push({ skuCode, file })
-          matchedCount++
         } else {
           const base = file.name.replace(/\.[^./\\]+$/, '').trim()
           if (base) {
@@ -230,7 +224,7 @@ export function Photos() {
       })
       setPhotoMap(mapFromDb)
       setPhotoCount(allPhotos.length)
-      resolvePhotoTasks(Object.keys(newPhotoMap))
+      completePhotoAssignmentsForSkus(Object.keys(newPhotoMap))
       setUploadStats({
         saved,
         failed,
@@ -281,7 +275,7 @@ export function Photos() {
     if (prev) URL.revokeObjectURL(prev)
     const out = await savePhoto(skuCode, f)
     addPhotoToMap(skuCode, out.url)
-    resolvePhotoTasks([skuCode])
+    completePhotoAssignmentsForSkus([skuCode])
     setPhotos((prevList) => {
       const i = prevList.findIndex((p) => p.sku === skuCode)
       if (i < 0) return [...prevList, out]

@@ -97,13 +97,6 @@ function cleanNumericInput(value) {
     .replace(/[\u200e\u200f\u202a-\u202e\ufeff]/g, '')
 }
 
-function cleanTextInput(value) {
-  if (value == null) return ''
-  return String(value)
-    .trim()
-    .replace(/[\u200e\u200f\u202a-\u202e\ufeff]/g, '')
-}
-
 /**
  * Σ(quantity × cost_price) for parsed intake rows — matches server investment after import.
  * @param {Array<{ quantity?: number, cost_price?: number }>} rows

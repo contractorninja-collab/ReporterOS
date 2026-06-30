@@ -1,23 +1,19 @@
 const BASE = '/api'
 
-async function request(path, opts = {}) {
-  const res = await fetch(`${BASE}${path}`, {
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/json', ...opts.headers },
-    ...opts,
-  })
-  if (res.status === 401) {
-    try { window.dispatchEvent(new CustomEvent('retailos:unauthorized')) } catch { /* */ }
-    const err = new Error('Unauthorized')
-    err.status = 401
-    throw err
-  }
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: res.statusText }))
-    const e = new Error(err.error || res.statusText)
-    e.status = res.status
-    throw e
-  }
+function dispatchUnauthorized() {
+  try { window.dispatchEvent(new CustomEvent('retailos:unauthorized')) } catch { /* non-browser context */ }
+}
+
+/** Build an Error from a non-OK response, preferring the JSON `{ error }` body and carrying the HTTP status. */
+async function toResponseError(res, fallbackMessage) {
+  const body = await res.json().catch(() => null)
+  const e = new Error(body?.error || fallbackMessage || res.statusText)
+  e.status = res.status
+  return e
+}
+
+/** Parse a successful response body: 204/empty → null, JSON when possible, else raw text. */
+async function parseResponseBody(res) {
   if (res.status === 204) return null
   const text = await res.text()
   if (!text) return null
@@ -26,6 +22,58 @@ async function request(path, opts = {}) {
   } catch {
     return text
   }
+}
+
+/**
+ * Single source of truth for every API call (JSON, multipart, photo upload, delete).
+ * Centralizes credentials, 401 session handling, error parsing, and body parsing so
+ * all endpoint types behave consistently. Do not set Content-Type for FormData bodies —
+ * the browser adds the multipart boundary automatically.
+ *
+ * @param {string} path
+ * @param {RequestInit & { skipAuthRedirect?: boolean, errorMessage?: string }} [opts]
+ *   skipAuthRedirect: for auth endpoints (login/logout) where a 401 is an expected
+ *   result, not an expired session — suppresses the `retailos:unauthorized` event.
+ */
+async function apiFetch(path, opts = {}) {
+  const { skipAuthRedirect = false, errorMessage, ...init } = opts
+  const res = await fetch(`${BASE}${path}`, {
+    credentials: 'include',
+    ...init,
+  })
+  if (res.status === 401 && !skipAuthRedirect) {
+    dispatchUnauthorized()
+    const err = new Error('Unauthorized')
+    err.status = 401
+    throw err
+  }
+  if (!res.ok) {
+    throw await toResponseError(res, errorMessage)
+  }
+  return parseResponseBody(res)
+}
+
+/** JSON request helper: sets JSON content-type and routes through the shared core. */
+function request(path, opts = {}) {
+  return apiFetch(path, {
+    ...opts,
+    headers: { 'Content-Type': 'application/json', ...opts.headers },
+  })
+}
+
+function idempotencyKey(action, target) {
+  const random = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`
+  return `${action}:${target}:${random}`
+}
+
+function destructiveDelete(path, action, target) {
+  return request(path, {
+    method: 'DELETE',
+    headers: {
+      'X-Destructive-Confirm': `${action}:${target}`,
+      'Idempotency-Key': idempotencyKey(action, target),
+    },
+  })
 }
 
 // ── Health (public) ─────────────────────────────────────────────────────────
@@ -42,17 +90,13 @@ export async function checkHealth() {
 // ── Auth ────────────────────────────────────────────────────────────────────
 
 export async function authLogin(userCode, pin) {
-  const res = await fetch(`${BASE}/auth/login`, {
+  return apiFetch('/auth/login', {
     method: 'POST',
-    credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ user_code: userCode, pin }),
+    skipAuthRedirect: true,
+    errorMessage: 'Login failed',
   })
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: 'Login failed' }))
-    throw new Error(err.error || 'Login failed')
-  }
-  return res.json()
 }
 
 export async function fetchAuthMe() {
@@ -61,7 +105,7 @@ export async function fetchAuthMe() {
 
 export async function authLogout() {
   try {
-    await fetch(`${BASE}/auth/logout`, { method: 'POST', credentials: 'include' })
+    await apiFetch('/auth/logout', { method: 'POST', skipAuthRedirect: true })
   } catch { /* ignore */ }
 }
 
@@ -71,12 +115,14 @@ export const fetchSkus = () => request('/skus')
 export const postSkus = (skus) => request('/skus', { method: 'POST', body: JSON.stringify(skus) })
 export const postAssignmentsBulk = (assignments) =>
   request('/assignments/bulk', { method: 'POST', body: JSON.stringify(assignments) })
-export const deleteImportSkus = (importId) => request(`/skus/import/${importId}`, { method: 'DELETE' })
+export const deleteImportSkus = (importId) =>
+  destructiveDelete(`/skus/import/${importId}`, 'delete-import', importId)
 
 export const deleteSku = (code) => request(`/skus/${encodeURIComponent(code)}`, { method: 'DELETE' })
 export const fetchBinnedSkus = () => request('/skus/bin')
 export const restoreSku = (code) => request(`/skus/${encodeURIComponent(code)}/restore`, { method: 'POST' })
-export const purgeSku = (code) => request(`/skus/${encodeURIComponent(code)}/purge`, { method: 'DELETE' })
+export const purgeSku = (code) =>
+  destructiveDelete(`/skus/${encodeURIComponent(code)}/purge`, 'purge-sku', code)
 export const fetchSkuImportTotals = () => request('/sku-import-totals')
 export const fetchShipmentMeta = () => request('/shipment-meta')
 export const fetchSkuImportCostTotals = () => request('/sku-import-cost-totals')
@@ -87,8 +133,19 @@ export const fetchImportCostAudit = (params = {}) => {
   const qs = q.toString()
   return request(`/import-cost-audit${qs ? `?${qs}` : ''}`)
 }
-export const postImportCsvFile = ({ importId, filename, csvText }) =>
-  request('/import-files', { method: 'POST', body: JSON.stringify({ importId, filename, csvText }) })
+export async function postImportCsvFile({ importId, filename, file, blob, csvText }) {
+  const form = new FormData()
+  form.append('importId', importId)
+  const uploadName = filename || file?.name || 'import.csv'
+  form.append('filename', uploadName)
+  const uploadFile = file || blob
+  if (uploadFile instanceof Blob) {
+    form.append('file', uploadFile, uploadName)
+  } else if (csvText != null) {
+    form.append('csvText', csvText)
+  }
+  return apiFetch('/import-files', { method: 'POST', body: form })
+}
 export const reprocessReportingImport = (importId) =>
   request(`/import-history/${encodeURIComponent(importId)}/reprocess-reporting`, { method: 'POST' })
 export const reprocessAllReportingImports = () =>
@@ -125,7 +182,8 @@ export const updateProductTypeLabel = (skuCode, productType) =>
 
 export const fetchImportHistory = () => request('/import-history')
 export const postImportRecord = (record) => request('/import-history', { method: 'POST', body: JSON.stringify(record) })
-export const deleteImportById = (id) => request(`/import-history/${id}`, { method: 'DELETE' })
+export const deleteImportById = (id) =>
+  destructiveDelete(`/import-history/${id}`, 'delete-import', id)
 
 // ── Users ───────────────────────────────────────────────────────────────────
 
@@ -133,7 +191,8 @@ export const fetchUsers = () => request('/users')
 export const postUser = (user) => request('/users', { method: 'POST', body: JSON.stringify(user) })
 export const putUser = (id, changes) => request(`/users/${id}`, { method: 'PUT', body: JSON.stringify(changes) })
 export const regenerateUserPin = (id) => request(`/users/${id}/regenerate-pin`, { method: 'POST' })
-export const deleteUser = (id) => request(`/users/${id}`, { method: 'DELETE' })
+export const deleteUser = (id) =>
+  destructiveDelete(`/users/${id}`, 'delete-user', id)
 
 // ── Activity log (executive) ─────────────────────────────────────────────────
 
@@ -203,7 +262,10 @@ export const postSalesEvents = (events, replace = false) => {
   const q = replace ? '?replace=1' : ''
   return request(`/sales-events${q}`, { method: 'POST', body: JSON.stringify(events) })
 }
-export const deleteAllSalesEvents = () => request('/sales-events', { method: 'DELETE' })
+export const deleteAllSalesEvents = () =>
+  destructiveDelete('/sales-events', 'delete-sales-events', 'all')
+export const deleteSalesEventsByImportId = (importId) =>
+  destructiveDelete(`/sales-events/import/${encodeURIComponent(importId)}`, 'delete-sales-events-import', importId)
 export const fetchWeeklySales = (weeks = 8) => request(`/sales/weekly?weeks=${weeks}`)
 export const fetchSalesBySku = (since, until, season) => {
   let url = `/sales/by-sku?since=${encodeURIComponent(since || '')}`
@@ -283,24 +345,12 @@ export const getPhotoUrl = (skuCode) => `${BASE}/photos/${encodeURIComponent(sku
 export async function uploadPhoto(skuCode, file) {
   const form = new FormData()
   form.append('photo', file)
-  const res = await fetch(`${BASE}/photos/${encodeURIComponent(skuCode)}`, {
+  return apiFetch(`/photos/${encodeURIComponent(skuCode)}`, {
     method: 'POST',
     body: form,
-    credentials: 'include',
+    errorMessage: 'Upload failed',
   })
-  if (res.status === 401) {
-    try { window.dispatchEvent(new CustomEvent('retailos:unauthorized')) } catch { /* */ }
-    throw new Error('Unauthorized')
-  }
-  if (!res.ok) throw new Error('Upload failed')
-  return res.json()
 }
 
 export const deletePhoto = (skuCode) =>
-  fetch(`${BASE}/photos/${encodeURIComponent(skuCode)}`, { method: 'DELETE', credentials: 'include' }).then(async (r) => {
-    if (r.status === 401) {
-      try { window.dispatchEvent(new CustomEvent('retailos:unauthorized')) } catch { /* */ }
-      throw new Error('Unauthorized')
-    }
-    return r.json()
-  })
+  apiFetch(`/photos/${encodeURIComponent(skuCode)}`, { method: 'DELETE' })
