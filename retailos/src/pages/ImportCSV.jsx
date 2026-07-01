@@ -634,6 +634,7 @@ export function ImportCSV() {
   const importSkusBatch = useStore((s) => s.importSkusBatch)
   const setSkus = useStore((s) => s.setSkus)
   const addImportRecord = useStore((s) => s.addImportRecord)
+  const deleteImport = useStore((s) => s.deleteImport)
   const importHistory = useStore((s) => s.importHistory)
   const addAssignments = useStore((s) => s.addAssignments)
   const addSalesSnapshot = useStore((s) => s.addSalesSnapshot)
@@ -1200,10 +1201,12 @@ export function ImportCSV() {
   }
 
   async function handleDeleteImport(importId) {
+    if (!importId) return
     try {
-      await api.deleteImportById(importId)
-    } catch {
-      /* keep list; server state unchanged */
+      await deleteImport(importId)
+      setSuccessBanner(null)
+    } catch (err) {
+      setErrorIntake(formatImportError(err))
     } finally {
       setDeletingId(null)
     }

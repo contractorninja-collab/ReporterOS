@@ -183,7 +183,7 @@ export const updateProductTypeLabel = (skuCode, productType) =>
 export const fetchImportHistory = () => request('/import-history')
 export const postImportRecord = (record) => request('/import-history', { method: 'POST', body: JSON.stringify(record) })
 export const deleteImportById = (id) =>
-  destructiveDelete(`/import-history/${id}`, 'delete-import', id)
+  destructiveDelete(`/import-history/${encodeURIComponent(id)}`, 'delete-import', id)
 
 // ── Users ───────────────────────────────────────────────────────────────────
 

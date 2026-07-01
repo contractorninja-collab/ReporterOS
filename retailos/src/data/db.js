@@ -1099,7 +1099,7 @@ export function insertSkus(skusArray) {
       season = excluded.season,
       category = excluded.category,
       brand = excluded.brand,
-      _importId = excluded._importId
+      _importId = COALESCE(skus._importId, excluded._importId)
   `)
   const tx = db.transaction((items) => {
     for (const s of items) {
