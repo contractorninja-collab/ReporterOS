@@ -9,8 +9,9 @@ import StatusBadge from './StatusBadge.jsx'
 function ProductCard({ sku, rank, onClick, metric, metricLabel, velocity, lowStock, rankTrend, delta, hideSalesCounts = false, className = '', showDayOverlay = false, showBrandPill = false }) {
   const photoMap = useStore((s) => s.photoMap)
   const shipmentMeta = useStore((s) => s.shipmentMeta)
+  const activeSeason = useStore((s) => s.activeSeason)
   const photoUrl = photoMap[sku.sku] || null
-  const displaySku = mergeShipmentMeta(sku, shipmentMeta)
+  const displaySku = mergeShipmentMeta(sku, shipmentMeta, activeSeason)
   const shipmentLines = getShipmentDisplayLines(displaySku)
 
   const pct = getSellThrough(sku.sold_quantity, sku.quantity)

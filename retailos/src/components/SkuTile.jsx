@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import {
   getDaysInStore,
+  getEffectiveLifecycleImportDate,
   getSellThrough,
 } from '../utils/lifecycle.js'
 import { getShipmentDisplayLines, mergeShipmentMeta } from '../utils/shipmentDisplay.js'
@@ -27,10 +28,11 @@ function getSellThroughDisplay(pct) {
 function SkuTile({ sku, onClick }) {
   const photoUrl = useStore((s) => s.photoMap[sku.sku]) || null
   const shipmentMeta = useStore((s) => s.shipmentMeta)
-  const displaySku = mergeShipmentMeta(sku, shipmentMeta)
+  const activeSeason = useStore((s) => s.activeSeason)
+  const displaySku = mergeShipmentMeta(sku, shipmentMeta, activeSeason)
   const shipmentLines = getShipmentDisplayLines(displaySku)
 
-  const days = getDaysInStore(displaySku.import_date)
+  const days = getDaysInStore(getEffectiveLifecycleImportDate(displaySku))
   const pct = getSellThrough(sku.sold_quantity, sku.quantity)
   const sellDisplay = getSellThroughDisplay(pct)
   const lastImportDisplay = shipmentLines.primaryDate

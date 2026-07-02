@@ -1,4 +1,4 @@
-import { getSellThrough, getDaysInStore } from '../utils/lifecycle'
+import { getSellThrough, getDaysInStore, getEffectiveLifecycleImportDate } from '../utils/lifecycle'
 import { getShipmentDisplayLines, mergeShipmentMeta } from '../utils/shipmentDisplay.js'
 import useStore from '../store/useStore'
 import { useState, useEffect } from 'react'
@@ -20,12 +20,13 @@ export default function ProductPanelCard({
 }) {
   const photoMap = useStore((s) => s.photoMap)
   const shipmentMeta = useStore((s) => s.shipmentMeta)
+  const activeSeason = useStore((s) => s.activeSeason)
   const photoUrl = photoMap[sku.sku] || null
-  const displaySku = mergeShipmentMeta(sku, shipmentMeta)
+  const displaySku = mergeShipmentMeta(sku, shipmentMeta, activeSeason)
   const shipmentLines = getShipmentDisplayLines(displaySku)
   const pct = getSellThrough(sku.sold_quantity, sku.quantity)
   const pctDisplay = pct.toFixed(2)
-  const days = getDaysInStore(displaySku.import_date)
+  const days = getDaysInStore(getEffectiveLifecycleImportDate(displaySku))
   const remaining = Math.max(0, (Number(sku.quantity) || 0) - (Number(sku.sold_quantity) || 0))
   const lowStock = remaining <= 3 && remaining > 0
   const outOfStock = remaining === 0

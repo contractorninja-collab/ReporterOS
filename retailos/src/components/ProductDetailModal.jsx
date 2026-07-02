@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { getSellThrough, getDaysInStore, STATUS_COLORS } from '../utils/lifecycle'
+import { getSellThrough, getDaysInStore, STATUS_COLORS, getEffectiveLifecycleImportDate } from '../utils/lifecycle'
 import useStore from '../store/useStore'
+import { mergeShipmentMeta } from '../utils/shipmentDisplay.js'
 import { fetchSalesBySku, fetchSalesSummaryForSku } from '../api/client.js'
 import { isExecutive } from '../utils/roles.js'
 import { DISCOUNTS, salePriceOf } from '../utils/saleList.js'
@@ -47,6 +48,8 @@ export default function ProductDetailModal({ sku, status, statusData, onClose, s
   const rawSkus = useStore((s) => s.skus)
   const users = useStore((s) => s.users)
   const activeUser = useStore((s) => s.activeUser)
+  const activeSeason = useStore((s) => s.activeSeason)
+  const shipmentMeta = useStore((s) => s.shipmentMeta)
   const markdownLists = useStore((s) => s.markdownLists)
   const showSalesMetrics = isExecutive(activeUser)
   const addAssignment = useStore((s) => s.addAssignment)
@@ -54,6 +57,7 @@ export default function ProductDetailModal({ sku, status, statusData, onClose, s
   const addItemToTodayTransfer = useStore((s) => s.addItemToTodayTransfer)
   const addItemToStoreTransfer = useStore((s) => s.addItemToStoreTransfer)
   const activeShifts = useStore((s) => s.activeShifts)
+  const displaySku = mergeShipmentMeta(sku, shipmentMeta, activeSeason)
 
   const canManage = activeUser?.role === 'executive' || activeUser?.role === 'manager'
 
@@ -252,7 +256,8 @@ export default function ProductDetailModal({ sku, status, statusData, onClose, s
     return [...map.values()]
   }, [rawSkus, sku.sku])
   const pct = getSellThrough(netSoldQty, sku.quantity)
-  const days = getDaysInStore(sku.import_date)
+  const lifecycleArrivalDate = getEffectiveLifecycleImportDate(displaySku)
+  const days = getDaysInStore(lifecycleArrivalDate)
   const remaining = Math.max(0, (Number(sku.quantity) || 0) - (Number(netSoldQty) || 0))
   const stockColor =
     remaining <= 3 && remaining > 0 ? '#ff8800' : remaining === 0 ? '#ff3333' : '#00e676'
@@ -586,7 +591,7 @@ export default function ProductDetailModal({ sku, status, statusData, onClose, s
               ['Brand', sku.brand ?? '—'],
               ['Category', sku.category ?? '—'],
               ['Gender', genderShortLabel(sku.gender)],
-              ['Arrival Date', sku.import_date ? new Date(sku.import_date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'],
+              ['Arrival Date', lifecycleArrivalDate ? new Date(lifecycleArrivalDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'],
               ['Days in store', String(days)],
               ['Season', sku.season ?? '—'],
             ].map(([key, val], idx, arr) => (

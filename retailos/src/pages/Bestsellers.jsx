@@ -2,7 +2,7 @@ import { useMemo, useState, useEffect, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { useStore } from '../store/useStore'
 import { isExecutive } from '../utils/roles'
-import { getDaysInStore, getProductLifecycleStatus, STATUS_COLORS } from '../utils/lifecycle'
+import { getDaysInStore, getProductLifecycleStatus, STATUS_COLORS, getEffectiveLifecycleImportDate } from '../utils/lifecycle'
 import { aggregateSkus } from '../utils/aggregateSkus'
 import { normalizeGenderCodeForFilter } from '../utils/gender.js'
 import { isSeasonFilterActive, productMatchesActiveSeason } from '../utils/seasons.js'
@@ -560,7 +560,7 @@ export function Bestsellers() {
   function getVelocity(sku) {
     const sold = sku._periodSold ?? 0
     if (weeks && weeks > 0) return Math.round((sold / weeks) * 10) / 10
-    const days = getDaysInStore(sku.import_date)
+    const days = getDaysInStore(getEffectiveLifecycleImportDate(sku))
     if (days <= 0) return sold > 0 ? sold : 0
     const w = days / 7
     return Math.round((sold / w) * 10) / 10
@@ -627,7 +627,7 @@ export function Bestsellers() {
         sku.category || '', sku.brand || '', sku.season || '', sku.gender || '',
         imported, sku._periodSold, getRemaining(sku),
         pct, (sku._periodRevenue || 0).toFixed(2),
-        getDaysInStore(sku.import_date), vel ?? '',
+        getDaysInStore(getEffectiveLifecycleImportDate(sku)), vel ?? '',
       ].join(',')
     })
     const csv = [header.join(','), ...rows].join('\n')
@@ -923,7 +923,7 @@ export function Bestsellers() {
             {slowestSkus.map((sku, i) => {
               const thumbUrl = photoMap[sku.sku]
               const pct = Math.round(sellThroughPct(sku, hasEventSales, skuImportTotals))
-              const days = getDaysInStore(sku.import_date)
+              const days = getDaysInStore(getEffectiveLifecycleImportDate(sku))
               const status = getProductLifecycleStatus(sku)
               const rankColors = ['#ff3333', '#ff8800', '#fbbf24']
               const slowCount = slowestSkus.length
