@@ -86,6 +86,17 @@ export function filterSkusByActiveSeason(rows, activeSeason, getSeason = (r) => 
   return rows.filter((r) => normalizeSeasonInput(getSeason(r)) === target)
 }
 
+/**
+ * Match an aggregated product row against the topbar season chip.
+ * Aggregated rows can carry a computed current_season from shipment metadata,
+ * which is the right season for carryover/re-import lifecycle calculations.
+ */
+export function productMatchesActiveSeason(row, activeSeason) {
+  if (!isSeasonFilterActive(activeSeason)) return true
+  const target = normalizeSeasonInput(activeSeason)
+  return normalizeSeasonInput(row?.current_season || row?.season) === target
+}
+
 export function buildSeasonSwitcherList(skus, extraSeasons, activeSeason) {
   const set = new Set()
   for (const d of DEFAULT_SEASON_PRESETS) {

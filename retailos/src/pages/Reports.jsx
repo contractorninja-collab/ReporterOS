@@ -15,7 +15,7 @@ import {
 import { genderBucketKey } from '../utils/gender.js'
 import { normalizeCategory } from '../utils/category.js'
 import StatusBadge from '../components/StatusBadge.jsx'
-import { filterSkusByActiveSeason, isSeasonFilterActive } from '../utils/seasons.js'
+import { isSeasonFilterActive, productMatchesActiveSeason } from '../utils/seasons.js'
 import { toTitleCase } from '../utils/textFormat.js'
 import KpiCard from '../components/KpiCard'
 import { IconLock, IconPrint } from '../utils/icons.js'
@@ -612,14 +612,9 @@ export function Reports() {
   const snapshots = useStore((s) => s.salesSnapshots)
   const activeSeason = useStore((s) => s.activeSeason)
 
-  const seasonFilteredSkus = useMemo(
-    () => filterSkusByActiveSeason(skus, activeSeason),
-    [skus, activeSeason],
-  )
-
   const products = useMemo(
-    () => aggregateSkus(seasonFilteredSkus, shipmentMeta),
-    [seasonFilteredSkus, shipmentMeta],
+    () => aggregateSkus(skus, shipmentMeta, activeSeason).filter((p) => productMatchesActiveSeason(p, activeSeason)),
+    [skus, shipmentMeta, activeSeason],
   )
 
   const seasonSkuSet = useMemo(

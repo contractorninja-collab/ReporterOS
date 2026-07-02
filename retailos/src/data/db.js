@@ -12,7 +12,7 @@ import { aggregateSkus } from '../utils/aggregateSkus.js'
 import { getDaysInStore, getSellThrough } from '../utils/lifecycle.js'
 import { normalizeCategory } from '../utils/category.js'
 import { salePriceOf } from '../utils/saleList.js'
-import { normalizeSeasonInput, isEarlierSeason } from '../utils/seasons.js'
+import { normalizeSeasonInput, isEarlierSeason, compareSeasons } from '../utils/seasons.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const DATA_DIR = process.env.DATA_DIR || path.resolve(__dirname, '../..')
@@ -1019,13 +1019,39 @@ export function getShipmentMetaBySku() {
     ORDER BY il.imported_at ASC, il.id ASC
   `).all()
 
-  const seasonBySku = db.prepare(`
-    SELECT sku, MAX(season) AS season
+  const seasonRowsBySku = db.prepare(`
+    SELECT sku, season
     FROM skus
     WHERE deleted_at IS NULL
-    GROUP BY sku
+      AND TRIM(COALESCE(sku, '')) != ''
+      AND TRIM(COALESCE(season, '')) != ''
+    ORDER BY sku
   `).all()
-  const currentSeasonBySku = Object.fromEntries(seasonBySku.map((r) => [r.sku, r.season || '']))
+  const currentSeasonBySku = {}
+  for (const row of seasonRowsBySku) {
+    const sku = row.sku
+    const season = normalizeSeasonInput(row.season)
+    if (!season) continue
+    if (!currentSeasonBySku[sku] || compareSeasons(currentSeasonBySku[sku], season) < 0) {
+      currentSeasonBySku[sku] = season
+    }
+  }
+
+  const fallbackSeasonBySku = db.prepare(`
+    SELECT sku, season
+    FROM import_lines
+    WHERE TRIM(COALESCE(sku, '')) != ''
+      AND TRIM(COALESCE(season, '')) != ''
+    ORDER BY imported_at ASC, id ASC
+  `).all()
+  for (const row of fallbackSeasonBySku) {
+    const sku = row.sku
+    const season = normalizeSeasonInput(row.season)
+    if (!season) continue
+    if (!currentSeasonBySku[sku] || compareSeasons(currentSeasonBySku[sku], season) < 0) {
+      currentSeasonBySku[sku] = season
+    }
+  }
 
   const seasonStarts = Object.fromEntries(
     db.prepare('SELECT season, started_at FROM season_starts').all()

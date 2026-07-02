@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import useStore from '../store/useStore.js'
 import { generateAlerts, dedupeAlertsBySku } from '../utils/alerts.js'
 import { aggregateSkus } from '../utils/aggregateSkus.js'
+import { productMatchesActiveSeason } from '../utils/seasons.js'
 import { SmartAlertsList } from '../components/SmartAlertsList'
 
 const DM_SANS = '"DM Sans", sans-serif'
@@ -15,15 +16,14 @@ function labelForFilter(key) {
 
 export function SmartAlerts() {
   const skus = useStore((s) => s.skus)
+  const shipmentMeta = useStore((s) => s.shipmentMeta)
   const activeSeason = useStore((s) => s.activeSeason)
   const [urgencyFilter, setUrgencyFilter] = useState('all')
 
-  const filteredSkus = useMemo(
-    () => (activeSeason === 'All' ? skus : skus.filter((s) => s.season === activeSeason)),
-    [skus, activeSeason],
+  const products = useMemo(
+    () => aggregateSkus(skus, shipmentMeta, activeSeason).filter((p) => productMatchesActiveSeason(p, activeSeason)),
+    [skus, shipmentMeta, activeSeason],
   )
-
-  const products = useMemo(() => aggregateSkus(filteredSkus), [filteredSkus])
 
   const countsByUrgency = useMemo(() => {
     const list = dedupeAlertsBySku(generateAlerts(products))

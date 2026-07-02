@@ -28,6 +28,7 @@ import { getProductLifecycleStatus } from '../utils/lifecycle.js'
 import { aggregateSkus } from '../utils/aggregateSkus.js'
 import { generateAlerts, dedupeAlertsBySku } from '../utils/alerts.js'
 import { isExecutive } from '../utils/roles.js'
+import { productMatchesActiveSeason } from '../utils/seasons.js'
 
 function NavRow({ to, end, icon, label, badge, onNavigate, catalog = false }) {
   return (
@@ -67,7 +68,10 @@ export function Sidebar({ onNavigate }) {
   const activeShifts = useStore((s) => s.activeShifts)
 
   const shipmentMeta = useStore((s) => s.shipmentMeta)
-  const products = useMemo(() => aggregateSkus(skus, shipmentMeta), [skus, shipmentMeta])
+  const products = useMemo(
+    () => aggregateSkus(skus, shipmentMeta, activeSeason).filter((p) => productMatchesActiveSeason(p, activeSeason)),
+    [skus, shipmentMeta, activeSeason],
+  )
 
   const pendingTasks = useMemo(() => {
     if (!activeUser) return 0
@@ -96,9 +100,8 @@ export function Sidebar({ onNavigate }) {
   }, [activeShifts, activeUser])
 
   const smartAlertsUrgentCount = useMemo(() => {
-    const filteredSkus =
-      activeSeason === 'All' ? skus : skus.filter((s) => s.season === activeSeason)
-    const agg = aggregateSkus(filteredSkus, shipmentMeta)
+    const agg = aggregateSkus(skus, shipmentMeta, activeSeason)
+      .filter((p) => productMatchesActiveSeason(p, activeSeason))
     const list = dedupeAlertsBySku(generateAlerts(agg))
     return list.filter((a) => a.urgency === 'critical' || a.urgency === 'warning').length
   }, [skus, activeSeason, shipmentMeta])

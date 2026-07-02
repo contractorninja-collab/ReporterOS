@@ -3,6 +3,7 @@ import { normalizeGenderCodeForFilter } from '../utils/gender.js'
 import { useStore } from '../store/useStore'
 import { STATUS_COLORS, getProductLifecycleStatus } from '../utils/lifecycle'
 import { aggregateSkus } from '../utils/aggregateSkus'
+import { productMatchesActiveSeason } from '../utils/seasons.js'
 import SkuTile from '../components/SkuTile'
 import ProductDetailModal from '../components/ProductDetailModal'
 import { IconPackage } from '../utils/icons.js'
@@ -61,9 +62,7 @@ const rules = [
 ]
 
 function matchesSeason(sku, activeSeason) {
-  const s = activeSeason == null ? '' : String(activeSeason)
-  if (s === '' || s.toLowerCase() === 'all') return true
-  return (sku.season || '') === s
+  return productMatchesActiveSeason(sku, activeSeason)
 }
 
 function matchesActiveFilter(sku, activeFilter) {
@@ -95,7 +94,7 @@ export function Lifecycle() {
   const [selectedSku, setSelectedSku] = useState(null)
   const [selectedStatus, setSelectedStatus] = useState(null)
 
-  const products = useMemo(() => aggregateSkus(skus, shipmentMeta), [skus, shipmentMeta])
+  const products = useMemo(() => aggregateSkus(skus, shipmentMeta, activeSeason), [skus, shipmentMeta, activeSeason])
 
   const filteredSkus = useMemo(
     () =>

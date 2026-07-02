@@ -1,4 +1,5 @@
 import { lineRevenueFromSaleFields } from './csvParser.js'
+import { isSeasonFilterActive, normalizeSeasonInput } from './seasons.js'
 
 /**
  * Aggregate per-size SKU rows into one object per product code.
@@ -10,6 +11,7 @@ import { lineRevenueFromSaleFields } from './csvParser.js'
  *
  * @param {import('../store/useStore').Sku[]} skus
  * @param {Record<string, object>|null|undefined} [shipmentMetaBySku]
+ * @param {string} [activeSeason]
  * @returns {Array<import('../store/useStore').Sku & {
  *   sizes: string[],
  *   _rowCount: number,
@@ -20,9 +22,10 @@ import { lineRevenueFromSaleFields } from './csvParser.js'
  *   isOverReturned?: boolean,
  * }>}
  */
-export function aggregateSkus(skus, shipmentMetaBySku = null) {
+export function aggregateSkus(skus, shipmentMetaBySku = null, activeSeason = 'All') {
   if (!Array.isArray(skus)) return []
   const map = new Map()
+  const targetSeason = isSeasonFilterActive(activeSeason) ? normalizeSeasonInput(activeSeason) : ''
 
   const fillIfEmpty = (cur, val) => {
     const t = String(val ?? '').trim()
@@ -116,17 +119,30 @@ export function aggregateSkus(skus, shipmentMetaBySku = null) {
     if (shipmentMetaBySku) {
       const meta = shipmentMetaBySku[agg.sku]
       if (meta) {
+        const targetSeasonDates = targetSeason
+          ? (meta.shipments_by_season?.[targetSeason] || [])
+          : []
+        const currentSeason = targetSeason || meta.current_season || agg.season
+        const currentSeasonDates = currentSeason
+          ? (meta.shipments_by_season?.[currentSeason] || [])
+          : []
+        const seasonDates = targetSeason ? targetSeasonDates : currentSeasonDates
+
         if (meta.first_arrival_date) agg.import_date = meta.first_arrival_date
         if (meta.last_shipment_date) agg.last_import_date = meta.last_shipment_date
         agg.first_arrival_date = meta.first_arrival_date ?? agg.import_date
         agg.last_shipment_date = meta.last_shipment_date ?? agg.last_import_date
-        agg.current_season = meta.current_season ?? agg.season
-        agg.current_season_first_shipment = meta.current_season_first_shipment ?? null
-        agg.current_season_last_shipment = meta.current_season_last_shipment ?? null
-        agg.prior_same_season_shipment = meta.prior_same_season_shipment ?? null
+        agg.current_season = currentSeason
+        agg.current_season_first_shipment = seasonDates[0] ?? meta.current_season_first_shipment ?? null
+        agg.current_season_last_shipment = seasonDates.length
+          ? seasonDates[seasonDates.length - 1]
+          : (meta.current_season_last_shipment ?? null)
+        agg.prior_same_season_shipment = seasonDates.length >= 2
+          ? seasonDates[seasonDates.length - 2]
+          : (meta.prior_same_season_shipment ?? null)
         agg.has_prior_season_carryover = Boolean(meta.has_prior_season_carryover)
         agg.shipment_count = meta.shipment_count ?? 0
-        agg.lifecycle_import_date = meta.current_season_first_shipment ?? agg.import_date
+        agg.lifecycle_import_date = agg.current_season_first_shipment ?? agg.import_date
       }
     }
     if (!agg.lifecycle_import_date) {

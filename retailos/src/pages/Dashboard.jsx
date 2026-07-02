@@ -27,6 +27,7 @@ import ProgressBar from '../components/ProgressBar'
 import { IconClose, IconSearchEmpty } from '../utils/icons.js'
 import { normalizeGenderCodeForFilter, genderShortLabel } from '../utils/gender.js'
 import { fetchSalesByDay } from '../api/client.js'
+import { productMatchesActiveSeason } from '../utils/seasons.js'
 
 const DM_SANS = '"DM Sans", sans-serif'
 const DASH_PRIVACY_KEY = 'retailos_dashboard_privacy'
@@ -328,12 +329,10 @@ export function Dashboard() {
     return () => { alive = false }
   }, [execUser, selectedSalesPeriod])
 
-  const filteredSkus = useMemo(
-    () => (activeSeason === 'All' ? skus : skus.filter((s) => s.season === activeSeason)),
-    [skus, activeSeason],
+  const products = useMemo(
+    () => aggregateSkus(skus, shipmentMeta, activeSeason).filter((p) => productMatchesActiveSeason(p, activeSeason)),
+    [skus, shipmentMeta, activeSeason],
   )
-
-  const products = useMemo(() => aggregateSkus(filteredSkus, shipmentMeta), [filteredSkus, shipmentMeta])
 
   const statusGroups = useMemo(() => {
     const groups = {

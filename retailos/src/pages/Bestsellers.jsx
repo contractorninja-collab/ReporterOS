@@ -5,7 +5,7 @@ import { isExecutive } from '../utils/roles'
 import { getDaysInStore, getProductLifecycleStatus, STATUS_COLORS } from '../utils/lifecycle'
 import { aggregateSkus } from '../utils/aggregateSkus'
 import { normalizeGenderCodeForFilter } from '../utils/gender.js'
-import { filterSkusByActiveSeason, isSeasonFilterActive } from '../utils/seasons.js'
+import { isSeasonFilterActive, productMatchesActiveSeason } from '../utils/seasons.js'
 import ProductCard from '../components/ProductCard'
 import ProductDetailModal from '../components/ProductDetailModal'
 import StatusChip from '../components/StatusChip'
@@ -308,14 +308,9 @@ export function Bestsellers() {
     setShowAllSold(false)
   }, [timeRange, categoryFilter, genderFilter, brandFilter, activeSeason, rankMode, limit])
 
-  const seasonFilteredSkus = useMemo(
-    () => filterSkusByActiveSeason(skus, activeSeason),
-    [skus, activeSeason],
-  )
-
   const products = useMemo(
-    () => aggregateSkus(seasonFilteredSkus, shipmentMeta),
-    [seasonFilteredSkus, shipmentMeta],
+    () => aggregateSkus(skus, shipmentMeta, activeSeason).filter((p) => productMatchesActiveSeason(p, activeSeason)),
+    [skus, shipmentMeta, activeSeason],
   )
 
   const brandOptions = useMemo(() => {
