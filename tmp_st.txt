@@ -1,0 +1,24 @@
+ M retailos/src/components/ProductCard.jsx
+ M retailos/src/components/Sidebar.jsx
+ M retailos/src/components/SmartAlertsList.jsx
+ M retailos/src/data/db.js
+ M retailos/src/pages/Accessories.jsx
+ M retailos/src/pages/Apparel.jsx
+ M retailos/src/pages/Bestsellers.jsx
+ M retailos/src/pages/Dashboard.jsx
+ M retailos/src/pages/Footwear.jsx
+ M retailos/src/pages/Lifecycle.jsx
+ M retailos/src/pages/StoreTransfers.jsx
+ M retailos/src/store/slices/importsSlice.js
+ M retailos/src/utils/aggregateSkus.js
+ M retailos/src/utils/alerts.js
+ M retailos/src/utils/lifecycle.js
+?? tmp_st.txt
+bd41a17 Fix CSV import deletion flow
+6095a87 Add copy-paste nginx reverse-proxy template
+d575855 Add VPS deploy script and enforce LF for shell scripts
+2e19a73 RetailOS: production import hardening, store refactor, repo cleanup
+4ee69db Initial commit
+5469ae2 feat(retailos): light theme tokens and themed UI surfaces
+ffe2aad Add script to create GitHub remote and push after gh auth login
+5579599 Initial commit: RetailOS app, Cursor rules, and project context
