@@ -259,8 +259,14 @@ export default function ProductDetailModal({ sku, status, statusData, onClose, s
   const lifecycleArrivalDate = getEffectiveLifecycleImportDate(displaySku)
   const days = getDaysInStore(lifecycleArrivalDate)
   const remaining = Math.max(0, (Number(sku.quantity) || 0) - (Number(netSoldQty) || 0))
+  const totalStock = Number(displaySku.total_stock_units ?? remaining) || 0
+  const activeSeasonLabel = String(displaySku.active_season || displaySku.current_season || sku.season || '').trim()
+  const carryoverSeasonLabel = String(displaySku.first_season || '').trim()
+  const activeSeasonStock = Number(displaySku.active_season_stock_units) || 0
+  const carryoverStock = Number(displaySku.carryover_stock_units) || 0
+  const showStockSplit = Boolean(activeSeasonLabel && (activeSeasonStock > 0 || carryoverStock > 0))
   const stockColor =
-    remaining <= 3 && remaining > 0 ? '#ff8800' : remaining === 0 ? '#ff3333' : '#00e676'
+    totalStock <= 3 && totalStock > 0 ? '#ff8800' : totalStock === 0 ? '#ff3333' : '#00e676'
   const isFire = pct >= 60
 
   const STATUS_ORDER = ['New Arrival', 'Active', 'Aging', 'Risk', 'Clearance', 'Outlet']
@@ -466,10 +472,10 @@ export default function ProductDetailModal({ sku, status, statusData, onClose, s
             {(showSalesMetrics
               ? [
                   { label: 'Price', value: `€${ticketPrice.toFixed(2)}`, color: 'var(--ro-heading)' },
-                  { label: 'Stock', value: String(remaining), color: stockColor },
+                  { label: 'Stock', value: String(totalStock), color: stockColor },
                   { label: 'Sold', value: `${Math.round(pct)}%`, color: statusData.color },
                 ]
-              : [{ label: 'Available', value: String(remaining), color: stockColor }]
+              : [{ label: 'Available', value: String(totalStock), color: stockColor }]
             ).map((c) => (
               <div
                 key={c.label}
@@ -507,6 +513,44 @@ export default function ProductDetailModal({ sku, status, statusData, onClose, s
               </div>
             ))}
           </div>
+
+          {showStockSplit ? (
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+                gap: 8,
+                marginTop: '-8px',
+                marginBottom: 18,
+              }}
+            >
+              {[
+                { label: carryoverSeasonLabel ? `Carried from ${carryoverSeasonLabel}` : 'Carried stock', value: carryoverStock, tone: 'var(--ro-text-dim)' },
+                { label: `${activeSeasonLabel} stock`, value: activeSeasonStock, tone: '#3b82f6' },
+              ].map((row) => (
+                <div
+                  key={row.label}
+                  style={{
+                    background: 'var(--ro-surface-elevated)',
+                    border: '1px solid var(--ro-border)',
+                    borderRadius: 10,
+                    padding: '9px 12px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 10,
+                  }}
+                >
+                  <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--ro-text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                    {row.label}
+                  </span>
+                  <span style={{ fontFamily: '"DM Sans"', fontSize: 16, fontWeight: 700, color: row.tone }}>
+                    {row.value}
+                  </span>
+                </div>
+              ))}
+            </div>
+          ) : null}
 
           {showSalesMetrics ? (
             <div

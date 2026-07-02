@@ -64,13 +64,25 @@ export function mergeShipmentMeta(sku, shipmentMetaBySku, activeSeason = 'All') 
   const seasonLast = seasonDates.length
     ? seasonDates[seasonDates.length - 1]
     : (meta.current_season_last_shipment ?? null)
+  const activeSeasonImportedUnits = targetSeason
+    ? (Number(meta.imported_units_by_season?.[targetSeason]) || 0)
+    : 0
+  const totalOnHand = Math.max(0, (Number(sku.quantity) || 0) - (Number(sku.sold_quantity) || 0))
+  const activeSeasonStock = targetSeason
+    ? Math.min(totalOnHand, activeSeasonImportedUnits)
+    : 0
 
   return {
     ...sku,
     first_arrival_date: meta.first_arrival_date ?? sku.import_date,
+    first_season: meta.first_season ?? sku.first_season ?? null,
     last_shipment_date: meta.last_shipment_date ?? sku.last_import_date,
     active_season: targetSeason || null,
     active_season_has_shipment: targetSeason ? hasTargetSeasonShipment : null,
+    active_season_imported_units: activeSeasonImportedUnits,
+    active_season_stock_units: activeSeasonStock,
+    carryover_stock_units: targetSeason ? Math.max(0, totalOnHand - activeSeasonStock) : 0,
+    total_stock_units: totalOnHand,
     current_season: currentSeason,
     current_season_first_shipment: seasonFirst,
     current_season_last_shipment: seasonLast,

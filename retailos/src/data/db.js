@@ -913,14 +913,40 @@ function salesEventAvgPriceBySkuSize() {
   return map
 }
 
+function inventoryOnHandBySkuSize() {
+  const map = new Map()
+  let rows
+  try {
+    rows = db.prepare(`
+      SELECT sku, size, COALESCE(SUM(signed_quantity), 0) AS on_hand
+      FROM inventory_events
+      GROUP BY sku, size
+    `).all()
+  } catch {
+    return map
+  }
+  for (const r of rows) {
+    const onHand = Math.max(0, Math.round(Number(r.on_hand) || 0))
+    map.set(`${r.sku ?? ''}\u0000${String(r.size ?? '').trim()}`, onHand)
+  }
+  return map
+}
+
 export function getAllSkus() {
   const avgBySize = salesEventAvgPriceBySkuSize()
+  const onHandBySize = inventoryOnHandBySkuSize()
   return db.prepare('SELECT * FROM skus WHERE deleted_at IS NULL').all().map((row) => {
     const sku = toSku(row)
+    const sizeKey = `${sku.sku ?? ''}\u0000${String(sku.size ?? '').trim()}`
     // Self-heal a stale/zero price_sold snapshot from the sales ledger when that
     // size actually has sales, so derived averages (e.g. tiles) stay accurate.
-    const derived = avgBySize.get(`${sku.sku ?? ''}\u0000${String(sku.size ?? '').trim()}`)
+    const derived = avgBySize.get(sizeKey)
     if (derived != null && derived > 0) sku.price_sold = derived
+    const onHand = onHandBySize.get(sizeKey)
+    if (onHand != null) {
+      sku.quantity = onHand + (Number(sku.sold_quantity) || 0)
+      sku.on_hand_quantity = onHand
+    }
     return sku
   })
 }
@@ -1080,6 +1106,7 @@ export function getShipmentMetaBySku() {
         first_season: row.season || null,
         current_season: currentSeasonBySku[sku] || row.season || '',
         shipments_by_season: {},
+        imported_units_by_season: {},
         shipment_count: 0,
       }
     }
@@ -1089,6 +1116,7 @@ export function getShipmentMetaBySku() {
     const sn = seasonBucketForLine(sku, row.season, row.imported_at)
     if (!meta.shipments_by_season[sn]) meta.shipments_by_season[sn] = []
     meta.shipments_by_season[sn].push(row.imported_at)
+    meta.imported_units_by_season[sn] = (Number(meta.imported_units_by_season[sn]) || 0) + (Number(row.quantity_added) || 0)
     const lineSeason = String(row.season || '').trim()
     if (!meta.first_season && lineSeason) meta.first_season = lineSeason
   }

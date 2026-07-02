@@ -130,13 +130,25 @@ export function aggregateSkus(skus, shipmentMetaBySku = null, activeSeason = 'Al
           ? (meta.shipments_by_season?.[currentSeason] || [])
           : []
         const seasonDates = hasTargetSeasonShipment ? targetSeasonDates : currentSeasonDates
+        const activeSeasonImportedUnits = targetSeason
+          ? (Number(meta.imported_units_by_season?.[targetSeason]) || 0)
+          : 0
+        const totalOnHand = Math.max(0, (Number(agg.quantity) || 0) - (Number(agg.sold_quantity) || 0))
+        const activeSeasonStock = targetSeason
+          ? Math.min(totalOnHand, activeSeasonImportedUnits)
+          : 0
 
         if (meta.first_arrival_date) agg.import_date = meta.first_arrival_date
         if (meta.last_shipment_date) agg.last_import_date = meta.last_shipment_date
         agg.first_arrival_date = meta.first_arrival_date ?? agg.import_date
+        agg.first_season = meta.first_season ?? agg.first_season ?? null
         agg.last_shipment_date = meta.last_shipment_date ?? agg.last_import_date
         agg.active_season = targetSeason || null
         agg.active_season_has_shipment = targetSeason ? hasTargetSeasonShipment : null
+        agg.active_season_imported_units = activeSeasonImportedUnits
+        agg.active_season_stock_units = activeSeasonStock
+        agg.carryover_stock_units = targetSeason ? Math.max(0, totalOnHand - activeSeasonStock) : 0
+        agg.total_stock_units = totalOnHand
         agg.current_season = currentSeason
         agg.current_season_first_shipment = seasonDates[0] ?? meta.current_season_first_shipment ?? null
         agg.current_season_last_shipment = seasonDates.length
