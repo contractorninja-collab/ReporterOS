@@ -54,7 +54,11 @@ export function mergeShipmentMeta(sku, shipmentMetaBySku, activeSeason = 'All') 
   const meta = shipmentMetaBySku[sku.sku]
   if (!meta) return sku
   const targetSeason = isSeasonFilterActive(activeSeason) ? normalizeSeasonInput(activeSeason) : ''
-  const currentSeason = targetSeason || meta.current_season || sku.current_season || sku.season
+  const targetSeasonDates = targetSeason ? (meta.shipments_by_season?.[targetSeason] || []) : []
+  const hasTargetSeasonShipment = targetSeasonDates.length > 0
+  const currentSeason = hasTargetSeasonShipment
+    ? targetSeason
+    : (meta.current_season || sku.current_season || sku.season)
   const seasonDates = currentSeason ? (meta.shipments_by_season?.[currentSeason] || []) : []
   const seasonFirst = seasonDates[0] ?? meta.current_season_first_shipment ?? null
   const seasonLast = seasonDates.length
@@ -65,6 +69,8 @@ export function mergeShipmentMeta(sku, shipmentMetaBySku, activeSeason = 'All') 
     ...sku,
     first_arrival_date: meta.first_arrival_date ?? sku.import_date,
     last_shipment_date: meta.last_shipment_date ?? sku.last_import_date,
+    active_season: targetSeason || null,
+    active_season_has_shipment: targetSeason ? hasTargetSeasonShipment : null,
     current_season: currentSeason,
     current_season_first_shipment: seasonFirst,
     current_season_last_shipment: seasonLast,

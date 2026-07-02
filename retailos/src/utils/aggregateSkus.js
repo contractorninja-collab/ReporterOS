@@ -122,16 +122,21 @@ export function aggregateSkus(skus, shipmentMetaBySku = null, activeSeason = 'Al
         const targetSeasonDates = targetSeason
           ? (meta.shipments_by_season?.[targetSeason] || [])
           : []
-        const currentSeason = targetSeason || meta.current_season || agg.season
+        const hasTargetSeasonShipment = targetSeasonDates.length > 0
+        const currentSeason = hasTargetSeasonShipment
+          ? targetSeason
+          : (meta.current_season || agg.season)
         const currentSeasonDates = currentSeason
           ? (meta.shipments_by_season?.[currentSeason] || [])
           : []
-        const seasonDates = targetSeason ? targetSeasonDates : currentSeasonDates
+        const seasonDates = hasTargetSeasonShipment ? targetSeasonDates : currentSeasonDates
 
         if (meta.first_arrival_date) agg.import_date = meta.first_arrival_date
         if (meta.last_shipment_date) agg.last_import_date = meta.last_shipment_date
         agg.first_arrival_date = meta.first_arrival_date ?? agg.import_date
         agg.last_shipment_date = meta.last_shipment_date ?? agg.last_import_date
+        agg.active_season = targetSeason || null
+        agg.active_season_has_shipment = targetSeason ? hasTargetSeasonShipment : null
         agg.current_season = currentSeason
         agg.current_season_first_shipment = seasonDates[0] ?? meta.current_season_first_shipment ?? null
         agg.current_season_last_shipment = seasonDates.length
