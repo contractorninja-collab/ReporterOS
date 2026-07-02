@@ -88,15 +88,18 @@ export function filterSkusByActiveSeason(rows, activeSeason, getSeason = (r) => 
 
 /**
  * Match an aggregated product row against the topbar season chip.
- * When shipment metadata is available, a product belongs to a season only if it
- * has a real intake/import line for that season. This keeps carryover/retagged
- * SS products out of FW unless they were actually imported again in FW.
+ * A product belongs to a season if either:
+ * - it has a real CSV import line for that season, or
+ * - its catalog row was rolled/assigned into that season as carryover stock.
+ *
+ * Lifecycle code still uses the real season shipment date only when one exists.
  */
 export function productMatchesActiveSeason(row, activeSeason) {
   if (!isSeasonFilterActive(activeSeason)) return true
   const target = normalizeSeasonInput(activeSeason)
   if (normalizeSeasonInput(row?.active_season) === target && row?.active_season_has_shipment != null) {
     return Boolean(row.active_season_has_shipment)
+      || normalizeSeasonInput(row?.current_season || row?.season) === target
   }
   return normalizeSeasonInput(row?.current_season || row?.season) === target
 }
