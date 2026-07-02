@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react'
 import { useStore } from '../store/useStore'
-import { getSellThrough, getLifecycleStatus } from '../utils/lifecycle'
+import { getSellThrough, getProductLifecycleStatus } from '../utils/lifecycle'
 import { aggregateSkus } from '../utils/aggregateSkus'
 import KpiCard from '../components/KpiCard'
 import { IconFootwear } from '../utils/icons.js'
@@ -23,10 +23,11 @@ function brandSlug(name) {
 export function Footwear() {
   const [brandFilter, setBrandFilter] = useState('All brands')
   const skus = useStore((s) => s.skus)
+  const shipmentMeta = useStore((s) => s.shipmentMeta)
   const activeUser = useStore((s) => s.activeUser)
   const exec = isExecutive(activeUser)
 
-  const products = useMemo(() => aggregateSkus(skus), [skus])
+  const products = useMemo(() => aggregateSkus(skus, shipmentMeta), [skus, shipmentMeta])
 
   const dynamicBrands = useMemo(() => {
     const set = new Set()
@@ -57,7 +58,7 @@ export function Footwear() {
     const pct = getSellThrough(sold, qty)
     sellSum += pct
 
-    const status = getLifecycleStatus(s.import_date, sold, qty)
+    const status = getProductLifecycleStatus(s)
     if (status === 'Risk' || status === 'Clearance') {
       riskClearanceCount += 1
     }
@@ -149,10 +150,9 @@ export function Footwear() {
             const avg = Math.round(
               brandSkus.reduce((acc, s) => acc + getSellThrough(soldQty(s), qty(s)), 0) / (count || 1)
             )
-            const atRisk = brandSkus.filter((s) =>
-              ['Risk', 'Clearance', 'Outlet'].includes(
-                getLifecycleStatus(s.import_date, soldQty(s), qty(s))
-              )
+            const atRisk = footwearProducts.filter((p) =>
+              p.brand === brandName
+              && ['Risk', 'Clearance', 'Outlet'].includes(getProductLifecycleStatus(p))
             ).length
 
             const thresholdClass = sellThroughThresholdClass(avg)

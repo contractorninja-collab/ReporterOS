@@ -59,6 +59,28 @@ export function getSellThrough(netQtySold, totalQtyImported) {
 }
 
 /**
+ * Import date used for lifecycle (New Arrival / Risk / Clearance tiles).
+ * Carryover SKUs that receive a real intake in the active season restart
+ * their lifecycle clock at that season's first truck date.
+ * @param {{ lifecycle_import_date?: string|Date, current_season_first_shipment?: string|Date, import_date?: string|Date, first_arrival_date?: string|Date }|null|undefined} sku
+ */
+export function getEffectiveLifecycleImportDate(sku) {
+  if (!sku) return null
+  if (sku.lifecycle_import_date) return sku.lifecycle_import_date
+  if (sku.current_season_first_shipment) return sku.current_season_first_shipment
+  return sku.import_date ?? sku.first_arrival_date ?? null
+}
+
+/** Lifecycle status for an aggregated SKU/product row (uses season-aware import date). */
+export function getProductLifecycleStatus(sku) {
+  return getLifecycleStatus(
+    getEffectiveLifecycleImportDate(sku),
+    sku?.sold_quantity,
+    sku?.quantity,
+  )
+}
+
+/**
  * Get lifecycle status from days in store and sell-through.
  * Rules applied in order per Section 3.
  * @param {string|Date} importDate - Date stock arrived

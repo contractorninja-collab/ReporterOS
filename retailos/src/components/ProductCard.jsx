@@ -1,4 +1,4 @@
-import { getSellThrough, getDaysInStore } from '../utils/lifecycle.js'
+import { getSellThrough, getDaysInStore, getEffectiveLifecycleImportDate } from '../utils/lifecycle.js'
 import { getShipmentDisplayLines, mergeShipmentMeta } from '../utils/shipmentDisplay.js'
 import { toTitleCase } from '../utils/textFormat.js'
 import useStore from '../store/useStore'
@@ -68,7 +68,7 @@ function ProductCard({ sku, rank, onClick, metric, metricLabel, velocity, lowSto
     return delta || null
   })()
   const netRevenueDisplay = netRevenue.toLocaleString('en', { maximumFractionDigits: 0 })
-  const daysInStore = getDaysInStore(displaySku.import_date)
+  const daysInStore = getDaysInStore(getEffectiveLifecycleImportDate(displaySku))
   const brandLabel = String(sku.brand ?? '').trim()
 
   return (

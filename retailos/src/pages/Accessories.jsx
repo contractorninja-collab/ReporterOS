@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import { useStore } from '../store/useStore'
-import { getSellThrough, getLifecycleStatus } from '../utils/lifecycle'
+import { getSellThrough, getProductLifecycleStatus } from '../utils/lifecycle'
 import { aggregateSkus } from '../utils/aggregateSkus'
 import KpiCard from '../components/KpiCard'
 import { IconAccessories } from '../utils/icons.js'
@@ -81,10 +81,11 @@ function catalogCardSlug(name) {
 
 export function Accessories() {
   const skus = useStore((s) => s.skus)
+  const shipmentMeta = useStore((s) => s.shipmentMeta)
   const activeUser = useStore((s) => s.activeUser)
   const exec = isExecutive(activeUser)
 
-  const products = useMemo(() => aggregateSkus(skus), [skus])
+  const products = useMemo(() => aggregateSkus(skus, shipmentMeta), [skus, shipmentMeta])
 
   const accessoriesSkus = products.filter(
     (s) => String(s.category || '').toLowerCase() === 'accessories'
@@ -115,7 +116,7 @@ export function Accessories() {
     sellSum += getSellThrough(sold, qty)
     const remaining = qty - sold
     if (remaining < 3) lowStockCount += 1
-    const st = getLifecycleStatus(s.import_date, sold, qty)
+    const st = getProductLifecycleStatus(s)
     if (st === 'Clearance' || st === 'Outlet') clearanceOutletCount += 1
   }
   const n = accessoriesSkus.length
@@ -138,7 +139,7 @@ export function Accessories() {
       ? 0
       : groupSkus.filter((s) =>
           ['Risk', 'Clearance', 'Outlet'].includes(
-            getLifecycleStatus(s.import_date, getSold(s), getQty(s))
+            getProductLifecycleStatus(s)
           )
         ).length
     return { sc, count, avg, atRisk }

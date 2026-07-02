@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo } from 'react'
 import { useStore } from '../store/useStore'
-import { getSellThrough, getLifecycleStatus } from '../utils/lifecycle'
+import { getSellThrough, getProductLifecycleStatus } from '../utils/lifecycle'
 import { aggregateSkus } from '../utils/aggregateSkus'
 import KpiCard from '../components/KpiCard'
 import { IconApparel } from '../utils/icons.js'
@@ -129,6 +129,7 @@ export function Apparel() {
   const [isClassifying, setIsClassifying] = useState(false)
   const [classificationStatus, setClassificationStatus] = useState('')
   const skus = useStore((s) => s.skus)
+  const shipmentMeta = useStore((s) => s.shipmentMeta)
   const activeUser = useStore((s) => s.activeUser)
   const exec = isExecutive(activeUser)
 
@@ -146,7 +147,7 @@ export function Apparel() {
     }
   }, [])
 
-  const products = useMemo(() => aggregateSkus(skus), [skus])
+  const products = useMemo(() => aggregateSkus(skus, shipmentMeta), [skus, shipmentMeta])
 
   const apparelSkus = products
     .filter((s) => {
@@ -186,7 +187,7 @@ export function Apparel() {
     const pct = getSellThrough(sold, qty)
     sellSum += pct
 
-    const st = getLifecycleStatus(s.import_date, sold, qty)
+    const st = getProductLifecycleStatus(s)
     if (st === 'Aging' || st === 'Risk') {
       slowMovers += 1
     }
@@ -219,7 +220,7 @@ export function Apparel() {
       ? Math.min(3, Math.floor(count * 0.08))
       : groupSkus.filter((s) =>
           ['Risk', 'Clearance', 'Outlet'].includes(
-            getLifecycleStatus(s.import_date, getSold(s), getQty(s))
+            getProductLifecycleStatus(s)
           )
         ).length
     return { c, count, avg, atRisk }

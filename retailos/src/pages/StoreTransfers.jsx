@@ -4,7 +4,7 @@ import { Check, AlertTriangle, PackageCheck, CheckCircle2, Clock, ArrowLeftRight
 import useStore from '../store/useStore.js'
 import ProductDetailModal from '../components/ProductDetailModal.jsx'
 import { aggregateSkus } from '../utils/aggregateSkus.js'
-import { getLifecycleStatus, STATUS_COLORS } from '../utils/lifecycle.js'
+import { getProductLifecycleStatus, STATUS_COLORS } from '../utils/lifecycle.js'
 import { toTitleCase } from '../utils/textFormat.js'
 import { IconPlus, IconDownload, IconPrint } from '../utils/icons.js'
 
@@ -1045,7 +1045,7 @@ export function StoreTransfers() {
       </div>
 
       {detailSku && (() => {
-        const st = getLifecycleStatus(detailSku.import_date, detailSku.sold_quantity, detailSku.quantity)
+        const st = getProductLifecycleStatus(detailSku)
         return (
           <ProductDetailModal
             sku={detailSku}

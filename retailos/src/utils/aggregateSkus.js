@@ -44,9 +44,10 @@ export function aggregateSkus(skus, shipmentMetaBySku = null) {
     if (!existing) {
       const lineRev = lineRevenueFromSaleFields(rowPriceSold, rowSold)
       const lineReturn = rowSold < 0 || rowPriceSold < 0
+      const rowLast = row.last_import_date ?? row.import_date
       map.set(key, {
         ...row,
-        last_import_date: row.import_date,
+        last_import_date: rowLast,
         id: row.sku,
         quantity: rowQty,
         sold_quantity: rowSold,
@@ -79,11 +80,13 @@ export function aggregateSkus(skus, shipmentMetaBySku = null) {
         existing.import_date = row.import_date
       }
 
+      const rowLast = row.last_import_date ?? row.import_date
+      const rowLastDate = rowLast instanceof Date ? rowLast : new Date(rowLast)
       const lastExist = existing.last_import_date instanceof Date
         ? existing.last_import_date
         : new Date(existing.last_import_date)
-      if (!isNaN(rowDate.getTime()) && (isNaN(lastExist.getTime()) || rowDate > lastExist)) {
-        existing.last_import_date = row.import_date
+      if (!isNaN(rowLastDate.getTime()) && (isNaN(lastExist.getTime()) || rowLastDate > lastExist)) {
+        existing.last_import_date = rowLast
       }
 
       if (row.size && !existing.sizes.includes(row.size)) {
@@ -123,7 +126,11 @@ export function aggregateSkus(skus, shipmentMetaBySku = null) {
         agg.prior_same_season_shipment = meta.prior_same_season_shipment ?? null
         agg.has_prior_season_carryover = Boolean(meta.has_prior_season_carryover)
         agg.shipment_count = meta.shipment_count ?? 0
+        agg.lifecycle_import_date = meta.current_season_first_shipment ?? agg.import_date
       }
+    }
+    if (!agg.lifecycle_import_date) {
+      agg.lifecycle_import_date = agg.import_date
     }
   }
 

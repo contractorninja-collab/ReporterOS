@@ -14,7 +14,7 @@ import {
   Cell,
 } from 'recharts'
 import useStore from '../store/useStore'
-import { getLifecycleStatus, getSellThrough, getDaysInStore } from '../utils/lifecycle'
+import { getSellThrough, getDaysInStore, getProductLifecycleStatus, getEffectiveLifecycleImportDate } from '../utils/lifecycle'
 import { isExecutive } from '../utils/roles'
 import { aggregateSkus } from '../utils/aggregateSkus'
 import LifecycleTile from '../components/LifecycleTile'
@@ -350,7 +350,7 @@ export function Dashboard() {
         groups['All Sold'].push(s)
         return
       }
-      const st = getLifecycleStatus(s.import_date, s.sold_quantity, s.quantity)
+      const st = getProductLifecycleStatus(s)
       if (groups[st]) groups[st].push(s)
     })
     return groups
@@ -405,7 +405,11 @@ export function Dashboard() {
 
   const recentSkus = useMemo(() => {
     return [...products]
-      .sort((a, b) => new Date(b.import_date).getTime() - new Date(a.import_date).getTime())
+      .sort((a, b) => {
+        const aDate = new Date(a.last_import_date ?? a.lifecycle_import_date ?? a.import_date).getTime()
+        const bDate = new Date(b.last_import_date ?? b.lifecycle_import_date ?? b.import_date).getTime()
+        return bDate - aDate
+      })
       .slice(0, 5)
   }, [products])
 
@@ -1181,8 +1185,8 @@ export function Dashboard() {
                 </tr>
               ) : (
                 recentSkus.map((sku) => {
-                  const status = getLifecycleStatus(sku.import_date, sku.sold_quantity, sku.quantity)
-                  const days = getDaysInStore(sku.import_date)
+                  const status = getProductLifecycleStatus(sku)
+                  const days = getDaysInStore(getEffectiveLifecycleImportDate(sku))
                   const pct = Math.round(getSellThrough(sku.sold_quantity, sku.quantity))
                   const sellDisplay = getSellThroughDisplay(pct)
                   const act = actionForRow(status, pct, !execUser || salesMasked)

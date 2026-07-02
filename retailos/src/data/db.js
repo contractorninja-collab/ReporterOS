@@ -874,7 +874,8 @@ function toSku(row) {
     id: row.id, barcode: normalizeBarcodeValue(row.barcode) || '', sku: row.sku, product_name: row.product_name,
     size: row.size, price_sold: row.price_sold, price_tag: row.price_tag ?? 0,
     cost_price: row.cost_price ?? 0,
-    quantity: row.quantity, sold_quantity: row.sold_quantity, import_date: row.import_date,
+    quantity: row.quantity, sold_quantity: row.sold_quantity,
+    import_date: row.import_date, last_import_date: row.last_import_date ?? row.import_date,
     gender: row.gender, season: row.season, category: row.category, brand: row.brand,
     sale_active: row.sale_active ? 1 : 0, sale_percent: row.sale_percent ?? null, sale_list_id: row.sale_list_id ?? null,
     _importId: row._importId,
@@ -1026,6 +1027,22 @@ export function getShipmentMetaBySku() {
   `).all()
   const currentSeasonBySku = Object.fromEntries(seasonBySku.map((r) => [r.sku, r.season || '']))
 
+  const seasonStarts = Object.fromEntries(
+    db.prepare('SELECT season, started_at FROM season_starts').all()
+      .map((r) => [normalizeSeasonInput(r.season), r.started_at]),
+  )
+
+  /** Bucket an import line into a season for shipment/lifecycle metadata. */
+  function seasonBucketForLine(sku, rowSeason, importedAt) {
+    const trimmed = String(rowSeason || '').trim()
+    if (trimmed) return trimmed
+    const currentSeason = normalizeSeasonInput(currentSeasonBySku[sku] || '')
+    if (!currentSeason) return '—'
+    const startedAt = seasonStarts[currentSeason]
+    if (startedAt && importedAt >= startedAt) return currentSeason
+    return '—'
+  }
+
   /** @type {Record<string, object>} */
   const map = {}
   for (const row of rows) {
@@ -1043,10 +1060,11 @@ export function getShipmentMetaBySku() {
     const meta = map[sku]
     meta.last_shipment_date = row.imported_at
     meta.shipment_count += 1
-    const sn = row.season || '—'
+    const sn = seasonBucketForLine(sku, row.season, row.imported_at)
     if (!meta.shipments_by_season[sn]) meta.shipments_by_season[sn] = []
     meta.shipments_by_season[sn].push(row.imported_at)
-    if (!meta.first_season && row.season) meta.first_season = row.season
+    const lineSeason = String(row.season || '').trim()
+    if (!meta.first_season && lineSeason) meta.first_season = lineSeason
   }
 
   for (const meta of Object.values(map)) {

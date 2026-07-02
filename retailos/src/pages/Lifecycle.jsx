@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { normalizeGenderCodeForFilter } from '../utils/gender.js'
 import { useStore } from '../store/useStore'
-import { getLifecycleStatus, STATUS_COLORS } from '../utils/lifecycle'
+import { STATUS_COLORS, getProductLifecycleStatus } from '../utils/lifecycle'
 import { aggregateSkus } from '../utils/aggregateSkus'
 import SkuTile from '../components/SkuTile'
 import ProductDetailModal from '../components/ProductDetailModal'
@@ -128,7 +128,7 @@ export function Lifecycle() {
       <div className="fade-up delay-2 lifecycle-kanban-root">
         {LANES.map((lane) => {
           const laneSkus = filteredSkus.filter(
-            (s) => getLifecycleStatus(s.import_date, s.sold_quantity, s.quantity) === lane.status
+            (s) => getProductLifecycleStatus(s) === lane.status
           )
           return (
             <div

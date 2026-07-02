@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import useStore from '../store/useStore.js'
 import { generateAlerts, dedupeAlertsBySku } from '../utils/alerts.js'
 import { aggregateSkus } from '../utils/aggregateSkus.js'
-import { getLifecycleStatus } from '../utils/lifecycle.js'
+import { getProductLifecycleStatus } from '../utils/lifecycle.js'
 import AlertItem from './AlertItem.jsx'
 import ProductDetailModal from './ProductDetailModal.jsx'
 import { AlertAssignModal } from './AlertAssignModal.jsx'
@@ -83,7 +83,7 @@ export function SmartAlertsList({ limit, showViewAllLink, urgencyFilter = 'all' 
   }, [assignments])
 
   const detailLifecycleStatus = detailSku
-    ? getLifecycleStatus(detailSku.import_date, detailSku.sold_quantity, detailSku.quantity)
+    ? getProductLifecycleStatus(detailSku)
     : null
 
   const openProductDetail = (skuCode) => {

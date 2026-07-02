@@ -24,7 +24,7 @@ import {
   IconSale,
 } from '../utils/icons.js'
 import useStore from '../store/useStore.js'
-import { getLifecycleStatus } from '../utils/lifecycle.js'
+import { getProductLifecycleStatus } from '../utils/lifecycle.js'
 import { aggregateSkus } from '../utils/aggregateSkus.js'
 import { generateAlerts, dedupeAlertsBySku } from '../utils/alerts.js'
 import { isExecutive } from '../utils/roles.js'
@@ -66,7 +66,8 @@ export function Sidebar({ onNavigate }) {
   const markdownLists = useStore((s) => s.markdownLists)
   const activeShifts = useStore((s) => s.activeShifts)
 
-  const products = useMemo(() => aggregateSkus(skus), [skus])
+  const shipmentMeta = useStore((s) => s.shipmentMeta)
+  const products = useMemo(() => aggregateSkus(skus, shipmentMeta), [skus, shipmentMeta])
 
   const pendingTasks = useMemo(() => {
     if (!activeUser) return 0
@@ -97,15 +98,15 @@ export function Sidebar({ onNavigate }) {
   const smartAlertsUrgentCount = useMemo(() => {
     const filteredSkus =
       activeSeason === 'All' ? skus : skus.filter((s) => s.season === activeSeason)
-    const agg = aggregateSkus(filteredSkus)
+    const agg = aggregateSkus(filteredSkus, shipmentMeta)
     const list = dedupeAlertsBySku(generateAlerts(agg))
     return list.filter((a) => a.urgency === 'critical' || a.urgency === 'warning').length
-  }, [skus, activeSeason])
+  }, [skus, activeSeason, shipmentMeta])
 
   const atRiskCount = useMemo(() => {
     let atRisk = 0
     for (const p of products) {
-      if (getLifecycleStatus(p.import_date, p.sold_quantity, p.quantity) === 'Risk') {
+      if (getProductLifecycleStatus(p) === 'Risk') {
         atRisk += 1
       }
     }

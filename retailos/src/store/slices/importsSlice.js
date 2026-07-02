@@ -22,11 +22,13 @@ export function createImportsSlice(set) {
         return { skus: [...map.values()] }
       })
       try {
-        const [totals, meta] = await Promise.all([
+        const [freshSkus, totals, meta] = await Promise.all([
+          api.fetchSkus().catch(() => null),
           api.fetchSkuImportTotals().catch(() => null),
           api.fetchShipmentMeta().catch(() => null),
         ])
         const patch = {}
+        if (Array.isArray(freshSkus)) patch.skus = freshSkus
         if (totals != null) patch.skuImportTotals = asRecord(totals)
         if (meta != null) patch.shipmentMeta = asRecord(meta)
         if (Object.keys(patch).length) set(patch)

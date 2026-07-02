@@ -3,7 +3,7 @@
  * Generate alerts automatically from SKU lifecycle and sell-through.
  */
 
-import { getDaysInStore, getSellThrough, getLifecycleStatus } from './lifecycle.js'
+import { getDaysInStore, getSellThrough, getLifecycleStatus, getEffectiveLifecycleImportDate } from './lifecycle.js'
 
 /**
  * @typedef {Object} Alert
@@ -26,9 +26,10 @@ export function generateAlerts(skus) {
 
   for (const sku of skus) {
     const { sku: skuCode, product_name: productName } = sku
-    const days = getDaysInStore(sku.import_date)
+    const importDate = getEffectiveLifecycleImportDate(sku)
+    const days = getDaysInStore(importDate)
     const sellThrough = getSellThrough(sku.sold_quantity, sku.quantity)
-    const status = getLifecycleStatus(sku.import_date, sku.sold_quantity, sku.quantity)
+    const status = getLifecycleStatus(importDate, sku.sold_quantity, sku.quantity)
 
     // 🔴 Clearance tomorrow — days_in_store = 148–150 | Do today (critical)
     if (days >= 148 && days <= 150) {

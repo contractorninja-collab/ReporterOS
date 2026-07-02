@@ -2,7 +2,7 @@ import { useMemo, useState, useEffect, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { useStore } from '../store/useStore'
 import { isExecutive } from '../utils/roles'
-import { getDaysInStore, getLifecycleStatus, STATUS_COLORS } from '../utils/lifecycle'
+import { getDaysInStore, getProductLifecycleStatus, STATUS_COLORS } from '../utils/lifecycle'
 import { aggregateSkus } from '../utils/aggregateSkus'
 import { normalizeGenderCodeForFilter } from '../utils/gender.js'
 import { filterSkusByActiveSeason, isSeasonFilterActive } from '../utils/seasons.js'
@@ -927,10 +927,9 @@ export function Bestsellers() {
           <tbody>
             {slowestSkus.map((sku, i) => {
               const thumbUrl = photoMap[sku.sku]
-              const imported = unitsImported(sku, skuImportTotals)
               const pct = Math.round(sellThroughPct(sku, hasEventSales, skuImportTotals))
               const days = getDaysInStore(sku.import_date)
-              const status = getLifecycleStatus(sku.import_date, sku.sold_quantity, imported)
+              const status = getProductLifecycleStatus(sku)
               const rankColors = ['#ff3333', '#ff8800', '#fbbf24']
               const slowCount = slowestSkus.length
               const rankLabels = Array.from({ length: slowCount }, (_, j) => j === 0 ? '#1 worst' : `#${j + 1}`)
@@ -1003,8 +1002,7 @@ export function Bestsellers() {
       )}
 
       {selectedSku && (() => {
-        const imported = unitsImported(selectedSku, skuImportTotals)
-        const st = getLifecycleStatus(selectedSku.import_date, selectedSku.sold_quantity, imported)
+        const st = getProductLifecycleStatus(selectedSku)
         return (
           <ProductDetailModal
             sku={cardDisplaySku(selectedSku, skuImportTotals)}
