@@ -1154,7 +1154,11 @@ export function insertSkus(skusArray) {
       END,
       price_tag = excluded.price_tag,
       cost_price = excluded.cost_price,
-      quantity = excluded.quantity,
+      quantity = CASE
+        WHEN excluded._importId IS NOT NULL
+        THEN MAX(COALESCE(skus.quantity, 0), COALESCE(skus.quantity, 0) + COALESCE(excluded.quantity, 0))
+        ELSE excluded.quantity
+      END,
       sold_quantity = CASE
         WHEN COALESCE(excluded.sold_quantity, 0) > 0 THEN excluded.sold_quantity
         ELSE skus.sold_quantity
