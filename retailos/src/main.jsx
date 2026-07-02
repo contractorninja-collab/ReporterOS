@@ -16,14 +16,8 @@ const USERS_POLL_MS = 5 * 60_000
 
 async function setupServiceWorker() {
   if (!('serviceWorker' in navigator)) return
-  if (import.meta.env.DEV) {
-    const regs = await navigator.serviceWorker.getRegistrations()
-    await Promise.all(regs.map((r) => r.unregister()))
-    return
-  }
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').catch(() => {})
-  })
+  const regs = await navigator.serviceWorker.getRegistrations()
+  await Promise.all(regs.map((r) => r.unregister()))
 }
 
 ;(async () => {
