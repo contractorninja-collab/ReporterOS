@@ -11393,7 +11393,8 @@ button.pl-kpi-tile {
 .ro-season-card__copy {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 6px;
+  flex: 1;
   min-width: 0;
 }
 
@@ -11414,6 +11415,73 @@ button.pl-kpi-tile {
   color: #7c3aed;
   letter-spacing: normal;
   line-height: 1.2;
+}
+
+.ro-season-card__control-row,
+.ro-season-card__add-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.ro-season-card__select,
+.ro-season-card__input {
+  min-width: 0;
+  height: 30px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #fff;
+  color: #111827;
+  font-family: "DM Sans", sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+  outline: none;
+}
+
+.ro-season-card__select {
+  flex: 1;
+  padding: 0 28px 0 10px;
+  color: #7c3aed;
+  cursor: pointer;
+}
+
+.ro-season-card__input {
+  flex: 1;
+  padding: 0 9px;
+}
+
+.ro-season-card__select:focus,
+.ro-season-card__input:focus {
+  border-color: #a78bfa;
+  box-shadow: 0 0 0 3px rgba(167, 139, 250, 0.16);
+}
+
+.ro-season-card__icon-btn {
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #fff;
+  color: #6b7280;
+  cursor: pointer;
+}
+
+.ro-season-card__icon-btn:hover,
+.ro-season-card__icon-btn:focus-visible {
+  border-color: #c4b5fd;
+  color: #7c3aed;
+  outline: none;
+}
+
+.ro-season-card__icon-btn--confirm {
+  border-color: rgba(22, 163, 74, 0.24);
+  color: #16a34a;
 }
 
 .ro-season-card__icon {

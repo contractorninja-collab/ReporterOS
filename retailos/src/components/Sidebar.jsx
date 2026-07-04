@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { NavLink } from 'react-router-dom'
 import {
   IconDashboard,
@@ -22,13 +22,15 @@ import {
   IconHistory,
   IconDelete,
   IconSale,
+  IconCheck,
+  IconClose,
 } from '../utils/icons.js'
 import useStore from '../store/useStore.js'
 import { getProductLifecycleStatus } from '../utils/lifecycle.js'
 import { aggregateSkus } from '../utils/aggregateSkus.js'
 import { generateAlerts, dedupeAlertsBySku } from '../utils/alerts.js'
 import { isExecutive } from '../utils/roles.js'
-import { productMatchesActiveSeason } from '../utils/seasons.js'
+import { buildSeasonSwitcherList, normalizeSeasonInput, productMatchesActiveSeason } from '../utils/seasons.js'
 
 function NavRow({ to, end, icon, label, badge, onNavigate, catalog = false }) {
   return (
@@ -60,6 +62,9 @@ function SectionCard({ label, children, catalog = false }) {
 export function Sidebar({ onNavigate }) {
   const skus = useStore((s) => s.skus)
   const activeSeason = useStore((s) => s.activeSeason)
+  const setActiveSeason = useStore((s) => s.setActiveSeason)
+  const addExtraSeason = useStore((s) => s.addExtraSeason)
+  const extraSeasons = useStore((s) => s.extraSeasons)
   const activeUser = useStore((s) => s.activeUser)
   const assignments = useStore((s) => s.assignments)
   const outletTransfers = useStore((s) => s.outletTransfers)
@@ -68,9 +73,17 @@ export function Sidebar({ onNavigate }) {
   const activeShifts = useStore((s) => s.activeShifts)
 
   const shipmentMeta = useStore((s) => s.shipmentMeta)
+  const [seasonAddOpen, setSeasonAddOpen] = useState(false)
+  const [seasonDraft, setSeasonDraft] = useState('')
+
   const products = useMemo(
     () => aggregateSkus(skus, shipmentMeta, activeSeason).filter((p) => productMatchesActiveSeason(p, activeSeason)),
     [skus, shipmentMeta, activeSeason],
+  )
+
+  const seasonSwitcherList = useMemo(
+    () => buildSeasonSwitcherList(skus, extraSeasons, activeSeason),
+    [skus, extraSeasons, activeSeason],
   )
 
   const pendingTasks = useMemo(() => {
@@ -118,6 +131,14 @@ export function Sidebar({ onNavigate }) {
 
   const activeSeasonUpper = String(activeSeason || '').toUpperCase()
   const seasonWidgetSun = activeSeasonUpper === 'ALL' || activeSeasonUpper.startsWith('SS')
+  const execUser = isExecutive(activeUser)
+
+  const handleAddSeason = () => {
+    if (!normalizeSeasonInput(seasonDraft)) return
+    addExtraSeason(seasonDraft)
+    setSeasonDraft('')
+    setSeasonAddOpen(false)
+  }
 
   return (
     <>
@@ -149,7 +170,7 @@ export function Sidebar({ onNavigate }) {
           <NavRow to="/bestsellers" icon={<IconHot size={16} strokeWidth={1.75} />} label="Bestsellers" onNavigate={onNavigate} />
         </SectionCard>
 
-        {isExecutive(activeUser) && (
+        {execUser && (
           <SectionCard label="Data">
             <NavRow to="/reports" icon={<IconReports size={16} strokeWidth={1.75} />} label="Reports" onNavigate={onNavigate} />
             <NavRow to="/lookup" icon={<IconSearch size={16} strokeWidth={1.75} />} label="Product lookup" onNavigate={onNavigate} />
@@ -232,7 +253,70 @@ export function Sidebar({ onNavigate }) {
         <div className="ro-season-card">
           <div className="ro-season-card__copy">
             <span className="ro-season-card__label">Active season</span>
-            <span className="ro-season-card__value">{activeSeason}</span>
+            {!seasonAddOpen ? (
+              <div className="ro-season-card__control-row">
+                <select
+                  className="ro-season-card__select"
+                  value={activeSeason}
+                  aria-label="Active season"
+                  onChange={(e) => setActiveSeason(e.target.value)}
+                >
+                  {seasonSwitcherList.map((s) => (
+                    <option key={s} value={s}>{s}</option>
+                  ))}
+                </select>
+                {execUser && (
+                  <button
+                    type="button"
+                    className="ro-season-card__icon-btn"
+                    onClick={() => setSeasonAddOpen(true)}
+                    aria-label="Add season"
+                    title="Add season"
+                  >
+                    <IconPlus size={14} strokeWidth={1.75} />
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="ro-season-card__add-row">
+                <input
+                  className="ro-season-card__input"
+                  type="text"
+                  value={seasonDraft}
+                  onChange={(e) => setSeasonDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleAddSeason()
+                    if (e.key === 'Escape') {
+                      setSeasonAddOpen(false)
+                      setSeasonDraft('')
+                    }
+                  }}
+                  placeholder="SS27"
+                  autoFocus
+                />
+                <button
+                  type="button"
+                  className="ro-season-card__icon-btn ro-season-card__icon-btn--confirm"
+                  onClick={handleAddSeason}
+                  aria-label="Save season"
+                  title="Save season"
+                >
+                  <IconCheck size={14} strokeWidth={1.9} />
+                </button>
+                <button
+                  type="button"
+                  className="ro-season-card__icon-btn"
+                  onClick={() => {
+                    setSeasonAddOpen(false)
+                    setSeasonDraft('')
+                  }}
+                  aria-label="Cancel add season"
+                  title="Cancel"
+                >
+                  <IconClose size={14} strokeWidth={1.9} />
+                </button>
+              </div>
+            )}
           </div>
           <div className="ro-season-card__icon">
             {seasonWidgetSun ? <IconSun size={16} strokeWidth={1.75} /> : <IconLeaf size={16} strokeWidth={1.75} />}
