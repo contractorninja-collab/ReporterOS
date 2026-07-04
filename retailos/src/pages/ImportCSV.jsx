@@ -1262,11 +1262,6 @@ export function ImportCSV() {
                 ({successBanner.count} size row{successBanner.count === 1 ? '' : 's'}, {successBanner.totalUnits} {successBanner.totalUnitsLabel || 'total units'}) from{' '}
                 <span style={{ fontFamily: "'DM Sans', sans-serif" }}>{successBanner.filename}</span>
                 {successBanner.kind === 'intake' ? ' (New Arrivals Intake)' : ' (Reporting Import)'}.
-                {successBanner.seasonRollover?.seasonStarted && successBanner.seasonRollover?.updated > 0 && (
-                  <span style={{ color: '#38bdf8' }}>
-                    {' '}Season {successBanner.seasonRollover.targetSeason} started — re-tagged {successBanner.seasonRollover.updated} carryover size row{successBanner.seasonRollover.updated === 1 ? '' : 's'} from prior seasons.
-                  </span>
-                )}
                 {successBanner.skippedCount > 0 && (
                   <span style={{ color: '#fbbf24' }}>
                     {' '}Skipped {successBanner.skippedCount} row{successBanner.skippedCount === 1 ? '' : 's'} for{' '}

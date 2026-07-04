@@ -1008,7 +1008,7 @@ export function rolloverCarryoverToSeason(targetSeason) {
   return { updated, targetSeason: target }
 }
 
-/** First intake batch for a season triggers global carryover rollover (verdict B). */
+/** Record the first intake batch for a season without re-tagging prior-season stock. */
 function maybeStartSeasonFromIntake(skusArray) {
   const seasons = [...new Set(
     (skusArray || [])
@@ -1019,12 +1019,11 @@ function maybeStartSeasonFromIntake(skusArray) {
   const target = seasons[0]
   const started = db.prepare('SELECT 1 AS o FROM season_starts WHERE season = ?').get(target)
   if (started) return { rolledOver: 0, targetSeason: target, alreadyStarted: true }
-  const result = rolloverCarryoverToSeason(target)
   db.prepare('INSERT INTO season_starts (season, started_at) VALUES (?, ?)').run(
     target,
     new Date().toISOString(),
   )
-  return { ...result, seasonStarted: true }
+  return { rolledOver: 0, updated: 0, targetSeason: target, seasonStarted: true }
 }
 
 /**
@@ -1698,6 +1697,52 @@ function rebuildInventoryEventsOnStartup() {
     rebuildInventoryEvents()
   } catch (e) {
     console.warn('[db] rebuild inventory_events failed:', e)
+  }
+}
+
+function repairSkuCatalogSeasonsFromImportLines() {
+  return db.prepare(`
+    UPDATE skus
+    SET season = (
+      SELECT TRIM(COALESCE(il.season, ''))
+      FROM import_lines il
+      WHERE il.import_id IN (SELECT id FROM import_history)
+        AND il.sku = skus.sku
+        AND TRIM(COALESCE(il.size, '')) = TRIM(COALESCE(skus.size, ''))
+        AND TRIM(COALESCE(il.season, '')) != ''
+      ORDER BY il.imported_at DESC, il.rowid DESC
+      LIMIT 1
+    )
+    WHERE deleted_at IS NULL
+      AND EXISTS (
+        SELECT 1
+        FROM import_lines il
+        WHERE il.import_id IN (SELECT id FROM import_history)
+          AND il.sku = skus.sku
+          AND TRIM(COALESCE(il.size, '')) = TRIM(COALESCE(skus.size, ''))
+          AND TRIM(COALESCE(il.season, '')) != ''
+      )
+      AND TRIM(COALESCE(season, '')) != (
+        SELECT TRIM(COALESCE(il.season, ''))
+        FROM import_lines il
+        WHERE il.import_id IN (SELECT id FROM import_history)
+          AND il.sku = skus.sku
+          AND TRIM(COALESCE(il.size, '')) = TRIM(COALESCE(skus.size, ''))
+          AND TRIM(COALESCE(il.season, '')) != ''
+        ORDER BY il.imported_at DESC, il.rowid DESC
+        LIMIT 1
+      )
+  `).run().changes
+}
+
+function repairSkuCatalogSeasonsOnStartup() {
+  try {
+    const changed = repairSkuCatalogSeasonsFromImportLines()
+    if (changed > 0) {
+      console.log(`[db] Restored catalog seasons from import history (${changed} row(s))`)
+    }
+  } catch (e) {
+    console.warn('[db] catalog season repair failed:', e)
   }
 }
 
@@ -4342,6 +4387,7 @@ const STARTUP_DATA_BACKFILL_STEPS = [
   ['migrate_retail_shop_names', migrateRetailShopNames],
   ['backfill_import_line_costs', backfillImportLineCostsOnStartup],
   ['rebuild_inventory_events', rebuildInventoryEventsOnStartup],
+  ['repair_sku_catalog_seasons', repairSkuCatalogSeasonsOnStartup],
   ['repair_reporting_line_totals', repairReportingLineTotalsOnStartup],
   ['normalize_stored_categories', normalizeStoredCategoriesOnStartup],
   ['sync_sku_catalog_projection', syncSkuCatalogProjectionOnStartup],
