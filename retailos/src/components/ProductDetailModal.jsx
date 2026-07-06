@@ -84,7 +84,10 @@ export default function ProductDetailModal({ sku, status, statusData, onClose, s
     const fallbackQty = Number(sku.sold_quantity) || 0
     const since = '1970-01-01'
     const until = new Date().toISOString().slice(0, 10)
-    Promise.all([fetchSalesBySku(since, until), fetchSalesSummaryForSku(code)])
+    Promise.all([
+      fetchSalesBySku(since, until, activeSeason || 'All'),
+      fetchSalesSummaryForSku(code, { season: activeSeason || 'All' }),
+    ])
       .then(([bySku, retSummary]) => {
         if (cancelled) return
         const row = Array.isArray(bySku) ? bySku.find((r) => r.sku === code) : null
@@ -107,7 +110,7 @@ export default function ProductDetailModal({ sku, status, statusData, onClose, s
     return () => {
       cancelled = true
     }
-  }, [sku.sku, sku.sold_quantity])
+  }, [sku.sku, sku.sold_quantity, activeSeason])
 
   const summaryData = summaryBySku[sku.sku]
   const netSoldQty = summaryData

@@ -8,7 +8,10 @@ export const DEFAULT_SEASON_PRESETS = ['SS26', 'FW26']
  */
 export function normalizeSeasonInput(raw) {
   if (raw == null) return ''
-  return String(raw).trim().replace(/\s+/g, ' ')
+  const value = String(raw).trim().replace(/\s+/g, ' ')
+  const shortSpring = value.match(/^S(\d{2})$/i)
+  if (shortSpring) return `SS${shortSpring[1]}`
+  return value
 }
 
 /**

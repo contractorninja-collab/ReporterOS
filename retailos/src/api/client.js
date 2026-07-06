@@ -123,9 +123,19 @@ export const fetchBinnedSkus = () => request('/skus/bin')
 export const restoreSku = (code) => request(`/skus/${encodeURIComponent(code)}/restore`, { method: 'POST' })
 export const purgeSku = (code) =>
   destructiveDelete(`/skus/${encodeURIComponent(code)}/purge`, 'purge-sku', code)
-export const fetchSkuImportTotals = () => request('/sku-import-totals')
+export const fetchSkuImportTotals = (options = {}) => {
+  const q = new URLSearchParams()
+  if (options.season) q.set('season', options.season)
+  const qs = q.toString()
+  return request(`/sku-import-totals${qs ? `?${qs}` : ''}`)
+}
 export const fetchShipmentMeta = () => request('/shipment-meta')
-export const fetchSkuImportCostTotals = () => request('/sku-import-cost-totals')
+export const fetchSkuImportCostTotals = (options = {}) => {
+  const q = new URLSearchParams()
+  if (options.season) q.set('season', options.season)
+  const qs = q.toString()
+  return request(`/sku-import-cost-totals${qs ? `?${qs}` : ''}`)
+}
 export const fetchImportCostAudit = (params = {}) => {
   const q = new URLSearchParams()
   if (params.importId) q.set('importId', params.importId)
@@ -274,8 +284,12 @@ export const fetchSalesBySku = (since, until, season) => {
   return request(url)
 }
 
-export const fetchSalesSummaryForSku = (sku) =>
-  request(`/sales/summary/${encodeURIComponent(sku || '')}`)
+export const fetchSalesSummaryForSku = (sku, options = {}) => {
+  const q = new URLSearchParams()
+  if (options.season) q.set('season', options.season)
+  const qs = q.toString()
+  return request(`/sales/summary/${encodeURIComponent(sku || '')}${qs ? `?${qs}` : ''}`)
+}
 
 export const fetchSalesByDay = (since, until, season) => {
   let url = `/sales/by-day?since=${encodeURIComponent(since || '')}`

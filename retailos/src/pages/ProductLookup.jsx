@@ -20,6 +20,7 @@ import {
   mergeImportedUnitsIntoBuckets,
 } from '../utils/gender.js'
 import { DISCOUNTS, salePriceOf } from '../utils/saleList.js'
+import { isSeasonFilterActive, productMatchesActiveSeason } from '../utils/seasons.js'
 
 const DM = '"DM Sans", sans-serif'
 
@@ -434,9 +435,11 @@ const TILES = [
   { status: 'Outlet', color: '#c084fc', colorBg: 'rgba(192,132,252,0.1)', icon: '◆' },
 ]
 
-function buildClientReport(q, skus) {
+function buildClientReport(q, skus, shipmentMeta = null, activeSeason = 'All') {
   const needle = (q || '').trim().toLowerCase()
-  const products = aggregateSkus(skus)
+  const seasonActive = isSeasonFilterActive(activeSeason)
+  const products = aggregateSkus(skus, shipmentMeta, activeSeason)
+    .filter((p) => productMatchesActiveSeason(p, activeSeason))
   const filtered = needle
     ? products.filter((p) => {
         const name = String(p.product_name || '').toLowerCase()
@@ -452,7 +455,9 @@ function buildClientReport(q, skus) {
   const dominantBySku = dominantGenderBySku([...skuSet], rawForGender)
 
   const rows = filtered.map((p) => {
-    const qty = Number(p.quantity) || 0
+    const qty = seasonActive
+      ? (Number(p.active_season_imported_units) || 0)
+      : (Number(p.quantity) || 0)
     const soldQty = Number(p.sold_quantity) || 0
     const cogs = p._salesCogs ?? (soldQty * (Number(p.cost_price) || 0))
     const totalRevenue = p._salesRevenue ?? (soldQty * (Number(p.price_sold) || 0))
@@ -468,7 +473,7 @@ function buildClientReport(q, skus) {
       gender: displayGender,
       genderBucket: genderBucketKey(displayGender),
       stock: qty,
-      remaining: Math.max(0, qty - soldQty),
+      remaining: seasonActive ? (Number(p.active_season_stock_units) || 0) : Math.max(0, qty - soldQty),
       sold: soldQty,
       totalInvestment: investment,
       first_import_date: p.import_date,
@@ -569,6 +574,8 @@ export function ProductLookup() {
   const [searchParams, setSearchParams] = useSearchParams()
   const skus = useStore((s) => s.skus)
   const setSkus = useStore((s) => s.setSkus)
+  const activeSeason = useStore((s) => s.activeSeason)
+  const shipmentMeta = useStore((s) => s.shipmentMeta)
   const photoMap = useStore((s) => s.photoMap)
   const activeUser = useStore((s) => s.activeUser)
   const markdownLists = useStore((s) => s.markdownLists)
@@ -634,7 +641,7 @@ export function ProductLookup() {
       return
     }
     try {
-      const data = await api.fetchProductReport(qForApi)
+      const data = await api.fetchProductReport(qForApi, { season: activeSeason || 'All' })
       setReport(data)
       api
         .fetchSkuBrands()
@@ -644,9 +651,9 @@ export function ProductLookup() {
         .catch(() => {})
     } catch (e) {
       setLoadError(e?.message || 'Offline or API unavailable')
-      setReport(buildClientReport(qForApi, skus))
+      setReport(buildClientReport(qForApi, skus, shipmentMeta, activeSeason))
     }
-  }, [shouldFetch, qForApi, skus])
+  }, [shouldFetch, qForApi, activeSeason, skus, shipmentMeta])
 
   useEffect(() => {
     load()
@@ -679,11 +686,13 @@ export function ProductLookup() {
 
   useEffect(() => {
     let cancelled = false
+    setSalesBySku(undefined)
+    setSalesBySku30d(undefined)
     const today = new Date().toISOString().slice(0, 10)
     const since30 = salesSince30DaysYMD()
     Promise.all([
-      api.fetchSalesBySku('1970-01-01', today),
-      api.fetchSalesBySku(since30, today),
+      api.fetchSalesBySku('1970-01-01', today, activeSeason || 'All'),
+      api.fetchSalesBySku(since30, today, activeSeason || 'All'),
     ])
       .then(([salesRows, sales30Rows]) => {
         if (cancelled) return
@@ -711,12 +720,13 @@ export function ProductLookup() {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [activeSeason])
 
   useEffect(() => {
     let cancelled = false
+    setImportTotalsMap(null)
     api
-      .fetchSkuImportCostTotals()
+      .fetchSkuImportCostTotals({ season: activeSeason || 'All' })
       .then((m) => {
         if (cancelled) return
         setImportTotalsMap(m && typeof m === 'object' ? m : {})
@@ -727,7 +737,7 @@ export function ProductLookup() {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [activeSeason])
 
   useEffect(() => {
     let cancelled = false
@@ -934,9 +944,11 @@ export function ProductLookup() {
 
   const productsBySku = useMemo(() => {
     const map = {}
-    for (const p of aggregateSkus(skus)) map[p.sku] = p
+    for (const p of aggregateSkus(skus, shipmentMeta, activeSeason).filter((row) => productMatchesActiveSeason(row, activeSeason))) {
+      map[p.sku] = p
+    }
     return map
-  }, [skus])
+  }, [skus, shipmentMeta, activeSeason])
 
   const pendingSaleLists = useMemo(
     () => markdownLists.filter((l) => l.kind !== 'removal' && l.status === 'pending'),
@@ -1084,8 +1096,21 @@ export function ProductLookup() {
   }
 
   const openModal = (row) => {
-    const agg = aggregateSkus(skus).find((p) => p.sku === row.sku)
-    if (agg) setModalSku(agg)
+    const agg = aggregateSkus(skus, shipmentMeta, activeSeason)
+      .filter((p) => productMatchesActiveSeason(p, activeSeason))
+      .find((p) => p.sku === row.sku)
+    if (agg) {
+      const rowStock = Number(row.stock)
+      const rowSold = Number(row.sold)
+      const rowRevenue = Number(row.totalRevenue)
+      setModalSku({
+        ...agg,
+        quantity: Number.isFinite(rowStock) ? rowStock : (Number(agg.quantity) || 0),
+        sold_quantity: Number.isFinite(rowSold) ? rowSold : 0,
+        _salesRevenue: Number.isFinite(rowRevenue) ? rowRevenue : (Number(agg._salesRevenue) || 0),
+        netRevenue: Number.isFinite(rowRevenue) ? rowRevenue : (Number(agg.netRevenue) || 0),
+      })
+    }
   }
 
   const handleTableRowClick = (row) => {
@@ -1097,7 +1122,7 @@ export function ProductLookup() {
   }
 
   const modalStatus = modalSku
-    ? getLifecycleStatus(modalSku.import_date, modalSku.sold_quantity, modalSku.quantity)
+    ? getLifecycleStatus(modalSku.lifecycle_import_date ?? modalSku.import_date, modalSku.sold_quantity, modalSku.quantity)
     : 'Active'
   const tile = TILES.find((t) => t.status === modalStatus) || TILES[1]
 

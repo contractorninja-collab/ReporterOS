@@ -34,6 +34,20 @@ function roundMoney(value) {
   return Math.round(n * 100) / 100
 }
 
+function seasonSqlValues(season) {
+  const normalized = normalizeSeasonInput(season)
+  if (!normalized || normalized.toLowerCase() === 'all') return []
+  const values = new Set([normalized.toUpperCase()])
+  const shortSpring = normalized.match(/^SS(\d{2})$/i)
+  if (shortSpring) values.add(`S${shortSpring[1]}`)
+  return [...values]
+}
+
+function seasonInClause(columnSql, values) {
+  if (!values.length) return ''
+  return `UPPER(TRIM(COALESCE(${columnSql}, ''))) IN (${values.map(() => '?').join(',')})`
+}
+
 function logJsonRecovery(context, reason) {
   const table = context?.table || 'unknown_table'
   const column = context?.column || 'unknown_column'
@@ -1085,7 +1099,7 @@ export function getShipmentMetaBySku() {
 
   /** Bucket an import line into a season for shipment/lifecycle metadata. */
   function seasonBucketForLine(sku, rowSeason, importedAt) {
-    const trimmed = String(rowSeason || '').trim()
+    const trimmed = normalizeSeasonInput(rowSeason)
     if (trimmed) return trimmed
     const currentSeason = normalizeSeasonInput(currentSeasonBySku[sku] || '')
     if (!currentSeason) return '—'
@@ -1099,11 +1113,12 @@ export function getShipmentMetaBySku() {
   for (const row of rows) {
     const sku = row.sku
     if (!map[sku]) {
+      const firstSeason = normalizeSeasonInput(row.season) || null
       map[sku] = {
         first_arrival_date: row.imported_at,
         last_shipment_date: row.imported_at,
-        first_season: row.season || null,
-        current_season: currentSeasonBySku[sku] || row.season || '',
+        first_season: firstSeason,
+        current_season: currentSeasonBySku[sku] || firstSeason || '',
         shipments_by_season: {},
         imported_units_by_season: {},
         shipment_count: 0,
@@ -1116,7 +1131,7 @@ export function getShipmentMetaBySku() {
     if (!meta.shipments_by_season[sn]) meta.shipments_by_season[sn] = []
     meta.shipments_by_season[sn].push(row.imported_at)
     meta.imported_units_by_season[sn] = (Number(meta.imported_units_by_season[sn]) || 0) + (Number(row.quantity_added) || 0)
-    const lineSeason = String(row.season || '').trim()
+    const lineSeason = normalizeSeasonInput(row.season)
     if (!meta.first_season && lineSeason) meta.first_season = lineSeason
   }
 
@@ -1793,20 +1808,25 @@ function normalizeStoredCategoriesOnStartup() {
 }
 
 /** Map sku code -> total quantity imported from successful import history. */
-export function getLifetimeImportedBySku() {
+export function getLifetimeImportedBySku(options = {}) {
+  const seasonValues = seasonSqlValues(options.season)
+  const seasonWhere = seasonInClause('il.season', seasonValues)
   const rows = db.prepare(`
     SELECT il.sku, COALESCE(SUM(il.quantity_added), 0) AS total
     FROM import_lines il
     WHERE il.import_id IN (SELECT id FROM import_history)
+      ${seasonWhere ? `AND ${seasonWhere}` : ''}
     GROUP BY il.sku
-  `).all()
+  `).all(...seasonValues)
   const map = {}
   for (const r of rows) map[r.sku] = r.total
   return map
 }
 
 /** Map sku code -> imported units, immutable ledger investment, and missing-cost audit. */
-export function getLifetimeImportCostBySku() {
+export function getLifetimeImportCostBySku(options = {}) {
+  const seasonValues = seasonSqlValues(options.season)
+  const seasonWhere = seasonInClause('il.season', seasonValues)
   const rows = db.prepare(`
     SELECT
       il.sku,
@@ -1822,8 +1842,9 @@ export function getLifetimeImportCostBySku() {
       ), 0) AS missing_cost_units
     FROM import_lines il
     WHERE il.import_id IN (SELECT id FROM import_history)
+      ${seasonWhere ? `AND ${seasonWhere}` : ''}
     GROUP BY il.sku
-  `).all()
+  `).all(...seasonValues)
   const map = {}
   for (const r of rows) {
     const units = Number(r.units_imported) || 0
@@ -1918,16 +1939,37 @@ export function getProductNameReport(searchQuery = '', options = {}) {
   const needle = query.toLowerCase()
   const seasonFilter = normalizeSeasonInput(options.season)
   const seasonActive = seasonFilter && seasonFilter.toLowerCase() !== 'all'
-  const seasonClause = seasonActive ? " AND TRIM(COALESCE(season, '')) = ?" : ''
-  const seasonArgs = seasonActive ? [seasonFilter] : []
+  const seasonValues = seasonSqlValues(seasonFilter)
+  const importSeasonWhere = seasonInClause('il.season', seasonValues)
   const skuRows = needle
-    ? db.prepare(`
-        SELECT DISTINCT sku FROM skus
-        WHERE deleted_at IS NULL
-          AND (LOWER(COALESCE(product_name, '')) LIKE '%' || ? || '%'
-            OR LOWER(COALESCE(sku, '')) LIKE '%' || ? || '%')${seasonClause}
-      `).all(needle, needle, ...seasonArgs)
-    : db.prepare(`SELECT DISTINCT sku FROM skus WHERE deleted_at IS NULL${seasonClause}`).all(...seasonArgs)
+    ? seasonActive
+      ? db.prepare(`
+          SELECT DISTINCT il.sku
+          FROM import_lines il
+          LEFT JOIN skus s ON s.sku = il.sku AND s.deleted_at IS NULL
+          WHERE il.import_id IN (SELECT id FROM import_history)
+            AND COALESCE(il.quantity_added, 0) > 0
+            AND ${importSeasonWhere}
+            AND (
+              LOWER(COALESCE(il.product_name, s.product_name, '')) LIKE '%' || ? || '%'
+              OR LOWER(COALESCE(il.sku, '')) LIKE '%' || ? || '%'
+            )
+        `).all(...seasonValues, needle, needle)
+      : db.prepare(`
+          SELECT DISTINCT sku FROM skus
+          WHERE deleted_at IS NULL
+            AND (LOWER(COALESCE(product_name, '')) LIKE '%' || ? || '%'
+              OR LOWER(COALESCE(sku, '')) LIKE '%' || ? || '%')
+        `).all(needle, needle)
+    : seasonActive
+      ? db.prepare(`
+          SELECT DISTINCT il.sku
+          FROM import_lines il
+          WHERE il.import_id IN (SELECT id FROM import_history)
+            AND COALESCE(il.quantity_added, 0) > 0
+            AND ${importSeasonWhere}
+        `).all(...seasonValues)
+      : db.prepare('SELECT DISTINCT sku FROM skus WHERE deleted_at IS NULL').all()
   const skuCodes = skuRows.map((r) => r.sku).filter(Boolean)
   const emptyTotals = { stock: 0, remaining: 0, sold: 0, cogs: 0, totalRevenue: 0, totalProfit: 0, avgRoi: 0, totalInvestment: 0 }
   const emptyGender = () => ({
@@ -1965,8 +2007,9 @@ export function getProductNameReport(searchQuery = '', options = {}) {
     WHERE il.import_id IN (SELECT id FROM import_history)
       AND il.sku IN (${placeholders})
       AND COALESCE(il.quantity_added, 0) > 0
+      ${importSeasonWhere ? `AND ${importSeasonWhere}` : ''}
     GROUP BY il.sku
-  `).all(...skuCodes)
+  `).all(...skuCodes, ...seasonValues)
   const shipmentDatesBySku = Object.fromEntries(
     shipmentDateAgg.map((r) => [r.sku, r]),
   )
@@ -1991,7 +2034,15 @@ export function getProductNameReport(searchQuery = '', options = {}) {
     GROUP BY s.sku
   `).all(...skuCodes)
 
-  const rawLineRows = db.prepare(`SELECT s.sku, s.gender, s.quantity FROM skus s WHERE s.sku IN (${placeholders}) AND s.deleted_at IS NULL`).all(...skuCodes)
+  const rawLineRows = seasonActive
+    ? db.prepare(`
+        SELECT il.sku, il.gender, il.quantity_added AS quantity
+        FROM import_lines il
+        WHERE il.import_id IN (SELECT id FROM import_history)
+          AND il.sku IN (${placeholders})
+          AND ${importSeasonWhere}
+      `).all(...skuCodes, ...seasonValues)
+    : db.prepare(`SELECT s.sku, s.gender, s.quantity FROM skus s WHERE s.sku IN (${placeholders}) AND s.deleted_at IS NULL`).all(...skuCodes)
   const dominantBySku = dominantGenderBySku(skuCodes, rawLineRows)
 
   // Intake: all successful import_lines rows. Reorders of the same SKU/size are real added cost.
@@ -2011,8 +2062,9 @@ export function getProductNameReport(searchQuery = '', options = {}) {
     FROM import_lines il
     WHERE il.import_id IN (SELECT id FROM import_history)
       AND il.sku IN (${placeholders})
+      ${importSeasonWhere ? `AND ${importSeasonWhere}` : ''}
     GROUP BY il.sku
-  `).all(...skuCodes)
+  `).all(...skuCodes, ...seasonValues)
   const intakeBySku = Object.fromEntries(intakeRows.map((x) => [x.sku, x]))
 
   const onHandRows = db.prepare(`
@@ -2044,16 +2096,20 @@ export function getProductNameReport(searchQuery = '', options = {}) {
       ), 0) AS cogs
     FROM sales_events e
     WHERE e.sku IN (${placeholders})
+      ${importSeasonWhere ? `AND e.event_date >= COALESCE((
+        SELECT SUBSTR(MIN(il.imported_at), 1, 10)
+        FROM import_lines il
+        WHERE il.import_id IN (SELECT id FROM import_history)
+          AND il.sku = e.sku
+          AND ${importSeasonWhere}
+      ), '9999-12-31')` : ''}
     GROUP BY e.sku
-  `).all(...skuCodes)
+  `).all(...skuCodes, ...seasonValues)
   const salesAggBySku = Object.fromEntries(salesAggRows.map((x) => [x.sku, x]))
 
   const rows = metaAgg.map((r) => {
     const salesAgg = salesAggBySku[r.sku]
-    const cogs = Number(salesAgg?.cogs) || 0
     const totalRevenue = Number(salesAgg?.total_revenue) || 0
-    const profit = totalRevenue - cogs
-    const roi = cogs > 0 ? (profit / cogs) * 100 : 0
     const soldQty = Number(salesAgg?.sold_quantity) || 0
     const fromIntake = intakeBySku[r.sku]
     const unitsImported = fromIntake ? Number(fromIntake.units_imported) || 0 : 0
@@ -2066,6 +2122,11 @@ export function getProductNameReport(searchQuery = '', options = {}) {
       displayQty > 0 && displayInvestment > 0
         ? displayInvestment / displayQty
         : 0
+    const cogs = seasonActive
+      ? soldQty * costPrice
+      : (Number(salesAgg?.cogs) || 0)
+    const profit = totalRevenue - cogs
+    const roi = cogs > 0 ? (profit / cogs) * 100 : 0
     const displayGender = dominantBySku.has(r.sku) ? dominantBySku.get(r.sku) : r.gender
     const shipDates = shipmentDatesBySku[r.sku]
     const firstImportDate = shipDates?.first_import_date || r.first_import_date_fallback
@@ -2077,10 +2138,10 @@ export function getProductNameReport(searchQuery = '', options = {}) {
       category: r.category,
       gender: displayGender,
       genderBucket: genderBucketKey(displayGender),
-      season: r.season || '',
+      season: seasonActive ? seasonFilter : (r.season || ''),
       cost_price: costPrice,
       stock: displayQty,
-      remaining: onHand,
+      remaining: seasonActive ? Math.max(0, displayQty - soldQty) : onHand,
       sold: soldQty,
       totalInvestment: displayInvestment,
       missingCostUnits,
@@ -2138,9 +2199,10 @@ export function getProductNameReport(searchQuery = '', options = {}) {
     FROM import_lines il
     WHERE il.import_id IN (SELECT id FROM import_history)
       AND il.sku IN (${placeholders})
+      ${importSeasonWhere ? `AND ${importSeasonWhere}` : ''}
     GROUP BY il.import_id
     ORDER BY imported_at DESC
-  `).all(...skuCodes)
+  `).all(...skuCodes, ...seasonValues)
 
   const history = db.prepare('SELECT id, filename, imported_at FROM import_history').all()
   const histById = {}
@@ -2803,15 +2865,26 @@ export function getSalesBySku(sinceDate, untilDate, season) {
   const seasonFilter = normalizeSeasonInput(season)
   const seasonActive = seasonFilter && seasonFilter.toLowerCase() !== 'all'
   if (seasonActive) {
-    const skuCodes = [...new Set(
-      getAllSkus()
-        .filter((s) => normalizeSeasonInput(s.season) === seasonFilter)
-        .map((s) => s.sku)
-        .filter(Boolean),
-    )]
+    const seasonValues = seasonSqlValues(seasonFilter)
+    const seasonWhere = seasonInClause('il.season', seasonValues)
+    const skuCodes = db.prepare(`
+      SELECT DISTINCT il.sku
+      FROM import_lines il
+      WHERE il.import_id IN (SELECT id FROM import_history)
+        AND COALESCE(il.quantity_added, 0) > 0
+        AND ${seasonWhere}
+    `).all(...seasonValues).map((s) => s.sku).filter(Boolean)
     if (!skuCodes.length) return []
     where += ` AND sku IN (${skuCodes.map(() => '?').join(',')})`
     params.push(...skuCodes)
+    where += ` AND event_date >= COALESCE((
+      SELECT SUBSTR(MIN(il.imported_at), 1, 10)
+      FROM import_lines il
+      WHERE il.import_id IN (SELECT id FROM import_history)
+        AND il.sku = sales_events.sku
+        AND ${seasonWhere}
+    ), '9999-12-31')`
+    params.push(...seasonValues)
   }
   return db.prepare(`
     SELECT sku,
@@ -2824,10 +2897,21 @@ export function getSalesBySku(sinceDate, untilDate, season) {
 }
 
 /** All-time (no date filter) per-SKU net revenue, net units, and return-line count from sales_events. */
-export function getSalesSummaryForSku(skuCode) {
+export function getSalesSummaryForSku(skuCode, options = {}) {
   if (!skuCode) {
     return { netRevenue: 0, netQtySold: 0, returnsCount: 0 }
   }
+  const seasonValues = seasonSqlValues(options.season)
+  const seasonWhere = seasonInClause('il.season', seasonValues)
+  const seasonDateClause = seasonWhere
+    ? `AND event_date >= COALESCE((
+        SELECT SUBSTR(MIN(il.imported_at), 1, 10)
+        FROM import_lines il
+        WHERE il.import_id IN (SELECT id FROM import_history)
+          AND il.sku = sales_events.sku
+          AND ${seasonWhere}
+      ), '9999-12-31')`
+    : ''
   const row = db.prepare(`
     SELECT
       COALESCE(SUM(revenue), 0) AS netRevenue,
@@ -2835,7 +2919,8 @@ export function getSalesSummaryForSku(skuCode) {
       COALESCE(SUM(CASE WHEN units_sold < 0 THEN 1 ELSE 0 END), 0) AS returnsCount
     FROM sales_events
     WHERE sku = ?
-  `).get(skuCode)
+      ${seasonDateClause}
+  `).get(skuCode, ...seasonValues)
   return {
     netRevenue: row?.netRevenue ?? 0,
     netQtySold: row?.netQtySold ?? 0,

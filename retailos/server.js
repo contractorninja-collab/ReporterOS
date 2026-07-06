@@ -1165,12 +1165,18 @@ app.delete('/api/skus/import/:importId', requireExecutive, (req, res) => {
 })
 
 app.get('/api/sku-import-totals', (req, res) => {
-  try { res.json(getLifetimeImportedBySku()) }
+  try {
+    const season = typeof req.query.season === 'string' && req.query.season ? req.query.season : undefined
+    res.json(getLifetimeImportedBySku({ season }))
+  }
   catch (e) { safeError(res, e) }
 })
 
 app.get('/api/sku-import-cost-totals', (req, res) => {
-  try { res.json(getLifetimeImportCostBySku()) }
+  try {
+    const season = typeof req.query.season === 'string' && req.query.season ? req.query.season : undefined
+    res.json(getLifetimeImportCostBySku({ season }))
+  }
   catch (e) { safeError(res, e) }
 })
 
@@ -2036,7 +2042,8 @@ app.get('/api/sales/by-sku', (req, res) => {
 
 app.get('/api/sales/summary/:sku', (req, res) => {
   try {
-    res.json(getSalesSummaryForSku(req.params.sku || ''))
+    const season = typeof req.query.season === 'string' && req.query.season ? req.query.season : undefined
+    res.json(getSalesSummaryForSku(req.params.sku || '', { season }))
   } catch (e) { safeError(res, e) }
 })
 
