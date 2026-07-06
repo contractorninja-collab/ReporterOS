@@ -2609,6 +2609,73 @@ export function updateMarkdownList(id, changes) {
   return getMarkdownListById(id)
 }
 
+export function assignPendingUnassignedMarkdownListsForShift(user) {
+  if (!user?.id || !user?.shop) return []
+  const now = new Date().toISOString()
+  const rows = db.prepare(`
+    SELECT *
+    FROM markdown_lists
+    WHERE status = 'pending'
+      AND TRIM(COALESCE(assignedTo, '')) = ''
+      AND TRIM(COALESCE(shop, '')) = ?
+    ORDER BY createdAt ASC
+  `).all(user.shop).map(toMarkdownList)
+  if (!rows.length) return []
+
+  const tx = db.transaction((lists) => {
+    const out = []
+    for (const list of lists) {
+      db.prepare('UPDATE markdown_lists SET assignedTo = ? WHERE id = ? AND TRIM(COALESCE(assignedTo, \'\')) = \'\'')
+        .run(user.id, list.id)
+      const items = list.items || []
+      const names = items.map((i) => i.productName).filter(Boolean)
+      const summary = names.length <= 3 ? names.join(', ') : `${names.slice(0, 3).join(', ')} +${names.length - 3} more`
+      const title = list.kind === 'removal'
+        ? `Remove sale tags: ${summary || list.title || 'Sale list'}`
+        : `Sale list: ${summary || list.title || 'Sale list'}`
+      const existingAssignment = db.prepare(`
+        SELECT id
+        FROM assignments
+        WHERE type = 'sale'
+          AND skuCode = ?
+          AND assignedTo = ?
+          AND status != 'done'
+        LIMIT 1
+      `).get(list.id, user.id)
+      if (!existingAssignment) {
+        runInsertAssignment({
+          type: 'sale',
+          skuCode: list.id,
+          productName: title,
+          assignedTo: user.id,
+          assignedBy: list.createdBy || '',
+          shop: list.shop || user.shop,
+          status: 'pending',
+          note: list.note
+            ? `${items.length} products — ${list.note}`
+            : list.kind === 'removal'
+              ? `${items.length} products — remove the sale labels`
+              : `${items.length} products to tag with sale labels`,
+          createdAt: now,
+        })
+      }
+      insertNotification({
+        type: list.kind === 'removal' ? 'sale_removal_assigned' : 'sale_list_assigned',
+        title: list.kind === 'removal' ? 'Sale Removal Assigned' : 'Sale List Assigned',
+        message: list.kind === 'removal'
+          ? `You were assigned "${list.title || 'Sale removal list'}" after starting your shift`
+          : `You were assigned "${list.title || 'Sale list'}" after starting your shift`,
+        userId: user.id,
+        relatedId: list.id,
+        createdAt: now,
+      })
+      out.push(getMarkdownListById(list.id))
+    }
+    return out
+  })
+  return tx(rows)
+}
+
 /** Whether a sale list accepts item / % edits (pending or completed, not ended/removal). */
 function markdownListEditable(list) {
   if (!list || list.kind === 'removal' || list.status === 'ended') return false

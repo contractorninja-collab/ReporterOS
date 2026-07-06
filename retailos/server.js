@@ -20,6 +20,7 @@ import {
   getAllStoreTransfers, getStoreTransferById, insertStoreTransfer, updateStoreTransfer,
   getAllMarkdownLists, getMarkdownListById, insertMarkdownList, updateMarkdownList, deleteMarkdownList,
   appendItemsToMarkdownList, applySaleToSkus, clearSaleForList,
+  assignPendingUnassignedMarkdownListsForShift,
   changeMarkdownListItemSalePct,
   getAllSaleChangeReports, getSaleChangeReportById, saleChangeReportVisibleToUser,
   toggleSaleChangeItemMarked,
@@ -1811,6 +1812,7 @@ app.put('/api/store-transfers/:id', (req, res) => {
 
 function markdownListVisibleToUser(l, user) {
   if (user.role === 'executive') return true
+  if (!String(l.assignedTo || '').trim()) return true
   return (
     (l.shop && l.shop === user.shop) ||
     l.createdBy === user.id ||
@@ -1820,6 +1822,12 @@ function markdownListVisibleToUser(l, user) {
 
 app.get('/api/markdown-lists', (req, res) => {
   try {
+    if (req.authUser?.role !== 'executive') {
+      const activeShift = getActiveShifts().some((s) => s.user_id === req.authUser.id)
+      if (activeShift) {
+        assignPendingUnassignedMarkdownListsForShift(req.authUser)
+      }
+    }
     res.json(getAllMarkdownLists().filter((l) => markdownListVisibleToUser(l, req.authUser)))
   } catch (e) { safeError(res, e) }
 })
@@ -2157,15 +2165,20 @@ app.post('/api/shifts/clock-in', (req, res) => {
       return res.status(403).json({ error: 'Can only clock in as yourself' })
     }
     const result = clockIn(id, userId, userName, shop)
+    const claimedMarkdownLists = assignPendingUnassignedMarkdownListsForShift({
+      id: req.authUser.id,
+      name: req.authUser.name || userName,
+      shop: req.authUser.shop || shop,
+    })
     act(req.authUser, {
       category: 'shift',
       action: 'clock_in',
       entityType: 'shift',
       entityId: result.id,
       summary: `Clock in${shop ? ` @ ${shop}` : ''}`,
-      meta: { shop },
+      meta: { shop, claimedMarkdownLists: claimedMarkdownLists.length },
     })
-    res.json(result)
+    res.json({ ...result, claimedMarkdownLists })
   } catch (e) { safeError(res, e) }
 })
 

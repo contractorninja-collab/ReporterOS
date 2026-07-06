@@ -20,6 +20,7 @@ export function createShiftsSlice(set, get) {
       }))
       try {
         await api.postClockIn({ id, userId: user.id, userName: user.name, shop: user.shop })
+        get().syncOperationalData?.().catch(() => {})
       } catch (err) {
         set((s) => ({
           activeShifts: s.activeShifts.filter((sh) => sh.id !== id),
