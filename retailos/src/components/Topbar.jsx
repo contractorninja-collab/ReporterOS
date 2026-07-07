@@ -1,11 +1,10 @@
 import { useState, useRef, useEffect, useMemo } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { Bell, PackageCheck, AlertTriangle, CheckCircle, Truck, Clock, LogIn, LogOut, UserCheck, Sun, Moon, Plus, ChevronDown, Tag } from 'lucide-react'
+import { Bell, PackageCheck, AlertTriangle, CheckCircle, Truck, Clock, LogIn, LogOut, UserCheck, Plus, ChevronDown, Tag } from 'lucide-react'
 import { IconSearch } from '../utils/icons.js'
 import useStore from '../store/useStore.js'
 import { localDateKey } from '../utils/saleList.js'
 import { isExecutive } from '../utils/roles.js'
-import { applyThemeToDocument, readStoredTheme } from '../themeStorage.js'
 import { buildSeasonSwitcherList, normalizeSeasonInput } from '../utils/seasons.js'
 
 const ROLE_COLORS = { manager: '#38bdf8', executive: '#c084fc', outlet: '#fbbf24' }
@@ -218,24 +217,6 @@ function formatElapsed(clockInIso) {
   const s = totalSec % 60
   const pad = (n) => String(n).padStart(2, '0')
   return h > 0 ? `${h}h ${pad(m)}m ${pad(s)}s` : `${m}m ${pad(s)}s`
-}
-
-function ThemeToggle() {
-  const [light, setLight] = useState(() => readStoredTheme() === 'light')
-  return (
-    <button
-      type="button"
-      className="topbar-icon-btn topbar-theme-toggle"
-      onClick={() => {
-        const next = light ? 'dark' : 'light'
-        applyThemeToDocument(next)
-        setLight(next === 'light')
-      }}
-      aria-label={light ? 'Switch to dark theme' : 'Switch to light theme'}
-    >
-      {light ? <Moon size={16} strokeWidth={1.5} /> : <Sun size={16} strokeWidth={1.5} />}
-    </button>
-  )
 }
 
 function ShiftButton() {
@@ -516,7 +497,6 @@ export function Topbar() {
           )}
         </div>
 
-        <ThemeToggle />
         <ShiftButton />
         <NotificationBell />
 

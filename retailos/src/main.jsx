@@ -5,9 +5,9 @@ import './index.css'
 import './theme-light.css'
 import App from './App.jsx'
 import useStore from './store/useStore.js'
-import { applyThemeToDocument, readStoredTheme } from './themeStorage.js'
+import { applyThemeToDocument } from './themeStorage.js'
 
-applyThemeToDocument(readStoredTheme())
+applyThemeToDocument('light')
 
 const OPERATIONAL_POLL_MS = 30_000
 const REPORTING_POLL_MS = 2 * 60_000
