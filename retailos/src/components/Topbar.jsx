@@ -530,7 +530,7 @@ export function Topbar() {
                 className="topbar-user-desktop__switch"
                 onClick={() => setActiveUser(null)}
               >
-                Switch
+                Sign Out
               </button>
             </div>
 
