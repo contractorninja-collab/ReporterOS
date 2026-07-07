@@ -588,12 +588,12 @@ export default function MarkdownLists() {
               <IconDownload size={14} strokeWidth={1.5} aria-hidden />
               Download CSV
             </button>
-            {canManage && !isRemoval && !isEnded && (
+            {isExec && !isRemoval && !isEnded && (
               <button type="button" className="md-sale-list-btn md-sale-list-btn--warn" onClick={() => endSale(openList)}>
                 End sale → removal list
               </button>
             )}
-            {canManage && (
+            {isExec && (
               <button type="button" className="md-sale-list-btn md-sale-list-btn--danger" onClick={() => removeList(openList)}>
                 {isRemoval || isEnded ? 'Delete list' : 'Delete & end sale'}
               </button>
@@ -641,7 +641,7 @@ export default function MarkdownLists() {
               ? laneStatus(statuses, it.skuCode, visibleItemLanes[0])?.status === 'tagged'
               : MARKDOWN_LANES.every((lane) => laneStatus(statuses, it.skuCode, lane)?.status === 'tagged')
             const photoUrl = photoMap[it.skuCode] || null
-            const canChangeSale = canManage && !isRemoval && !isEnded
+            const canChangeSale = isExec && !isRemoval && !isEnded
             const isEditing = editingSkuCode === it.skuCode
             const currentPct = Number(it.salePct) || 0
             const salePct = Math.round(currentPct)
@@ -778,7 +778,7 @@ export default function MarkdownLists() {
                             className={`md-change-card__shop-pill${done ? ' md-change-card__shop-pill--done' : ''}`}
                             title={detail}
                           >
-                            {lane} {done ? 'Done' : 'Pending'}
+                            {lane} {done ? '✓ Tagged' : 'Pending'}
                           </span>
                         )
                       })}
@@ -819,8 +819,8 @@ export default function MarkdownLists() {
                           {isMarking
                             ? 'Saving...'
                             : isRemoval
-                              ? (isTagged ? `Undo removed · ${lane}` : `Mark removed · ${lane}`)
-                              : (isTagged ? `Undo tagged · ${lane}` : `Mark tagged · ${lane}`)}
+                              ? (isTagged ? 'Undo removed' : '✓ Mark removed')
+                              : (isTagged ? 'Undo tagged' : '✓ Mark tagged')}
                         </button>
                       )
                     })}
@@ -946,6 +946,8 @@ export default function MarkdownLists() {
         {markdownLists.map((list) => {
           const items = list.items || []
           const cardProgress = listLaneProgress(list, viewLanes.length ? viewLanes : MARKDOWN_LANES)
+          const totalTagged = cardProgress.reduce((sum, p) => sum + p.done, 0)
+          const totalRequired = cardProgress.reduce((sum, p) => sum + p.total, 0)
           const isRemoval = list.kind === 'removal'
           const statusKey = list.status === 'ended' ? 'ended' : (list.status || 'pending')
           const pcts = items.map((i) => i.salePct).filter((v) => v > 0)
@@ -977,19 +979,32 @@ export default function MarkdownLists() {
                 {items.length} products · {pctLabel} · {fmtDate(list.createdAt)}
                 {list.assignedTo ? ` · ${userName(list.assignedTo)}` : ''}
               </div>
-              <div className="md-lists-card__progress" style={{ gap: 8 }}>
+              <div className="md-lists-card__progress">
+                <div className="md-lists-card__progress-track">
+                  <div
+                    className="md-lists-card__progress-fill"
+                    style={{ width: `${totalRequired ? (totalTagged / totalRequired) * 100 : 0}%` }}
+                  />
+                </div>
+                <span className="md-lists-card__progress-label">
+                  {totalTagged}/{totalRequired} {isRemoval ? 'removed' : 'tagged'}
+                </span>
+              </div>
+              <div className="md-lists-card__lane-chips">
                 {cardProgress.map(({ lane, done, total }) => (
-                  <div key={lane} style={{ display: 'grid', gap: 4 }}>
-                    <div className="md-lists-card__progress-track">
-                      <div
-                        className="md-lists-card__progress-fill"
-                        style={{ width: `${total ? (done / total) * 100 : 0}%` }}
-                      />
-                    </div>
-                    <span className="md-lists-card__progress-label">
-                      {lane}: {done}/{total} {isRemoval ? 'removed' : 'tagged'}
-                    </span>
-                  </div>
+                  <span
+                    key={lane}
+                    className={`md-lists-card__lane-chip${
+                      done === 0
+                        ? ' md-lists-card__lane-chip--empty'
+                        : done >= total
+                          ? ' md-lists-card__lane-chip--done'
+                          : ' md-lists-card__lane-chip--progress'
+                    }`}
+                  >
+                    {done >= total && total > 0 && <span className="md-lists-card__lane-check">✓</span>}
+                    <span className="md-lists-card__lane-name">{lane}:</span> {done}/{total} {isRemoval ? 'removed' : 'tagged'}
+                  </span>
                 ))}
               </div>
             </div>

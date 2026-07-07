@@ -2187,11 +2187,7 @@ app.delete('/api/photos/:skuCode', requireExecutive, (req, res) => {
 
 app.get('/api/shifts/active', (req, res) => {
   try {
-    let rows = getActiveShifts()
-    if (req.authUser.role !== 'executive') {
-      rows = rows.filter((s) => s.shop === req.authUser.shop)
-    }
-    res.json(rows)
+    res.json(getActiveShifts())
   } catch (e) { safeError(res, e) }
 })
 

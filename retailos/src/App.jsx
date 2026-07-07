@@ -589,7 +589,7 @@ function App() {
 
           <div className="app-footer">
             <div className="app-footer__left">
-              <strong>RetailOS v1.0</strong> · Built for Driloni Sportswear Sh.P.K · SKU Lifecycle Intelligence
+              <strong>RetailOS v1.2.1</strong> · Built for Driloni Sportswear Sh.P.K · Season & Markdown Intelligence
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
               {exec && !hideFooterImport && (

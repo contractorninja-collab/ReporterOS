@@ -40,22 +40,26 @@ function LiveClock({ clockIn }) {
   return <span>{text}</span>
 }
 
-function ShiftRow({ s }) {
+function ShiftRow({ s, showTiming = true }) {
   return (
     <div className="sb-shift-row">
       <span className="sb-shift-row__dot" aria-hidden="true" />
       <div className="sb-shift-row__info">
         <div className="sb-shift-row__name">{s.user_name}</div>
-        <div className="sb-shift-row__since">Since {formatTime(s.clock_in)}</div>
+        <div className="sb-shift-row__since">
+          {showTiming ? `Since ${formatTime(s.clock_in)}` : 'Active now'}
+        </div>
       </div>
-      <div className="sb-shift-row__elapsed">
-        <LiveClock clockIn={s.clock_in} />
-      </div>
+      {showTiming && (
+        <div className="sb-shift-row__elapsed">
+          <LiveClock clockIn={s.clock_in} />
+        </div>
+      )}
     </div>
   )
 }
 
-function ShopCard({ shop, onShift }) {
+function ShopCard({ shop, onShift, showTiming = true }) {
   const active = onShift.length > 0
   return (
     <div className="sb-location-card">
@@ -74,7 +78,7 @@ function ShopCard({ shop, onShift }) {
         {onShift.length === 0 ? (
           <div className="sb-location-card__empty">No active shifts</div>
         ) : (
-          onShift.map((s) => <ShiftRow key={s.id} s={s} />)
+          onShift.map((s) => <ShiftRow key={s.id} s={s} showTiming={showTiming} />)
         )}
       </div>
     </div>
@@ -167,18 +171,10 @@ function ManagerView() {
   const activeShifts = useStore((s) => s.activeShifts)
   const doClockIn = useStore((s) => s.clockIn)
   const doClockOut = useStore((s) => s.clockOut)
-  const [elapsed, setElapsed] = useState('')
 
   const [history, setHistory] = useState([])
   const [historyDays, setHistoryDays] = useState(7)
   const [loading, setLoading] = useState(false)
-
-  useEffect(() => {
-    if (!myShift?.clock_in) { setElapsed(''); return }
-    setElapsed(formatElapsed(myShift.clock_in))
-    const iv = setInterval(() => setElapsed(formatElapsed(myShift.clock_in)), 1000)
-    return () => clearInterval(iv)
-  }, [myShift])
 
   useEffect(() => {
     setLoading(true)
@@ -193,9 +189,20 @@ function ManagerView() {
 
   const onShift = !!myShift
   const myShop = activeUser?.shop || ''
-  const shopShifts = activeShifts.filter((s) => s.shop === myShop)
-  const colleagues = shopShifts.filter((s) => s.user_id !== activeUser?.id)
-  const shopActive = shopShifts.length > 0
+  const shopGroups = useMemo(() => {
+    const map = {}
+    for (const s of activeShifts) {
+      const shop = s.shop || 'Unknown'
+      if (!map[shop]) map[shop] = []
+      map[shop].push(s)
+    }
+    return map
+  }, [activeShifts])
+  const shops = useMemo(() => Object.keys(shopGroups).sort((a, b) => {
+    if (a === myShop) return -1
+    if (b === myShop) return 1
+    return a.localeCompare(b)
+  }), [shopGroups, myShop])
 
   const handleClockAction = () => {
     if (onShift) {
@@ -208,7 +215,7 @@ function ManagerView() {
   return (
     <div className="sb-page sb-page--manager">
       <p className="sb-page-subtitle page-hero-mobile-hide">
-        Track your shift and see who else is working at {myShop}.
+        Track your shift and see which shop managers are active across all stores.
       </p>
 
       <div
@@ -244,11 +251,11 @@ function ManagerView() {
             <div style={{ fontSize: 11, fontWeight: 700, color: '#00e676', textTransform: 'uppercase', letterSpacing: '2px', marginBottom: 6 }}>
               On Shift
             </div>
-            <div style={{ fontSize: 36, fontWeight: 700, color: 'var(--ro-heading)', fontFamily: '"DM Sans", sans-serif', marginBottom: 4 }}>
-              {elapsed}
+            <div style={{ fontSize: 32, fontWeight: 700, color: 'var(--ro-heading)', fontFamily: '"DM Sans", sans-serif', marginBottom: 4 }}>
+              Active now
             </div>
             <div style={{ fontSize: 11, color: 'var(--ro-text-muted)', marginBottom: 20 }}>
-              Since {formatTime(myShift.clock_in)} at {myShop}
+              You are on shift at {myShop}
             </div>
             <button
               type="button"
@@ -291,28 +298,21 @@ function ManagerView() {
         )}
       </div>
 
-      <div className="sb-location-card" style={{ marginBottom: 24 }}>
-        <div className="sb-location-card__header">
-          <div>
-            <div className="sb-location-card__name">{myShop}</div>
-            <div className={`sb-location-card__count${shopActive ? ' sb-location-card__count--active' : ''}`}>
-              {shopShifts.length} currently on shift
-            </div>
+      <div className="sb-location-grid" style={{ marginBottom: 24 }}>
+        {shops.length === 0 ? (
+          <div className="sb-location-card">
+            <div className="sb-location-card__empty">No shop managers active right now</div>
           </div>
-          <div className={`sb-location-card__icon${shopActive ? ' sb-location-card__icon--active' : ''}`}>
-            <Users size={16} strokeWidth={1.75} />
-          </div>
-        </div>
-        <div className="sb-location-card__body">
-          {colleagues.length === 0 && !onShift ? (
-            <div className="sb-location-card__empty">No colleagues on shift</div>
-          ) : (
-            <>
-              {onShift && <ShiftRow s={myShift} />}
-              {colleagues.map((s) => <ShiftRow key={s.id} s={s} />)}
-            </>
-          )}
-        </div>
+        ) : (
+          shops.map((shop) => (
+            <ShopCard
+              key={shop}
+              shop={shop}
+              onShift={shopGroups[shop] || []}
+              showTiming={false}
+            />
+          ))
+        )}
       </div>
 
       <HistoryTable

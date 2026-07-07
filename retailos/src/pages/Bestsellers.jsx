@@ -26,6 +26,10 @@ import {
   IconTag,
 } from '../utils/icons.js'
 
+function hasFullBestsellersAccess(user) {
+  return isExecutive(user) || user?.role === 'manager'
+}
+
 const CATEGORY_FILTERS = ['All', 'Footwear', 'Apparel', 'Accessories']
 const GENDER_FILTERS = [
   { key: 'All', label: 'All Genders' },
@@ -294,10 +298,10 @@ export function Bestsellers() {
   const [filtersOpen, setFiltersOpen] = useState(false)
   const [logicExpanded, setLogicExpanded] = useState(false)
 
-  const exec = isExecutive(activeUser)
+  const exec = hasFullBestsellersAccess(activeUser)
 
   useEffect(() => {
-    if (!isExecutive(activeUser)) {
+    if (!hasFullBestsellersAccess(activeUser)) {
       setTimeRange('all')
       setRankMode('sell_through')
       setShowCompare(false)
