@@ -2562,13 +2562,49 @@ export function updateStoreTransfer(id, changes) {
 
 // ── Markdown / sale lists ───────────────────────────────────────────────────
 
+const MARKDOWN_LANES = ['Ring Mall', 'Village', 'E-commerce']
+const MARKDOWN_LANE_SET = new Set(MARKDOWN_LANES)
+
 function toMarkdownList(row) {
   if (!row) return null
+  const rawStatuses = safeJsonObject(row.item_statuses, { table: 'markdown_lists', column: 'item_statuses', id: row.id })
   return {
     ...row,
     items: safeJsonArray(row.items, { table: 'markdown_lists', column: 'items', id: row.id }),
-    item_statuses: safeJsonObject(row.item_statuses, { table: 'markdown_lists', column: 'item_statuses', id: row.id }),
+    item_statuses: normalizeMarkdownListItemStatuses(rawStatuses, row.shop),
   }
+}
+
+function normalizeMarkdownListItemStatuses(raw, listShop) {
+  const out = {}
+  for (const [sku, entry] of Object.entries(raw || {})) {
+    if (!entry || typeof entry !== 'object') continue
+    if (entry.status === 'tagged' || entry.status === 'pending') {
+      const targetLane = MARKDOWN_LANE_SET.has(listShop) ? listShop : '__legacy'
+      out[sku] = {
+        [targetLane]: {
+          status: entry.status,
+          markedBy: entry.taggedBy || entry.markedBy || '',
+          markedAt: entry.taggedAt || entry.markedAt || '',
+        },
+      }
+      continue
+    }
+    const lanes = {}
+    for (const lane of [...MARKDOWN_LANES, '__legacy']) {
+      const laneEntry = entry[lane]
+      if (!laneEntry || typeof laneEntry !== 'object') continue
+      if (laneEntry.status === 'tagged' || laneEntry.status === 'pending') {
+        lanes[lane] = {
+          status: laneEntry.status,
+          markedBy: laneEntry.markedBy || laneEntry.taggedBy || '',
+          markedAt: laneEntry.markedAt || laneEntry.taggedAt || '',
+        }
+      }
+    }
+    if (Object.keys(lanes).length) out[sku] = lanes
+  }
+  return out
 }
 
 export function getAllMarkdownLists() {
@@ -2607,6 +2643,56 @@ export function updateMarkdownList(id, changes) {
   if (!fields.length) return getMarkdownListById(id)
   db.prepare(`UPDATE markdown_lists SET ${fields.join(', ')} WHERE id = @id`).run(values)
   return getMarkdownListById(id)
+}
+
+export function toggleMarkdownListItemTagged(listId, skuCode, lane, userId) {
+  const safeLane = String(lane || '').trim()
+  if (!MARKDOWN_LANE_SET.has(safeLane)) {
+    const err = new Error('Invalid markdown lane')
+    err.statusCode = 400
+    throw err
+  }
+  const list = getMarkdownListById(listId)
+  if (!list) {
+    const err = new Error('Sale list not found')
+    err.statusCode = 404
+    throw err
+  }
+  if (list.status === 'ended') {
+    const err = new Error('Sale list has ended')
+    err.statusCode = 400
+    throw err
+  }
+  const items = list.items || []
+  if (!items.some((it) => it?.skuCode === skuCode)) {
+    const err = new Error('Product not found in this list')
+    err.statusCode = 404
+    throw err
+  }
+  const statuses = normalizeMarkdownListItemStatuses(list.item_statuses || {}, list.shop)
+  const byLane = { ...(statuses[skuCode] || {}) }
+  const prev = byLane[safeLane]
+  if (prev?.status === 'tagged') {
+    delete byLane[safeLane]
+  } else {
+    byLane[safeLane] = {
+      status: 'tagged',
+      markedBy: userId || '',
+      markedAt: new Date().toISOString(),
+    }
+  }
+  if (Object.keys(byLane).length) statuses[skuCode] = byLane
+  else delete statuses[skuCode]
+
+  const allComplete = items.length > 0 && MARKDOWN_LANES.every((ln) =>
+    items.every((it) => statuses[it.skuCode]?.[ln]?.status === 'tagged'),
+  )
+  updateMarkdownList(listId, {
+    item_statuses: statuses,
+    status: allComplete ? 'completed' : 'pending',
+    completedAt: allComplete ? new Date().toISOString() : null,
+  })
+  return getMarkdownListById(listId)
 }
 
 export function assignPendingUnassignedMarkdownListsForShift(user) {
@@ -2736,7 +2822,7 @@ export function normalizeSaleChangeItemStatuses(raw, reportShop) {
   return out
 }
 
-export const RETAIL_MARKDOWN_SHOPS = ['Ring Mall', 'Village']
+export const RETAIL_MARKDOWN_SHOPS = ['Ring Mall', 'Village', 'E-commerce']
 
 export function getAllSaleChangeReports() {
   return db.prepare('SELECT * FROM sale_change_reports ORDER BY createdAt DESC').all().map(toSaleChangeReport)
@@ -2810,6 +2896,7 @@ export function saleChangeReportVisibleToUser(report, user) {
   if (!report || !user) return false
   if (user.role === 'executive') return true
   if (user.role === 'manager' && RETAIL_MARKDOWN_SHOPS.includes(user.shop)) return true
+  if (user.role === 'marketing') return true
   return (
     (report.shop && report.shop === user.shop) ||
     report.createdBy === user.id ||

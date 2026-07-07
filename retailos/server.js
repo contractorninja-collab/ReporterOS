@@ -21,6 +21,7 @@ import {
   getAllMarkdownLists, getMarkdownListById, insertMarkdownList, updateMarkdownList, deleteMarkdownList,
   appendItemsToMarkdownList, applySaleToSkus, clearSaleForList,
   assignPendingUnassignedMarkdownListsForShift,
+  toggleMarkdownListItemTagged,
   changeMarkdownListItemSalePct,
   getAllSaleChangeReports, getSaleChangeReportById, saleChangeReportVisibleToUser,
   toggleSaleChangeItemMarked,
@@ -1812,12 +1813,24 @@ app.put('/api/store-transfers/:id', (req, res) => {
 
 function markdownListVisibleToUser(l, user) {
   if (user.role === 'executive') return true
+  if (user.role === 'manager' || user.role === 'marketing') return true
   if (!String(l.assignedTo || '').trim()) return true
   return (
     (l.shop && l.shop === user.shop) ||
     l.createdBy === user.id ||
     l.assignedTo === user.id
   )
+}
+
+function markdownLaneForUser(user, requestedLane) {
+  const lane = String(requestedLane || '').trim()
+  if (user.role === 'executive') {
+    if (!lane) return ''
+    return lane
+  }
+  if (user.role === 'marketing') return 'E-commerce'
+  if (user.role === 'manager' && (user.shop === 'Ring Mall' || user.shop === 'Village')) return user.shop
+  return ''
 }
 
 app.get('/api/markdown-lists', (req, res) => {
@@ -1863,6 +1876,9 @@ app.put('/api/markdown-lists/:id', (req, res) => {
     if (!row) return res.status(404).json({ error: 'Not found' })
     if (!markdownListVisibleToUser(row, u)) {
       return res.status(403).json({ error: 'Forbidden' })
+    }
+    if (Object.prototype.hasOwnProperty.call(req.body || {}, 'item_statuses') && u.role !== 'executive') {
+      return res.status(403).json({ error: 'Use the lane mark endpoint to update markdown progress' })
     }
 
     let updated
@@ -1930,6 +1946,33 @@ app.delete('/api/markdown-lists/:id', (req, res) => {
   } catch (e) { safeError(res, e) }
 })
 
+app.patch('/api/markdown-lists/:id/items/:skuCode/tagged', (req, res) => {
+  try {
+    const u = req.authUser
+    const row = getMarkdownListById(req.params.id)
+    if (!row) return res.status(404).json({ error: 'Not found' })
+    if (!markdownListVisibleToUser(row, u)) {
+      return res.status(403).json({ error: 'Forbidden' })
+    }
+    const lane = markdownLaneForUser(u, req.body?.lane)
+    if (!lane) return res.status(403).json({ error: 'No markdown lane available for this user' })
+    const skuCode = decodeURIComponent(req.params.skuCode || '')
+    const updated = toggleMarkdownListItemTagged(req.params.id, skuCode, lane, u.id)
+    const isTagged = updated.item_statuses?.[skuCode]?.[lane]?.status === 'tagged'
+    act(u, {
+      category: 'markdown',
+      action: isTagged ? 'sale_item_tagged' : 'sale_item_untagged',
+      entityType: 'markdown_list',
+      entityId: req.params.id,
+      summary: isTagged
+        ? `Sale tag marked at ${lane} — ${skuCode}`
+        : `Sale tag mark cleared at ${lane} — ${skuCode}`,
+      meta: { listId: req.params.id, skuCode, lane },
+    })
+    res.json(updated)
+  } catch (e) { safeError(res, e, e.statusCode || 500) }
+})
+
 app.patch('/api/markdown-lists/:id/items/:skuCode/sale-pct', (req, res) => {
   try {
     const u = req.authUser
@@ -1990,6 +2033,8 @@ app.patch('/api/sale-change-reports/:id/items/:skuCode/marked', (req, res) => {
     if (u.role === 'manager') {
       if (!u.shop) return res.status(403).json({ error: 'Manager shop required' })
       shop = u.shop
+    } else if (u.role === 'marketing') {
+      shop = 'E-commerce'
     } else if (!shop) {
       return res.status(400).json({ error: 'shop required' })
     }

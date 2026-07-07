@@ -5,19 +5,26 @@ import { IconLock, IconManager, IconPackage, IconPlus, IconDelete, IconView } fr
 const ROLE_OPTIONS = [
   { value: 'manager', label: 'Shop Manager' },
   { value: 'executive', label: 'Executive' },
+  { value: 'marketing', label: 'Marketing' },
   { value: 'outlet', label: 'Outlet' },
 ]
 const SHOP_OPTIONS = ['Ring Mall', 'Village', 'Outlet']
 
+function roleHasShop(role) {
+  return role !== 'executive' && role !== 'marketing'
+}
+
 function roleBadgeClass(role) {
   if (role === 'executive') return 'um-role-badge um-role-badge--executive'
   if (role === 'manager') return 'um-role-badge um-role-badge--manager'
+  if (role === 'marketing') return 'um-role-badge um-role-badge--manager'
   return 'um-role-badge um-role-badge--outlet'
 }
 
 function avatarClass(role) {
   if (role === 'executive') return 'um-user-avatar um-user-avatar--executive'
   if (role === 'manager') return 'um-user-avatar um-user-avatar--manager'
+  if (role === 'marketing') return 'um-user-avatar um-user-avatar--manager'
   return 'um-user-avatar um-user-avatar--outlet'
 }
 
@@ -72,7 +79,7 @@ export function UserManagement() {
   const handleAdd = () => {
     const trimmed = name.trim()
     if (!trimmed) return
-    addUser({ name: trimmed, role, shop: role === 'executive' ? null : shop })
+    addUser({ name: trimmed, role, shop: roleHasShop(role) ? shop : null })
     setName('')
   }
 
@@ -113,7 +120,7 @@ export function UserManagement() {
     const payload = {
       name: trimmed,
       role: editRole,
-      shop: editRole === 'executive' ? null : editShop,
+      shop: roleHasShop(editRole) ? editShop : null,
     }
     updateUser(editingId, payload)
     setEditingId(null)
@@ -163,7 +170,7 @@ export function UserManagement() {
               ))}
             </select>
           </div>
-          {role !== 'executive' && (
+          {roleHasShop(role) && (
             <div className="um-field um-field--shop">
               <label className="um-label">Shop</label>
               <select className="um-select" value={shop} onChange={(e) => setShop(e.target.value)}>
@@ -223,7 +230,7 @@ export function UserManagement() {
                         ))}
                       </select>
                     </div>
-                    {editRole !== 'executive' && (
+                    {roleHasShop(editRole) && (
                       <div className="um-field um-field--shop">
                         <label className="um-label">Shop</label>
                         <select className="um-select" value={editShop} onChange={(e) => setEditShop(e.target.value)}>

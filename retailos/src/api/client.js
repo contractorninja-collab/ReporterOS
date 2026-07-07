@@ -243,6 +243,11 @@ export const fetchMarkdownLists = () => request('/markdown-lists')
 export const postMarkdownList = (l) => request('/markdown-lists', { method: 'POST', body: JSON.stringify(l) })
 export const putMarkdownList = (id, changes) => request(`/markdown-lists/${id}`, { method: 'PUT', body: JSON.stringify(changes) })
 export const deleteMarkdownList = (id) => request(`/markdown-lists/${id}`, { method: 'DELETE' })
+export const patchMarkdownListItemTagged = (listId, skuCode, lane) =>
+  request(`/markdown-lists/${listId}/items/${encodeURIComponent(skuCode)}/tagged`, {
+    method: 'PATCH',
+    body: JSON.stringify({ lane }),
+  })
 export const patchMarkdownListItemSalePct = (listId, skuCode, salePct) =>
   request(`/markdown-lists/${listId}/items/${encodeURIComponent(skuCode)}/sale-pct`, {
     method: 'PATCH',

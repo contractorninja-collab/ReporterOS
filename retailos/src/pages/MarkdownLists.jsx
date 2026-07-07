@@ -5,7 +5,7 @@ import { DISCOUNTS, salePriceOf, localDateKey } from '../utils/saleList.js'
 import { isExecutive } from '../utils/roles.js'
 import { IconTag, IconDownload, IconManager } from '../utils/icons.js'
 
-const RETAIL_SHOPS = ['Ring Mall', 'Village']
+const MARKDOWN_LANES = ['Ring Mall', 'Village', 'E-commerce']
 
 const DM = '"DM Sans", sans-serif'
 const S = {
@@ -28,12 +28,17 @@ function csvEscape(v) {
 
 function downloadListCSV(list) {
   const doneLabel = list.kind === 'removal' ? 'Removed' : 'Tagged'
-  const headers = ['SKU', 'Product', 'Brand', 'Category', 'Gender', 'Season', 'Price Tag', 'Sale %', 'Sale Price', 'Sizes', doneLabel]
+  const headers = [
+    'SKU', 'Product', 'Brand', 'Category', 'Gender', 'Season', 'Price Tag', 'Sale %', 'Sale Price', 'Sizes',
+    ...MARKDOWN_LANES.map((lane) => `${lane} ${doneLabel}`),
+    'Legacy Marked',
+  ]
   const statuses = list.item_statuses || {}
   const rows = (list.items || []).map((it) => [
     it.skuCode, it.productName, it.brand, it.category, it.gender, it.season,
     it.priceTag, it.salePct, it.salePrice, it.sizes,
-    statuses[it.skuCode]?.status === 'tagged' ? 'Yes' : 'No',
+    ...MARKDOWN_LANES.map((lane) => laneStatus(statuses, it.skuCode, lane)?.status === 'tagged' ? 'Yes' : 'No'),
+    legacyMarked(statuses, it.skuCode) ? 'Yes' : 'No',
   ])
   const csv = [headers, ...rows].map((r) => r.map(csvEscape).join(',')).join('\n')
   const blob = new Blob([`\ufeff${csv}`], { type: 'text/csv;charset=utf-8' })
@@ -81,6 +86,30 @@ function dateTabLabel(dateKey) {
 
 function countMarkedAtShop(changes, shop) {
   return changes.filter((c) => c.shopStatuses?.[shop]?.status === 'marked').length
+}
+
+function userMarkdownLane(user) {
+  if (user?.role === 'marketing') return 'E-commerce'
+  if (user?.role === 'manager' && MARKDOWN_LANES.includes(user.shop)) return user.shop
+  return null
+}
+
+function laneStatus(statuses, skuCode, lane) {
+  return statuses?.[skuCode]?.[lane] || null
+}
+
+function legacyMarked(statuses, skuCode) {
+  return statuses?.[skuCode]?.__legacy?.status === 'tagged'
+}
+
+function laneTaggedCount(list, lane) {
+  const statuses = list.item_statuses || {}
+  return (list.items || []).filter((it) => laneStatus(statuses, it.skuCode, lane)?.status === 'tagged').length
+}
+
+function listLaneProgress(list, lanes) {
+  const total = (list.items || []).length
+  return lanes.map((lane) => ({ lane, done: laneTaggedCount(list, lane), total }))
 }
 
 function buildChangeDateGroups(reports) {
@@ -189,7 +218,7 @@ function ChangeReportTiles({
                   <span>{ch.changedBy ? userName(ch.changedBy) : '—'}</span>
                 </div>
                 <div className="md-change-card__shops">
-                  {RETAIL_SHOPS.map((shop) => {
+                  {MARKDOWN_LANES.map((shop) => {
                     const st = ch.shopStatuses?.[shop]
                     const isMarked = st?.status === 'marked'
                     const detail = isMarked
@@ -208,7 +237,7 @@ function ChangeReportTiles({
                 </div>
               </div>
               <div className="md-change-card__actions">
-                {(isExec ? RETAIL_SHOPS : (myShop ? [myShop] : [])).map((shop) => {
+                {(isExec ? MARKDOWN_LANES : (myShop ? [myShop] : [])).map((shop) => {
                   const st = ch.shopStatuses?.[shop]
                   const isMarked = st?.status === 'marked'
                   const markKey = `${ch.reportId}-${ch.skuCode}-${shop}`
@@ -266,13 +295,10 @@ export default function MarkdownLists() {
   const fetchSaleChangeReports = useStore((s) => s.fetchSaleChangeReports)
   const changeSaleListItemPct = useStore((s) => s.changeSaleListItemPct)
   const toggleSaleChangeItemMarked = useStore((s) => s.toggleSaleChangeItemMarked)
-  const updateMarkdownList = useStore((s) => s.updateMarkdownList)
+  const toggleMarkdownListItemTagged = useStore((s) => s.toggleMarkdownListItemTagged)
   const deleteMarkdownList = useStore((s) => s.deleteMarkdownList)
   const endSaleList = useStore((s) => s.endSaleList)
   const createMarkdownList = useStore((s) => s.createMarkdownList)
-  const updateAssignment = useStore((s) => s.updateAssignment)
-  const assignments = useStore((s) => s.assignments)
-  const addNotification = useStore((s) => s.addNotification)
   const users = useStore((s) => s.users)
   const activeUser = useStore((s) => s.activeUser)
   const photoMap = useStore((s) => s.photoMap)
@@ -289,7 +315,8 @@ export default function MarkdownLists() {
   const [markingKey, setMarkingKey] = useState('')
   const canManage = activeUser?.role === 'executive' || activeUser?.role === 'manager'
   const isExec = isExecutive(activeUser)
-  const myShop = activeUser?.shop && RETAIL_SHOPS.includes(activeUser.shop) ? activeUser.shop : null
+  const myLane = userMarkdownLane(activeUser)
+  const viewLanes = isExec ? MARKDOWN_LANES : (myLane ? [myLane] : [])
 
   const activeTab = searchParams.get('tab') === 'changes' ? 'changes' : 'lists'
   const reportId = searchParams.get('report') || null
@@ -360,39 +387,17 @@ export default function MarkdownLists() {
 
   const openList = markdownLists.find((l) => l.id === openId) || null
 
-  function taggedCount(list) {
-    const statuses = list.item_statuses || {}
-    return (list.items || []).filter((it) => statuses[it.skuCode]?.status === 'tagged').length
-  }
-
-  function toggleTagged(list, skuCode) {
-    const statuses = { ...(list.item_statuses || {}) }
-    if (statuses[skuCode]?.status === 'tagged') {
-      delete statuses[skuCode]
-    } else {
-      statuses[skuCode] = { status: 'tagged', taggedAt: new Date().toISOString(), taggedBy: activeUser?.id ?? '' }
+  async function toggleTagged(list, skuCode, lane) {
+    if (!lane || markingKey) return
+    const key = `${list.id}-${skuCode}-${lane}`
+    setMarkingKey(key)
+    try {
+      await toggleMarkdownListItemTagged(list.id, skuCode, lane)
+    } catch {
+      /* store refetches on failure */
+    } finally {
+      setMarkingKey('')
     }
-    updateMarkdownList(list.id, { item_statuses: statuses })
-  }
-
-  function completeList(list) {
-    const isRemoval = list.kind === 'removal'
-    updateMarkdownList(list.id, { status: 'completed', completedAt: new Date().toISOString() })
-    const now = new Date().toISOString()
-    for (const a of assignments) {
-      if (a.type === 'sale' && a.skuCode === list.id && a.status !== 'done') {
-        updateAssignment(a.id, { status: 'done', completedAt: now })
-      }
-    }
-    addNotification({
-      type: isRemoval ? 'sale_removal_completed' : 'sale_list_completed',
-      title: isRemoval ? 'Sale Tags Removed' : 'Sale List Completed',
-      message: isRemoval
-        ? `${activeUser?.name || 'Someone'} removed all sale tags for "${list.title || 'Sale list'}" (${(list.items || []).length} products)`
-        : `${activeUser?.name || 'Someone'} finished tagging "${list.title || 'Sale list'}" (${(list.items || []).length} products)`,
-      userId: list.createdBy || 'all',
-      relatedId: list.id,
-    })
   }
 
   function endSale(list) {
@@ -501,7 +506,7 @@ export default function MarkdownLists() {
                     {' · '}
                     {isExec ? (
                       <strong style={{ color: S.text }}>
-                        {RETAIL_SHOPS.map((shop) => {
+                        {MARKDOWN_LANES.map((shop) => {
                           const n = countMarkedAtShop(activeChangeGroup.changes, shop)
                           const total = activeChangeGroup.changes.length
                           const done = n === total && total > 0
@@ -512,15 +517,15 @@ export default function MarkdownLists() {
                           )
                         })}
                       </strong>
-                    ) : myShop ? (
+                    ) : myLane ? (
                       <strong style={{
-                        color: countMarkedAtShop(activeChangeGroup.changes, myShop) === activeChangeGroup.changes.length
+                        color: countMarkedAtShop(activeChangeGroup.changes, myLane) === activeChangeGroup.changes.length
                           && activeChangeGroup.changes.length > 0
                           ? S.green
                           : S.text,
                       }}
                       >
-                        Your store · Marked: {countMarkedAtShop(activeChangeGroup.changes, myShop)}/{activeChangeGroup.changes.length}
+                        {myLane} · Marked: {countMarkedAtShop(activeChangeGroup.changes, myLane)}/{activeChangeGroup.changes.length}
                       </strong>
                     ) : null}
                   </p>
@@ -531,7 +536,7 @@ export default function MarkdownLists() {
                   userName={userName}
                   onToggleMarked={handleToggleChangeMarked}
                   markingKey={markingKey}
-                  myShop={myShop}
+                  myShop={myLane}
                   isExec={isExec}
                 />
               </>
@@ -546,11 +551,10 @@ export default function MarkdownLists() {
   if (openList) {
     const items = openList.items || []
     const statuses = openList.item_statuses || {}
-    const tagged = taggedCount(openList)
-    const allTagged = items.length > 0 && tagged === items.length
     const isRemoval = openList.kind === 'removal'
     const isEnded = openList.status === 'ended'
     const isCompleted = openList.status === 'completed' || isEnded
+    const progressLanes = listLaneProgress(openList, viewLanes.length ? viewLanes : MARKDOWN_LANES)
     const pcts = items.map((i) => i.salePct).filter((v) => v > 0)
     const pctLabel = pcts.length
       ? (Math.min(...pcts) === Math.max(...pcts) ? `-${pcts[0]}%` : `-${Math.min(...pcts)}% to -${Math.max(...pcts)}%`)
@@ -597,29 +601,30 @@ export default function MarkdownLists() {
           </div>
         </div>
 
-        <div className="md-sale-list-progress">
-          <span className="md-sale-list-progress__label">
-            {isRemoval ? 'Removed' : 'Tagged'}: {tagged} / {items.length}
-          </span>
-          <div className="md-sale-list-progress__track">
-            <div
-              className="md-sale-list-progress__fill"
-              style={{ width: `${items.length ? (tagged / items.length) * 100 : 0}%` }}
-            />
+        <div className="md-sale-list-progress" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 10 }}>
+          <div style={{ display: 'grid', gap: 8, gridTemplateColumns: isExec ? 'repeat(auto-fit, minmax(180px, 1fr))' : 'minmax(0, 1fr)' }}>
+            {progressLanes.map(({ lane, done, total }) => (
+              <div key={lane} style={{ display: 'grid', gap: 5 }}>
+                <span className="md-sale-list-progress__label">
+                  {lane}: {done} / {total} {isRemoval ? 'removed' : 'tagged'}
+                </span>
+                <div className="md-sale-list-progress__track">
+                  <div
+                    className="md-sale-list-progress__fill"
+                    style={{ width: `${total ? (done / total) * 100 : 0}%` }}
+                  />
+                </div>
+              </div>
+            ))}
           </div>
           {isCompleted ? (
             <span className={`md-sale-list-progress__badge${isEnded ? ' md-sale-list-progress__badge--muted' : ''}`}>
               {isEnded ? 'Sale ended' : `Completed ${fmtDate(openList.completedAt)}`}
             </span>
           ) : (
-            <button
-              type="button"
-              className="md-sale-list-progress__complete"
-              onClick={() => completeList(openList)}
-              disabled={!allTagged}
-            >
-              Complete list
-            </button>
+            <span className="md-sale-list-progress__badge md-sale-list-progress__badge--muted">
+              Completes when all lanes finish
+            </span>
           )}
         </div>
 
@@ -631,7 +636,10 @@ export default function MarkdownLists() {
 
         <div className="md-sale-list-grid">
           {items.map((it) => {
-            const isTagged = statuses[it.skuCode]?.status === 'tagged'
+            const visibleItemLanes = isExec ? MARKDOWN_LANES : viewLanes
+            const primaryDone = visibleItemLanes.length === 1
+              ? laneStatus(statuses, it.skuCode, visibleItemLanes[0])?.status === 'tagged'
+              : MARKDOWN_LANES.every((lane) => laneStatus(statuses, it.skuCode, lane)?.status === 'tagged')
             const photoUrl = photoMap[it.skuCode] || null
             const canChangeSale = canManage && !isRemoval && !isEnded
             const isEditing = editingSkuCode === it.skuCode
@@ -653,7 +661,7 @@ export default function MarkdownLists() {
                 </div>
                 <div className="md-sale-card__body">
                   <div className="md-sale-card__info">
-                    {isTagged && (
+                    {primaryDone && (
                       <span className="md-sale-card__tagged-pill">
                         ✓ {isRemoval ? 'Removed' : 'Tagged'}
                       </span>
@@ -757,6 +765,32 @@ export default function MarkdownLists() {
                     )}
                   </div>
                   <div className="md-sale-card__footer">
+                    <div className="md-change-card__shops" style={{ width: '100%' }}>
+                      {(isExec ? MARKDOWN_LANES : viewLanes).map((lane) => {
+                        const st = laneStatus(statuses, it.skuCode, lane)
+                        const done = st?.status === 'tagged'
+                        const detail = done
+                          ? `${userName(st.markedBy)}${st.markedAt ? ` · ${fmtDateTime(st.markedAt)}` : ''}`
+                          : 'Pending'
+                        return (
+                          <span
+                            key={lane}
+                            className={`md-change-card__shop-pill${done ? ' md-change-card__shop-pill--done' : ''}`}
+                            title={detail}
+                          >
+                            {lane} {done ? 'Done' : 'Pending'}
+                          </span>
+                        )
+                      })}
+                      {!viewLanes.length && !isExec && (
+                        <span className="md-change-card__shop-pill">No lane assigned</span>
+                      )}
+                      {legacyMarked(statuses, it.skuCode) && (
+                        <span className="md-change-card__shop-pill md-change-card__shop-pill--done" title="Imported from an older single-status sale list">
+                          Legacy marked
+                        </span>
+                      )}
+                    </div>
                     {canChangeSale && !isEditing && (
                       <button
                         type="button"
@@ -770,17 +804,26 @@ export default function MarkdownLists() {
                         Change sale
                       </button>
                     )}
-                    {!isCompleted && (
-                      <button
-                        type="button"
-                        className={`md-sale-card__mark-btn${isTagged ? ' md-sale-card__mark-btn--done' : ''}`}
-                        onClick={() => toggleTagged(openList, it.skuCode)}
-                      >
-                        {isRemoval
-                          ? (isTagged ? 'Undo removed' : 'Mark removed')
-                          : (isTagged ? 'Undo tagged' : 'Mark tagged')}
-                      </button>
-                    )}
+                    {!isCompleted && (isExec ? MARKDOWN_LANES : viewLanes).map((lane) => {
+                      const isTagged = laneStatus(statuses, it.skuCode, lane)?.status === 'tagged'
+                      const key = `${openList.id}-${it.skuCode}-${lane}`
+                      const isMarking = markingKey === key
+                      return (
+                        <button
+                          key={lane}
+                          type="button"
+                          className={`md-sale-card__mark-btn${isTagged ? ' md-sale-card__mark-btn--done' : ''}`}
+                          disabled={isMarking}
+                          onClick={() => toggleTagged(openList, it.skuCode, lane)}
+                        >
+                          {isMarking
+                            ? 'Saving...'
+                            : isRemoval
+                              ? (isTagged ? `Undo removed · ${lane}` : `Mark removed · ${lane}`)
+                              : (isTagged ? `Undo tagged · ${lane}` : `Mark tagged · ${lane}`)}
+                        </button>
+                      )
+                    })}
                   </div>
                 </div>
               </article>
@@ -902,7 +945,7 @@ export default function MarkdownLists() {
       <div className="md-lists-grid">
         {markdownLists.map((list) => {
           const items = list.items || []
-          const tagged = taggedCount(list)
+          const cardProgress = listLaneProgress(list, viewLanes.length ? viewLanes : MARKDOWN_LANES)
           const isRemoval = list.kind === 'removal'
           const statusKey = list.status === 'ended' ? 'ended' : (list.status || 'pending')
           const pcts = items.map((i) => i.salePct).filter((v) => v > 0)
@@ -934,16 +977,20 @@ export default function MarkdownLists() {
                 {items.length} products · {pctLabel} · {fmtDate(list.createdAt)}
                 {list.assignedTo ? ` · ${userName(list.assignedTo)}` : ''}
               </div>
-              <div className="md-lists-card__progress">
-                <div className="md-lists-card__progress-track">
-                  <div
-                    className="md-lists-card__progress-fill"
-                    style={{ width: `${items.length ? (tagged / items.length) * 100 : 0}%` }}
-                  />
-                </div>
-                <span className="md-lists-card__progress-label">
-                  {tagged}/{items.length} {isRemoval ? 'removed' : 'tagged'}
-                </span>
+              <div className="md-lists-card__progress" style={{ gap: 8 }}>
+                {cardProgress.map(({ lane, done, total }) => (
+                  <div key={lane} style={{ display: 'grid', gap: 4 }}>
+                    <div className="md-lists-card__progress-track">
+                      <div
+                        className="md-lists-card__progress-fill"
+                        style={{ width: `${total ? (done / total) * 100 : 0}%` }}
+                      />
+                    </div>
+                    <span className="md-lists-card__progress-label">
+                      {lane}: {done}/{total} {isRemoval ? 'removed' : 'tagged'}
+                    </span>
+                  </div>
+                ))}
               </div>
             </div>
           )

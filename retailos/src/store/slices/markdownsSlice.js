@@ -128,6 +128,41 @@ export function createMarkdownsSlice(set, get) {
       })
     },
 
+    toggleMarkdownListItemTagged: async (listId, skuCode, lane) => {
+      const state = get()
+      const list = state.markdownLists.find((l) => l.id === listId)
+      if (!list || !skuCode || !lane) return null
+      const prevLists = state.markdownLists
+      const statuses = { ...(list.item_statuses || {}) }
+      const byLane = { ...(statuses[skuCode] || {}) }
+      if (byLane[lane]?.status === 'tagged') {
+        delete byLane[lane]
+      } else {
+        byLane[lane] = {
+          status: 'tagged',
+          markedAt: new Date().toISOString(),
+          markedBy: state.activeUser?.id || '',
+        }
+      }
+      if (Object.keys(byLane).length) statuses[skuCode] = byLane
+      else delete statuses[skuCode]
+      set((s) => ({
+        markdownLists: s.markdownLists.map((l) => (l.id === listId ? { ...l, item_statuses: statuses } : l)),
+      }))
+      try {
+        const updated = await api.patchMarkdownListItemTagged(listId, skuCode, lane)
+        set((s) => ({
+          markdownLists: s.markdownLists.map((l) => (l.id === listId ? updated : l)),
+        }))
+        return updated
+      } catch (err) {
+        set({ markdownLists: prevLists })
+        notifyLocalWriteFailure(set, get, 'Sale list progress was not saved', err)
+        resyncAfterWriteFailure(get)
+        return null
+      }
+    },
+
     /**
      * Add or update a product on an existing pending sale list (Product Lookup assign flow).
      * @param {string} listId

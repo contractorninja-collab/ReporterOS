@@ -252,7 +252,7 @@ function ShiftButton() {
     return () => clearInterval(iv)
   }, [myShift])
 
-  if (!activeUser || activeUser.role === 'executive') return null
+  if (!activeUser || activeUser.role === 'executive' || activeUser.role === 'marketing') return null
 
   const onShift = !!myShift
 
