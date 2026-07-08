@@ -222,7 +222,7 @@ export function createMarkdownsSlice(set, get) {
     changeSaleListItemPct: async (listId, skuCode, newPct) => {
       const state = get()
       const list = state.markdownLists.find((l) => l.id === listId)
-      if (!list || list.kind === 'removal' || list.status === 'ended') {
+      if (!list || list.kind === 'removal' || list.status !== 'pending') {
         throw new Error('This sale list cannot be edited')
       }
 
@@ -274,6 +274,46 @@ export function createMarkdownsSlice(set, get) {
         })
       }
       return report
+    },
+
+    removeSaleListItem: async (listId, skuCode) => {
+      const state = get()
+      const list = state.markdownLists.find((l) => l.id === listId)
+      if (!list || list.kind === 'removal' || list.status !== 'pending') {
+        throw new Error('This sale list cannot be edited')
+      }
+      const item = (list.items || []).find((i) => i.skuCode === skuCode)
+      if (!item) throw new Error('Product not found in this list')
+
+      const prevLists = state.markdownLists
+      const prevSkus = state.skus
+      const statuses = { ...(list.item_statuses || {}) }
+      delete statuses[skuCode]
+      const nextItems = (list.items || []).filter((i) => i.skuCode !== skuCode)
+
+      set((s) => ({
+        markdownLists: s.markdownLists.map((l) => (l.id === listId
+          ? { ...l, items: nextItems, item_statuses: statuses }
+          : l)),
+        skus: s.skus.map((row) => (row.sku === skuCode && row.sale_list_id === listId
+          ? { ...row, sale_active: 0, sale_percent: null, sale_list_id: null }
+          : row)),
+      }))
+
+      try {
+        const result = await api.deleteMarkdownListItem(listId, skuCode)
+        const updatedList = result?.list
+        if (!updatedList) throw new Error('Server did not remove the sale item')
+        set((s) => ({
+          markdownLists: s.markdownLists.map((l) => (l.id === listId ? updatedList : l)),
+        }))
+        return result
+      } catch (err) {
+        set({ markdownLists: prevLists, skus: prevSkus })
+        notifyLocalWriteFailure(set, get, 'Sale item was not removed', err)
+        resyncAfterWriteFailure(get)
+        throw err
+      }
     },
 
     toggleSaleChangeItemMarked: async (reportId, skuCode, shop) => {

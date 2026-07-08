@@ -4944,6 +4944,28 @@ small,
   cursor: pointer;
 }
 
+.ot-delete-transfer-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 30px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1px solid #fecaca;
+  background: #fef2f2;
+  color: #dc2626;
+  font-family: "DM Sans", sans-serif;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.ot-delete-transfer-btn:hover {
+  background: #fee2e2;
+  border-color: #fca5a5;
+}
+
 .ot-batch-table__product--link:hover {
   color: #7c3aed;
 }
@@ -13294,6 +13316,30 @@ button.pl-kpi-tile {
   cursor: not-allowed;
 }
 
+.md-change-sale-editor__remove {
+  flex: 1;
+  padding: 9px 0;
+  border-radius: 8px;
+  border: 1px solid #fecaca;
+  background: #fef2f2;
+  color: #dc2626;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: "DM Sans", sans-serif;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.md-change-sale-editor__remove:hover:not(:disabled) {
+  background: #fee2e2;
+  border-color: #fca5a5;
+}
+
+.md-change-sale-editor__remove:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .md-change-sale-editor__cancel {
   flex: 1;
   padding: 9px 0;
@@ -13981,7 +14027,7 @@ button.pl-kpi-tile {
 
 .md-sale-list-grid {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
   gap: 16px;
   align-items: stretch;
 }
@@ -14131,6 +14177,7 @@ button.pl-kpi-tile {
   gap: 6px;
   margin-top: auto;
   padding: 10px 14px 14px;
+  flex-shrink: 0;
 }
 
 .md-sale-card__change-btn {
@@ -14183,13 +14230,13 @@ button.pl-kpi-tile {
 
 @media (max-width: 1199px) {
   .md-sale-list-grid {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   }
 }
 
 @media (max-width: 991px) {
   .md-sale-list-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .md-sale-list-header__actions {
@@ -14698,6 +14745,59 @@ button.pl-kpi-tile {
 
 .topbar-user-desktop__switch:hover {
   color: #374151;
+}
+
+@media (min-width: 768px) and (max-width: 1199px) {
+  .topbar-search-wrap {
+    flex: 1 1 240px !important;
+    min-width: 180px !important;
+    max-width: 320px !important;
+    padding: 6px 10px !important;
+  }
+
+  .topbar-search-wrap .topbar-search-input {
+    font-size: 13px;
+  }
+}
+
+@media (min-width: 768px) and (max-width: 1024px) {
+  .app-topbar {
+    height: auto !important;
+    min-height: 68px !important;
+    padding: 8px 16px !important;
+    align-items: stretch !important;
+  }
+
+  .topbar-root {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "title actions"
+      "search search";
+    align-items: center !important;
+    gap: 8px 10px !important;
+    width: 100%;
+  }
+
+  .topbar-page-title {
+    grid-area: title;
+  }
+
+  .topbar-actions {
+    grid-area: actions;
+    min-width: 0;
+    gap: 8px !important;
+  }
+
+  .topbar-search-wrap {
+    grid-area: search;
+    width: 100%;
+    max-width: none !important;
+  }
+
+  .topbar-season-switcher {
+    max-width: min(220px, 34vw) !important;
+  }
 }
 
 /* Reports & Analytics page */

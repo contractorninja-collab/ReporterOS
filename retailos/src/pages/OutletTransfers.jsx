@@ -1,8 +1,19 @@
-import { useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { AlertTriangle, Check } from 'lucide-react'
 import useStore from '../store/useStore.js'
 import { toTitleCase } from '../utils/textFormat.js'
 import { IconPlus, IconDownload, IconPrint } from '../utils/icons.js'
+
+const BTN = {
+  padding: '7px 14px',
+  borderRadius: 8,
+  fontSize: 11,
+  fontWeight: 600,
+  cursor: 'pointer',
+  fontFamily: '"DM Sans"',
+  border: 'none',
+}
 
 function formatDate(iso) {
   if (!iso) return '—'
@@ -81,11 +92,178 @@ function renderItemRow(it, idx) {
   )
 }
 
+function flattenItems(items) {
+  const lines = []
+  for (const it of items || []) {
+    if (Array.isArray(it.sizeBreakdown) && it.sizeBreakdown.length > 0) {
+      for (const b of it.sizeBreakdown) {
+        lines.push({
+          skuCode: it.skuCode,
+          productName: it.productName,
+          size: b.size,
+          qty: Number(b.qty) || 0,
+        })
+      }
+      continue
+    }
+    lines.push({
+      skuCode: it.skuCode,
+      productName: it.productName,
+      size: it.sizes || 'One Size',
+      qty: Number(it.totalQty ?? it.quantity) || 0,
+    })
+  }
+  return lines
+}
+
+function QtyCounter({ value, max, onChange, disabled }) {
+  return (
+    <input
+      type="number"
+      min="0"
+      max={max}
+      value={value}
+      disabled={disabled}
+      onChange={(e) => onChange(Math.max(0, Math.min(max, Number(e.target.value) || 0)))}
+      style={{
+        width: 56,
+        border: '1px solid var(--ro-border)',
+        borderRadius: 7,
+        padding: '5px 6px',
+        fontSize: 11,
+        color: 'var(--ro-text)',
+        background: disabled ? 'var(--ro-fill-soft)' : 'var(--ro-surface)',
+      }}
+    />
+  )
+}
+
+function OutletVerificationPanel({ batch, onUpdate }) {
+  const lines = useMemo(() => flattenItems(batch.items), [batch.items])
+  const savedStatuses = batch.item_statuses || {}
+  const [localStatuses, setLocalStatuses] = useState(() => {
+    const init = {}
+    for (const line of lines) {
+      const key = `${line.skuCode}|${line.size}`
+      init[key] = savedStatuses[key] || { status: '', received: line.qty, missing: 0, expected: line.qty, comment: '' }
+    }
+    return init
+  })
+
+  const statusesRef = useRef(localStatuses)
+  useEffect(() => { statusesRef.current = localStatuses }, [localStatuses])
+
+  const persist = useCallback((next) => {
+    statusesRef.current = next
+    onUpdate(batch.id, { item_statuses: next })
+  }, [batch.id, onUpdate])
+
+  const setReceived = useCallback((key, qty) => {
+    setLocalStatuses((prev) => {
+      const next = { ...prev, [key]: { ...prev[key], received: qty } }
+      persist(next)
+      return next
+    })
+  }, [persist])
+
+  const confirmLine = useCallback((key, expectedQty) => {
+    setLocalStatuses((prev) => {
+      const entry = prev[key] || {}
+      const received = entry.received ?? expectedQty
+      const missing = Math.max(0, expectedQty - received)
+      const next = {
+        ...prev,
+        [key]: {
+          ...entry,
+          status: missing > 0 ? 'partial' : 'done',
+          received,
+          missing,
+          expected: expectedQty,
+          comment: '',
+        },
+      }
+      persist(next)
+      return next
+    })
+  }, [persist])
+
+  const markFullMissing = useCallback((key, expectedQty) => {
+    setLocalStatuses((prev) => {
+      const next = {
+        ...prev,
+        [key]: { ...prev[key], status: 'missing', received: 0, missing: expectedQty, expected: expectedQty, comment: '' },
+      }
+      persist(next)
+      return next
+    })
+  }, [persist])
+
+  const allVerified = lines.length > 0 && lines.every((line) => {
+    const st = localStatuses[`${line.skuCode}|${line.size}`]
+    return st?.status === 'done' || st?.status === 'missing' || st?.status === 'partial'
+  })
+
+  const handleComplete = () => {
+    const current = statusesRef.current
+    const unverified = lines.filter((line) => !current[`${line.skuCode}|${line.size}`]?.status)
+    if (unverified.length > 0) {
+      const ok = window.confirm('Some outlet transfer lines are not verified. Mark them missing and complete?')
+      if (!ok) return
+      const finalStatuses = { ...current }
+      for (const line of unverified) {
+        finalStatuses[`${line.skuCode}|${line.size}`] = {
+          status: 'missing',
+          received: 0,
+          missing: line.qty,
+          expected: line.qty,
+          comment: '',
+        }
+      }
+      setLocalStatuses(finalStatuses)
+      onUpdate(batch.id, { item_statuses: finalStatuses, status: 'completed' })
+      return
+    }
+    onUpdate(batch.id, { item_statuses: current, status: 'completed' })
+  }
+
+  return (
+    <div style={{ padding: '12px 18px', borderTop: '1px solid var(--ro-border)' }}>
+      {lines.map((line) => {
+        const key = `${line.skuCode}|${line.size}`
+        const entry = localStatuses[key] || { received: line.qty }
+        const isConfirmed = !!entry.status
+        return (
+          <div key={key} style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto auto auto', gap: 8, alignItems: 'center', padding: '8px 0', borderBottom: '1px solid var(--ro-border)' }}>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--ro-text)' }}>{toTitleCase(line.productName)}</div>
+              <div style={{ fontSize: 10, color: 'var(--ro-text-dim)' }}>{line.skuCode} · {line.size} · expected {line.qty}</div>
+            </div>
+            <QtyCounter value={entry.received ?? line.qty} max={line.qty} disabled={isConfirmed} onChange={(v) => setReceived(key, v)} />
+            <button type="button" onClick={() => confirmLine(key, line.qty)} disabled={isConfirmed} style={{ ...BTN, background: isConfirmed ? 'var(--ro-fill-soft)' : '#16a34a', color: isConfirmed ? 'var(--ro-text-muted)' : '#fff' }}>
+              <Check size={13} /> {isConfirmed ? 'Confirmed' : 'Done'}
+            </button>
+            <button type="button" onClick={() => markFullMissing(key, line.qty)} disabled={isConfirmed} style={{ ...BTN, background: isConfirmed ? 'var(--ro-fill-soft)' : '#fef2f2', color: isConfirmed ? 'var(--ro-text-muted)' : '#dc2626', border: '1px solid #fecaca' }}>
+              <AlertTriangle size={13} /> Missing
+            </button>
+          </div>
+        )
+      })}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 12 }}>
+        <button type="button" className="ot-mark-received-btn" disabled={!allVerified} onClick={handleComplete} style={!allVerified ? { opacity: 0.5, cursor: 'not-allowed' } : undefined}>
+          Complete transfer verification
+        </button>
+      </div>
+    </div>
+  )
+}
+
 export function OutletTransfers() {
   const navigate = useNavigate()
   const transfers = useStore((s) => s.outletTransfers)
   const updateOutletTransfer = useStore((s) => s.updateOutletTransfer)
+  const deleteOutletTransfer = useStore((s) => s.deleteOutletTransfer)
   const users = useStore((s) => s.users)
+  const activeUser = useStore((s) => s.activeUser)
   const [expanded, setExpanded] = useState(null)
 
   const getUserName = (id) => users.find((u) => u.id === id)?.name || id
@@ -102,6 +280,28 @@ export function OutletTransfers() {
 
   const handleReceive = (id) => {
     updateOutletTransfer(id, { status: 'received', receivedAt: new Date().toISOString() })
+  }
+
+  const handleDeleteTransfer = (batch) => {
+    const isFinal = batch.status === 'completed' || batch.status === 'received'
+    const ok = window.confirm(
+      `${isFinal ? 'Delete confirmed' : 'Discard'} outlet transfer?\nThis removes the transfer list for everyone${batch.status === 'received' ? ' and clears its linked E-commerce sale list.' : '.'}`,
+    )
+    if (!ok) return
+    deleteOutletTransfer(batch.id).catch(() => {})
+  }
+
+  const canVerifyOutletTransfer = (batch) => {
+    if (activeUser?.role === 'executive') return batch.status === 'pending'
+    return batch.status === 'pending' && (
+      batch.createdBy === activeUser?.id ||
+      String(batch.assignedTo || '').split(',').map((id) => id.trim()).includes(activeUser?.id) ||
+      (batch.fromShop && batch.fromShop === activeUser?.shop)
+    )
+  }
+
+  const canConfirmOutletReceipt = (batch) => {
+    return batch.status === 'completed' && (activeUser?.role === 'outlet' || activeUser?.role === 'executive')
   }
 
   return (
@@ -125,7 +325,10 @@ export function OutletTransfers() {
         {transfers.map((batch) => {
           const isExpanded = expanded === batch.id
           const isPending = batch.status === 'pending'
+          const isCompleted = batch.status === 'completed'
+          const isReceived = batch.status === 'received'
           const totalUnits = batch.items.reduce((s, i) => s + (i.totalQty ?? i.quantity ?? 0), 0)
+          const statusLabel = isPending ? 'Pending verification' : isCompleted ? 'Awaiting Outlet' : 'Received'
           return (
             <div key={batch.id} className="ot-batch-card">
               <div
@@ -144,14 +347,15 @@ export function OutletTransfers() {
                   <div className="ot-batch-card__title">Transfer — {formatDate(batch.createdAt)}</div>
                   <div className="ot-batch-card__meta">
                     {batch.items.length} products · {totalUnits} units · by {getUserName(batch.createdBy)}
+                    {batch.fromShop && <span> · from {batch.fromShop}</span>}
                     {batch.assignedTo && (
                       <span> · assigned to {formatAssigneeList(batch.assignedTo)}</span>
                     )}
                   </div>
                   {batch.note && <div className="ot-batch-card__note">{batch.note}</div>}
                 </div>
-                <span className={`ot-status-badge${isPending ? ' ot-status-badge--pending' : ' ot-status-badge--received'}`}>
-                  {isPending ? 'Pending' : 'Received'}
+                <span className={`ot-status-badge${isReceived ? ' ot-status-badge--received' : ' ot-status-badge--pending'}`}>
+                  {statusLabel}
                 </span>
                 <span className={`ot-batch-card__chevron${isExpanded ? ' ot-batch-card__chevron--expanded' : ''}`} aria-hidden="true">
                   ▼
@@ -176,12 +380,23 @@ export function OutletTransfers() {
                     </table>
                   </div>
 
+                  {canVerifyOutletTransfer(batch) && (
+                    <OutletVerificationPanel batch={batch} onUpdate={updateOutletTransfer} />
+                  )}
+
                   <div className="ot-batch-card__footer">
-                    {isPending && (
+                    {canConfirmOutletReceipt(batch) && (
                       <button type="button" className="ot-mark-received-btn" onClick={() => handleReceive(batch.id)}>
-                        Mark Received
+                        Confirm Outlet received
                       </button>
                     )}
+                    <button
+                      type="button"
+                      className="ot-delete-transfer-btn"
+                      onClick={() => handleDeleteTransfer(batch)}
+                    >
+                      {isCompleted || isReceived ? 'Delete' : 'Discard'}
+                    </button>
                     <button type="button" className="ot-export-btn" onClick={() => downloadCSV(batch)}>
                       <IconDownload size={12} strokeWidth={1.75} className="ot-export-btn__icon" />
                       CSV

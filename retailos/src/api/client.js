@@ -230,12 +230,14 @@ export const completePhotoTasks = (skuCodes) =>
 export const fetchOutletTransfers = () => request('/outlet-transfers')
 export const postOutletTransfer = (t) => request('/outlet-transfers', { method: 'POST', body: JSON.stringify(t) })
 export const putOutletTransfer = (id, changes) => request(`/outlet-transfers/${id}`, { method: 'PUT', body: JSON.stringify(changes) })
+export const deleteOutletTransfer = (id) => request(`/outlet-transfers/${id}`, { method: 'DELETE' })
 
 // ── Store transfers ─────────────────────────────────────────────────────────
 
 export const fetchStoreTransfers = () => request('/store-transfers')
 export const postStoreTransfer = (t) => request('/store-transfers', { method: 'POST', body: JSON.stringify(t) })
 export const putStoreTransfer = (id, changes) => request(`/store-transfers/${id}`, { method: 'PUT', body: JSON.stringify(changes) })
+export const deleteStoreTransfer = (id) => request(`/store-transfers/${id}`, { method: 'DELETE' })
 
 // ── Markdown / sale lists ───────────────────────────────────────────────────
 
@@ -253,6 +255,8 @@ export const patchMarkdownListItemSalePct = (listId, skuCode, salePct) =>
     method: 'PATCH',
     body: JSON.stringify({ salePct }),
   })
+export const deleteMarkdownListItem = (listId, skuCode) =>
+  request(`/markdown-lists/${listId}/items/${encodeURIComponent(skuCode)}`, { method: 'DELETE' })
 
 // ── Sale change reports ─────────────────────────────────────────────────────
 

@@ -51,9 +51,12 @@ export default function ProductDetailModal({ sku, status, statusData, onClose, s
   const activeSeason = useStore((s) => s.activeSeason)
   const shipmentMeta = useStore((s) => s.shipmentMeta)
   const markdownLists = useStore((s) => s.markdownLists)
+  const syncOperationalData = useStore((s) => s.syncOperationalData)
   const showSalesMetrics = isExecutive(activeUser)
   const addAssignment = useStore((s) => s.addAssignment)
   const addItemToMarkdownList = useStore((s) => s.addItemToMarkdownList)
+  const changeSaleListItemPct = useStore((s) => s.changeSaleListItemPct)
+  const removeSaleListItem = useStore((s) => s.removeSaleListItem)
   const addItemToTodayTransfer = useStore((s) => s.addItemToTodayTransfer)
   const addItemToStoreTransfer = useStore((s) => s.addItemToStoreTransfer)
   const activeShifts = useStore((s) => s.activeShifts)
@@ -70,12 +73,61 @@ export default function ProductDetailModal({ sku, status, statusData, onClose, s
   const [transferShop, setTransferShop] = useState('')
   const [selectedSaleListId, setSelectedSaleListId] = useState('')
   const [salePct, setSalePct] = useState(30)
+  const [quickSalePct, setQuickSalePct] = useState(30)
+  const [quickSaleSaving, setQuickSaleSaving] = useState(false)
+  const [quickSaleError, setQuickSaleError] = useState('')
+  const [saleListLookupRefreshing, setSaleListLookupRefreshing] = useState(false)
+  const [saleListLookupAttempted, setSaleListLookupAttempted] = useState(false)
   const [summaryBySku, setSummaryBySku] = useState(() => ({}))
+
+  const skuCode = String(sku.sku ?? '')
+  const skuSaleListId = String(sku.sale_list_id ?? '')
+  const skuHasActiveSaleList = Boolean(sku.sale_active && skuSaleListId)
 
   const pendingSaleLists = useMemo(
     () => markdownLists.filter((l) => l.kind !== 'removal' && l.status === 'pending'),
     [markdownLists],
   )
+  const referencedSaleList = useMemo(() => {
+    if (!skuHasActiveSaleList) return null
+    return markdownLists.find((l) => (
+      String(l.id) === skuSaleListId
+    )) || null
+  }, [markdownLists, skuHasActiveSaleList, skuSaleListId])
+  const activeSaleList = useMemo(() => {
+    if (!referencedSaleList) return null
+    const hasItem = (referencedSaleList.items || []).some((it) => String(it.skuCode) === String(sku.sku))
+    if (referencedSaleList.kind === 'removal' || referencedSaleList.status !== 'pending' || !hasItem) return null
+    return referencedSaleList
+  }, [referencedSaleList, sku.sku])
+  const activeSaleItem = useMemo(
+    () => activeSaleList?.items?.find((it) => String(it.skuCode) === String(sku.sku)) || null,
+    [activeSaleList, sku.sku],
+  )
+  const currentSalePct = Math.round(Number(activeSaleItem?.salePct ?? sku.sale_percent) || 0)
+  const canQuickChangeSale = isExecutive(activeUser) && Boolean(activeSaleList && activeSaleItem)
+  const shouldRefreshSaleList = isExecutive(activeUser) && skuHasActiveSaleList && !referencedSaleList && !saleListLookupAttempted
+  const isResolvingSaleList = shouldRefreshSaleList || saleListLookupRefreshing
+
+  useEffect(() => {
+    setSaleListLookupAttempted(false)
+    setSaleListLookupRefreshing(false)
+  }, [skuCode, skuSaleListId])
+
+  useEffect(() => {
+    if (!shouldRefreshSaleList) return
+    let cancelled = false
+    setSaleListLookupAttempted(true)
+    setSaleListLookupRefreshing(true)
+    Promise.resolve(syncOperationalData?.())
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setSaleListLookupRefreshing(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [shouldRefreshSaleList, syncOperationalData])
 
   useEffect(() => {
     if (!sku?.sku) return
@@ -125,11 +177,15 @@ export default function ProductDetailModal({ sku, status, statusData, onClose, s
     setAssignDone(null)
     setMarkdownTier(null)
     setCustomMarkdown('')
+    setQuickSaleError('')
     const otherShops = SHOPS.filter((s) => s !== (activeUser?.shop || ''))
     setTransferShop(otherShops[0] || SHOPS[0])
     if (actionType === 'sale_list') {
       setSelectedSaleListId(pendingSaleLists[0]?.id || '')
       setSalePct(30)
+    }
+    if (actionType === 'change_sale') {
+      setQuickSalePct(currentSalePct || 30)
     }
   }
 
@@ -155,6 +211,40 @@ export default function ProductDetailModal({ sku, status, statusData, onClose, s
     setAssignPanel(null)
     setAssignDone(`Added to ${listTitle} at -${salePct}%`)
     setTimeout(() => setAssignDone(null), 1600)
+  }
+
+  const handleQuickSaleChange = async () => {
+    if (!activeSaleList || !activeSaleItem || !quickSalePct || quickSaleSaving) return
+    setQuickSaleSaving(true)
+    setQuickSaleError('')
+    try {
+      await changeSaleListItemPct(activeSaleList.id, sku.sku, quickSalePct)
+      setAssignPanel(null)
+      setAssignDone(`Sale changed to -${quickSalePct}%`)
+      setTimeout(() => setAssignDone(null), 1600)
+    } catch (err) {
+      setQuickSaleError(err?.message || 'Failed to update sale')
+    } finally {
+      setQuickSaleSaving(false)
+    }
+  }
+
+  const handleQuickSaleRemove = async () => {
+    if (!activeSaleList || !activeSaleItem || quickSaleSaving) return
+    const ok = window.confirm(`Remove ${sku.product_name || sku.sku} from this sale?`)
+    if (!ok) return
+    setQuickSaleSaving(true)
+    setQuickSaleError('')
+    try {
+      await removeSaleListItem(activeSaleList.id, sku.sku)
+      setAssignPanel(null)
+      setAssignDone('Sale removed')
+      setTimeout(() => setAssignDone(null), 1600)
+    } catch (err) {
+      setQuickSaleError(err?.message || 'Failed to remove sale')
+    } finally {
+      setQuickSaleSaving(false)
+    }
   }
 
   const handleAssign = () => {
@@ -746,17 +836,27 @@ export default function ProductDetailModal({ sku, status, statusData, onClose, s
                 Move to Display
               </button>
             )}
-            {saleListAssign && canManage && (
+            {saleListAssign && canManage && !skuHasActiveSaleList && (
               <button type="button" onClick={() => openAssignPanel('sale_list')} style={{ ...ACTION_BTN, background: '#c084fc', color: '#09090e' }}>
                 Assign Sale
               </button>
             )}
-            {saleListAssign && !canManage && (status === 'Aging' || status === 'Risk') && (
+            {isResolvingSaleList && isExecutive(activeUser) && skuHasActiveSaleList && (
+              <button type="button" disabled style={{ ...ACTION_BTN, background: 'var(--ro-fill-soft)', color: 'var(--ro-text-muted)', cursor: 'wait', opacity: 0.85 }}>
+                Loading sale list...
+              </button>
+            )}
+            {canQuickChangeSale && (
+              <button type="button" onClick={() => openAssignPanel('change_sale')} style={{ ...ACTION_BTN, background: '#7c3aed', color: '#fff' }}>
+                Change Sale
+              </button>
+            )}
+            {saleListAssign && !canManage && !skuHasActiveSaleList && (status === 'Aging' || status === 'Risk') && (
               <button type="button" onClick={() => openAssignPanel('sale')} style={{ ...ACTION_BTN, background: '#c084fc', color: '#09090e' }}>
                 Assign Sale
               </button>
             )}
-            {!saleListAssign && (status === 'Aging' || status === 'Risk') && (
+            {!saleListAssign && !skuHasActiveSaleList && (status === 'Aging' || status === 'Risk') && (
               <button type="button" onClick={() => openAssignPanel('sale')} style={{ ...ACTION_BTN, background: '#c084fc', color: '#09090e' }}>
                 Assign Sale
               </button>
@@ -783,6 +883,62 @@ export default function ProductDetailModal({ sku, status, statusData, onClose, s
           {assignDone && !assignPanel && (
             <div style={{ marginTop: 10, padding: '8px 14px', borderRadius: 10, background: 'rgba(0,230,118,0.1)', border: '1px solid rgba(0,230,118,0.2)', fontSize: 12, color: '#00e676', fontWeight: 600 }}>
               {assignDone}
+            </div>
+          )}
+
+          {assignPanel && assignPanel === 'change_sale' && !assignDone && activeSaleList && (
+            <div className="md-change-sale-editor" style={{ marginTop: 10 }}>
+              <div className="md-change-sale-editor__label">Select discount</div>
+              <div className="md-change-sale-editor__pills">
+                {DISCOUNTS.map((d) => (
+                  <button
+                    key={d}
+                    type="button"
+                    className={`md-change-sale-editor__pill${quickSalePct === d ? ' md-change-sale-editor__pill--active' : ''}`}
+                    onClick={() => setQuickSalePct(d)}
+                  >
+                    -{d}%
+                  </button>
+                ))}
+              </div>
+              {priceTag > 0 && quickSalePct > 0 && (
+                <div className="md-change-sale-editor__preview">
+                  <span className="md-change-sale-editor__preview-text">
+                    Discount: -{quickSalePct}% - New price: {salePriceOf(priceTag, quickSalePct).toFixed(2)}€
+                  </span>
+                  {quickSalePct === currentSalePct && (
+                    <span className="md-change-sale-editor__same-pill">Same as current</span>
+                  )}
+                </div>
+              )}
+              <div className="md-change-sale-editor__actions">
+                <button
+                  type="button"
+                  className="md-change-sale-editor__confirm"
+                  onClick={handleQuickSaleChange}
+                  disabled={quickSaleSaving || quickSalePct === currentSalePct}
+                >
+                  {quickSaleSaving ? 'Saving...' : 'Confirm'}
+                </button>
+                <button
+                  type="button"
+                  className="md-change-sale-editor__remove"
+                  onClick={handleQuickSaleRemove}
+                  disabled={quickSaleSaving}
+                >
+                  Remove
+                </button>
+                <button
+                  type="button"
+                  className="md-change-sale-editor__cancel"
+                  onClick={() => { setAssignPanel(null); setQuickSaleError('') }}
+                >
+                  Cancel
+                </button>
+              </div>
+              {quickSaleError && (
+                <div className="md-change-sale-editor__error">{quickSaleError}</div>
+              )}
             </div>
           )}
 
@@ -910,7 +1066,7 @@ export default function ProductDetailModal({ sku, status, statusData, onClose, s
             </div>
           )}
 
-          {assignPanel && assignPanel !== 'store_transfer' && assignPanel !== 'sale_list' && (
+          {assignPanel && assignPanel !== 'store_transfer' && assignPanel !== 'sale_list' && assignPanel !== 'change_sale' && (
             <div style={{ marginTop: 10, background: 'var(--ro-surface-elevated)', border: '1px solid var(--ro-border-hover)', borderRadius: 12, padding: 14 }}>
               {assignDone ? (
                 <div style={{ fontSize: 13, color: '#00e676', fontWeight: 600 }}>Assigned: {assignDone}</div>

@@ -6,6 +6,7 @@ import { isExecutive } from '../utils/roles.js'
 import { IconTag, IconDownload, IconManager } from '../utils/icons.js'
 
 const MARKDOWN_LANES = ['Ring Mall', 'Village', 'E-commerce']
+const ECOMMERCE_LANES = ['E-commerce']
 
 const DM = '"DM Sans", sans-serif'
 const S = {
@@ -94,6 +95,12 @@ function userMarkdownLane(user) {
   return null
 }
 
+function userMarkableLanes(user) {
+  if (isExecutive(user)) return MARKDOWN_LANES
+  const lane = userMarkdownLane(user)
+  return lane ? [lane] : []
+}
+
 function laneStatus(statuses, skuCode, lane) {
   return statuses?.[skuCode]?.[lane] || null
 }
@@ -110,6 +117,17 @@ function laneTaggedCount(list, lane) {
 function listLaneProgress(list, lanes) {
   const total = (list.items || []).length
   return lanes.map((lane) => ({ lane, done: laneTaggedCount(list, lane), total }))
+}
+
+function requiredLanesForList(list) {
+  return list?.kind === 'ecommerce_sale' ? ECOMMERCE_LANES : MARKDOWN_LANES
+}
+
+function visibleLanesForList(user, list) {
+  const required = requiredLanesForList(list)
+  if (isExecutive(user)) return required
+  const lane = userMarkdownLane(user)
+  return lane && required.includes(lane) ? [lane] : []
 }
 
 function splitAssignedTo(value) {
@@ -172,8 +190,7 @@ function ChangeReportTiles({
   userName,
   onToggleMarked,
   markingKey,
-  myShop,
-  isExec,
+  markableLanes,
 }) {
   return (
     <div className="md-change-report-grid">
@@ -244,7 +261,7 @@ function ChangeReportTiles({
                 </div>
               </div>
               <div className="md-change-card__actions">
-                {(isExec ? MARKDOWN_LANES : (myShop ? [myShop] : [])).map((shop) => {
+                {markableLanes.map((shop) => {
                   const st = ch.shopStatuses?.[shop]
                   const isMarked = st?.status === 'marked'
                   const markKey = `${ch.reportId}-${ch.skuCode}-${shop}`
@@ -301,6 +318,7 @@ export default function MarkdownLists() {
   const saleChangeReports = useStore((s) => s.saleChangeReports)
   const fetchSaleChangeReports = useStore((s) => s.fetchSaleChangeReports)
   const changeSaleListItemPct = useStore((s) => s.changeSaleListItemPct)
+  const removeSaleListItem = useStore((s) => s.removeSaleListItem)
   const toggleSaleChangeItemMarked = useStore((s) => s.toggleSaleChangeItemMarked)
   const toggleMarkdownListItemTagged = useStore((s) => s.toggleMarkdownListItemTagged)
   const deleteMarkdownList = useStore((s) => s.deleteMarkdownList)
@@ -323,7 +341,7 @@ export default function MarkdownLists() {
   const canManage = activeUser?.role === 'executive' || activeUser?.role === 'manager'
   const isExec = isExecutive(activeUser)
   const myLane = userMarkdownLane(activeUser)
-  const viewLanes = isExec ? MARKDOWN_LANES : (myLane ? [myLane] : [])
+  const viewLanes = userMarkableLanes(activeUser)
 
   const activeTab = searchParams.get('tab') === 'changes' ? 'changes' : 'lists'
   const reportId = searchParams.get('report') || null
@@ -477,6 +495,22 @@ export default function MarkdownLists() {
     }
   }
 
+  async function confirmRemoveSaleItem(list, item) {
+    if (!item || changingSale) return
+    const ok = window.confirm(`Remove ${item.productName || item.skuCode} from this sale?`)
+    if (!ok) return
+    setChangingSale(true)
+    setChangeSaleError('')
+    try {
+      await removeSaleListItem(list.id, item.skuCode)
+      setEditingSkuCode(null)
+    } catch (e) {
+      setChangeSaleError(e?.message || 'Failed to remove sale')
+    } finally {
+      setChangingSale(false)
+    }
+  }
+
   async function handleToggleChangeMarked(reportId, skuCode, shop) {
     const key = `${reportId}-${skuCode}-${shop}`
     if (markingKey) return
@@ -553,8 +587,7 @@ export default function MarkdownLists() {
                   userName={userName}
                   onToggleMarked={handleToggleChangeMarked}
                   markingKey={markingKey}
-                  myShop={myLane}
-                  isExec={isExec}
+                  markableLanes={viewLanes}
                 />
               </>
             )}
@@ -571,7 +604,9 @@ export default function MarkdownLists() {
     const isRemoval = openList.kind === 'removal'
     const isEnded = openList.status === 'ended'
     const isCompleted = openList.status === 'completed' || isEnded
-    const progressLanes = listLaneProgress(openList, viewLanes.length ? viewLanes : MARKDOWN_LANES)
+    const listRequiredLanes = requiredLanesForList(openList)
+    const listViewLanes = visibleLanesForList(activeUser, openList)
+    const progressLanes = listLaneProgress(openList, listViewLanes.length ? listViewLanes : listRequiredLanes)
     const pcts = items.map((i) => i.salePct).filter((v) => v > 0)
     const pctLabel = pcts.length
       ? (Math.min(...pcts) === Math.max(...pcts) ? `-${pcts[0]}%` : `-${Math.min(...pcts)}% to -${Math.max(...pcts)}%`)
@@ -653,12 +688,12 @@ export default function MarkdownLists() {
 
         <div className="md-sale-list-grid">
           {items.map((it) => {
-            const visibleItemLanes = isExec ? MARKDOWN_LANES : viewLanes
+            const visibleItemLanes = listViewLanes
             const primaryDone = visibleItemLanes.length === 1
               ? laneStatus(statuses, it.skuCode, visibleItemLanes[0])?.status === 'tagged'
-              : MARKDOWN_LANES.every((lane) => laneStatus(statuses, it.skuCode, lane)?.status === 'tagged')
+              : listRequiredLanes.every((lane) => laneStatus(statuses, it.skuCode, lane)?.status === 'tagged')
             const photoUrl = photoMap[it.skuCode] || null
-            const canChangeSale = isExec && !isRemoval && !isEnded
+            const canChangeSale = isExec && !isRemoval && !isCompleted
             const isEditing = editingSkuCode === it.skuCode
             const currentPct = Number(it.salePct) || 0
             const salePct = Math.round(currentPct)
@@ -766,6 +801,14 @@ export default function MarkdownLists() {
                           </button>
                           <button
                             type="button"
+                            className="md-change-sale-editor__remove"
+                            disabled={changingSale}
+                            onClick={() => confirmRemoveSaleItem(openList, it)}
+                          >
+                            Remove
+                          </button>
+                          <button
+                            type="button"
                             className="md-change-sale-editor__cancel"
                             onClick={() => {
                               setEditingSkuCode(null)
@@ -783,7 +826,7 @@ export default function MarkdownLists() {
                   </div>
                   <div className="md-sale-card__footer">
                     <div className="md-change-card__shops" style={{ width: '100%' }}>
-                      {(isExec ? MARKDOWN_LANES : viewLanes).map((lane) => {
+                      {listViewLanes.map((lane) => {
                         const st = laneStatus(statuses, it.skuCode, lane)
                         const done = st?.status === 'tagged'
                         const detail = done
@@ -799,7 +842,7 @@ export default function MarkdownLists() {
                           </span>
                         )
                       })}
-                      {!viewLanes.length && !isExec && (
+                      {!listViewLanes.length && !isExec && (
                         <span className="md-change-card__shop-pill">No lane assigned</span>
                       )}
                       {legacyMarked(statuses, it.skuCode) && (
@@ -821,7 +864,7 @@ export default function MarkdownLists() {
                         Change sale
                       </button>
                     )}
-                    {!isCompleted && (isExec ? MARKDOWN_LANES : viewLanes).map((lane) => {
+                    {!isCompleted && listViewLanes.map((lane) => {
                       const isTagged = laneStatus(statuses, it.skuCode, lane)?.status === 'tagged'
                       const key = `${openList.id}-${it.skuCode}-${lane}`
                       const isMarking = markingKey === key
@@ -962,7 +1005,9 @@ export default function MarkdownLists() {
       <div className="md-lists-grid">
         {markdownLists.map((list) => {
           const items = list.items || []
-          const cardProgress = listLaneProgress(list, viewLanes.length ? viewLanes : MARKDOWN_LANES)
+          const cardViewLanes = visibleLanesForList(activeUser, list)
+          const cardRequiredLanes = requiredLanesForList(list)
+          const cardProgress = listLaneProgress(list, cardViewLanes.length ? cardViewLanes : cardRequiredLanes)
           const totalTagged = cardProgress.reduce((sum, p) => sum + p.done, 0)
           const totalRequired = cardProgress.reduce((sum, p) => sum + p.total, 0)
           const isRemoval = list.kind === 'removal'

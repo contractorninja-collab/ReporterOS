@@ -11,7 +11,14 @@ export function createTransfersSlice(set, get) {
     // ── Outlet transfers ──────────────────────────────────────────────────────
 
     addOutletTransfer: (transfer) => {
-      const full = { ...transfer, id: transfer.id || generateId(), createdAt: new Date().toISOString(), receivedAt: null }
+      const full = {
+        ...transfer,
+        id: transfer.id || generateId(),
+        createdAt: new Date().toISOString(),
+        receivedAt: null,
+        fromShop: transfer.fromShop ?? get().activeUser?.shop ?? '',
+        item_statuses: transfer.item_statuses || {},
+      }
       set((state) => ({ outletTransfers: [full, ...state.outletTransfers] }))
       api.postOutletTransfer(full).catch((err) => {
         set((state) => ({ outletTransfers: state.outletTransfers.filter((t) => t.id !== full.id) }))
@@ -25,15 +32,56 @@ export function createTransfersSlice(set, get) {
       set((state) => ({
         outletTransfers: state.outletTransfers.map((t) => (t.id === transferId ? { ...t, ...changes } : t)),
       }))
-      api.putOutletTransfer(transferId, changes).catch((err) => {
-        if (prev) {
-          set((state) => ({
-            outletTransfers: state.outletTransfers.map((t) => (t.id === transferId ? prev : t)),
-          }))
-        }
-        notifyLocalWriteFailure(set, get, 'Outlet transfer update was not saved', err)
+      api.putOutletTransfer(transferId, changes)
+        .then((result) => {
+          const updatedTransfer = result?.transfer || result
+          const ecommerceSale = result?.ecommerceSale
+          if (updatedTransfer?.id) {
+            set((state) => ({
+              outletTransfers: state.outletTransfers.map((t) => (t.id === transferId ? updatedTransfer : t)),
+            }))
+          }
+          if (ecommerceSale?.list) {
+            set((state) => ({
+              markdownLists: [
+                ecommerceSale.list,
+                ...state.markdownLists.filter((l) => l.id !== ecommerceSale.list.id),
+              ],
+              skus: state.skus.map((row) => {
+                const item = (ecommerceSale.items || []).find((it) => it.skuCode === row.sku)
+                return item
+                  ? { ...row, sale_active: 1, sale_percent: item.salePct, sale_list_id: ecommerceSale.list.id }
+                  : row
+              }),
+            }))
+            get().syncOperationalData?.().catch(() => {})
+          }
+        })
+        .catch((err) => {
+          if (prev) {
+            set((state) => ({
+              outletTransfers: state.outletTransfers.map((t) => (t.id === transferId ? prev : t)),
+            }))
+          }
+          notifyLocalWriteFailure(set, get, 'Outlet transfer update was not saved', err)
+          resyncAfterWriteFailure(get)
+        })
+    },
+
+    deleteOutletTransfer: async (transferId) => {
+      const prevTransfers = get().outletTransfers
+      set((state) => ({
+        outletTransfers: state.outletTransfers.filter((t) => t.id !== transferId),
+      }))
+      try {
+        await api.deleteOutletTransfer(transferId)
+        get().syncOperationalData?.().catch(() => {})
+      } catch (err) {
+        set({ outletTransfers: prevTransfers })
+        notifyLocalWriteFailure(set, get, 'Outlet transfer was not deleted', err)
         resyncAfterWriteFailure(get)
-      })
+        throw err
+      }
     },
 
     addItemToTodayTransfer: (item, createdBy) => {
@@ -53,7 +101,16 @@ export function createTransfersSlice(set, get) {
           resyncAfterWriteFailure(get)
         })
       } else {
-        const full = { id: generateId(), items: [item], createdBy, createdAt: new Date().toISOString(), status: 'pending', receivedAt: null }
+        const full = {
+          id: generateId(),
+          items: [item],
+          createdBy,
+          createdAt: new Date().toISOString(),
+          status: 'pending',
+          receivedAt: null,
+          fromShop: state.activeUser?.shop ?? '',
+          item_statuses: {},
+        }
         set((s) => ({ outletTransfers: [full, ...s.outletTransfers] }))
         api.postOutletTransfer(full).catch((err) => {
           set((s) => ({ outletTransfers: s.outletTransfers.filter((t) => t.id !== full.id) }))
@@ -110,6 +167,21 @@ export function createTransfersSlice(set, get) {
       })
     },
 
+    deleteStoreTransfer: async (transferId) => {
+      const prevTransfers = get().storeTransfers
+      set((state) => ({
+        storeTransfers: state.storeTransfers.filter((t) => t.id !== transferId),
+      }))
+      try {
+        await api.deleteStoreTransfer(transferId)
+      } catch (err) {
+        set({ storeTransfers: prevTransfers })
+        notifyLocalWriteFailure(set, get, 'Store transfer was not deleted', err)
+        resyncAfterWriteFailure(get)
+        throw err
+      }
+    },
+
     /**
      * Create a complete transfer batch (used by the Transfer Builder page).
      * @param {'store'|'outlet'} type
@@ -140,10 +212,12 @@ export function createTransfersSlice(set, get) {
         receivedAt: null,
         assignedTo: assignedToStored,
         note: payload.note ?? null,
+        item_statuses: {},
       }
       if (type === 'outlet') {
-        set((s) => ({ outletTransfers: [base, ...s.outletTransfers] }))
-        api.postOutletTransfer(base).catch((err) => {
+        const full = { ...base, fromShop: payload.fromShop ?? state.activeUser?.shop ?? '' }
+        set((s) => ({ outletTransfers: [full, ...s.outletTransfers] }))
+        api.postOutletTransfer(full).catch((err) => {
           set((s) => ({
             outletTransfers: s.outletTransfers.filter((t) => t.id !== id),
             assignments: s.assignments.filter((a) => a.skuCode !== id),

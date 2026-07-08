@@ -16,13 +16,15 @@ import {
   getAllUsers, getUsersPublicDirectory, updateUser, addUser, removeUser, regenerateUserPin,
   getUserRowByUserCode, verifyPin, getPublicUserById, toPublicUser,
   getAllAssignments, getAssignmentById, insertAssignment, insertAssignments, updateAssignment,
-  getAllOutletTransfers, getOutletTransferById, insertOutletTransfer, updateOutletTransfer,
-  getAllStoreTransfers, getStoreTransferById, insertStoreTransfer, updateStoreTransfer,
+  getAllOutletTransfers, getOutletTransferById, insertOutletTransfer, updateOutletTransfer, deleteOutletTransfer,
+  getAllStoreTransfers, getStoreTransferById, insertStoreTransfer, updateStoreTransfer, deleteStoreTransfer,
   getAllMarkdownLists, getMarkdownListById, insertMarkdownList, updateMarkdownList, deleteMarkdownList,
   appendItemsToMarkdownList, applySaleToSkus, clearSaleForList,
   assignPendingUnassignedMarkdownListsForShift,
   toggleMarkdownListItemTagged,
   changeMarkdownListItemSalePct,
+  removeMarkdownListItemFromSale,
+  createEcommerceSaleListForOutletTransfer,
   getAllSaleChangeReports, getSaleChangeReportById, saleChangeReportVisibleToUser,
   toggleSaleChangeItemMarked,
   getAllSnapshots, insertSnapshot,
@@ -669,8 +671,11 @@ function filterNotifications(rows, user) {
 
 function filterOutletTransfers(rows, user) {
   if (user.role === 'executive') return rows
+  if (user.role === 'outlet') return rows.filter((t) => t.status === 'completed' || t.status === 'received')
   return rows.filter(
-    (t) => t.createdBy === user.id || t.assignedTo === user.id,
+    (t) => t.createdBy === user.id ||
+      splitIdList(t.assignedTo).includes(user.id) ||
+      (t.fromShop && user.shop && t.fromShop === user.shop),
   )
 }
 
@@ -685,12 +690,148 @@ function assignmentVisibleToUser(row, user) {
 
 function outletTransferVisibleToUser(t, user) {
   if (user.role === 'executive') return true
-  return t.createdBy === user.id || t.assignedTo === user.id
+  if (user.role === 'outlet') return t.status === 'completed' || t.status === 'received'
+  return t.createdBy === user.id ||
+    splitIdList(t.assignedTo).includes(user.id) ||
+    (t.fromShop && user.shop && t.fromShop === user.shop)
 }
 
 function outletTransferAssignedToUpdateAllowed(user, nextAssignedTo) {
   if (user.role === 'executive') return true
   return nextAssignedTo == null || nextAssignedTo === '' || nextAssignedTo === user.id
+}
+
+function splitIdList(value) {
+  return String(value || '')
+    .split(',')
+    .map((id) => id.trim())
+    .filter(Boolean)
+}
+
+function outletTransferUserRole(t, user) {
+  if (user.role === 'executive') return { executive: true, sender: true, outlet: true }
+  return {
+    executive: false,
+    sender: t.createdBy === user.id ||
+      splitIdList(t.assignedTo).includes(user.id) ||
+      (t.fromShop && user.shop && t.fromShop === user.shop),
+    outlet: user.role === 'outlet',
+  }
+}
+
+function outletTransferAllVerified(row, statuses) {
+  const expected = flattenStoreTransferItems(row.items)
+  if (!expected.length) return false
+  return expected.every((line) => {
+    const st = statuses?.[line.key]
+    return st?.status === 'done' || st?.status === 'missing' || st?.status === 'partial'
+  })
+}
+
+function validateOutletTransferUpdate(row, user, changes) {
+  const roles = outletTransferUserRole(row, user)
+  const has = (k) => Object.prototype.hasOwnProperty.call(changes || {}, k)
+  const current = String(row.status || 'pending')
+  const nextStatus = has('status') ? String(changes.status || '') : current
+
+  if (has('item_statuses')) {
+    if (!roles.sender && !roles.executive) {
+      const err = new Error('Only the sending shop can verify outlet transfer items')
+      err.statusCode = 403
+      throw err
+    }
+    if (current !== 'pending' && nextStatus !== 'completed') {
+      const err = new Error('Outlet transfer items can only be verified before Outlet receipt')
+      err.statusCode = 403
+      throw err
+    }
+    validateStoreTransferItemStatuses(row, changes.item_statuses)
+  }
+
+  if (has('status') && !strEq(changes.status, row.status)) {
+    if (nextStatus === 'completed') {
+      if (!roles.sender && !roles.executive) {
+        const err = new Error('Only the sending shop can complete outlet transfer verification')
+        err.statusCode = 403
+        throw err
+      }
+      const statuses = has('item_statuses') ? changes.item_statuses : (row.item_statuses || {})
+      if (!outletTransferAllVerified(row, statuses)) {
+        const err = new Error('All outlet transfer items must be verified before completion')
+        err.statusCode = 400
+        throw err
+      }
+      return null
+    }
+
+    if (nextStatus === 'received') {
+      if (!roles.outlet && !roles.executive) {
+        const err = new Error('Only Outlet can confirm outlet transfer receipt')
+        err.statusCode = 403
+        throw err
+      }
+      if (current !== 'completed' && !roles.executive) {
+        const err = new Error('Outlet transfer must be completed before receipt')
+        err.statusCode = 403
+        throw err
+      }
+      return null
+    }
+
+    const err = new Error('Invalid outlet transfer status transition')
+    err.statusCode = 403
+    throw err
+  }
+
+  return null
+}
+
+function outletAutoSaleTargets() {
+  return getAllUsers()
+    .filter((u) => u.role === 'marketing' || u.role === 'executive')
+    .map((u) => u.id)
+    .filter(Boolean)
+}
+
+function createOutletEcommerceSaleIfNeeded(transferId, actor) {
+  const targets = outletAutoSaleTargets()
+  const result = createEcommerceSaleListForOutletTransfer(
+    transferId,
+    actor?.id || '',
+    targets.length ? targets.join(',') : null,
+  )
+  if (!result?.created || !result.list) return result
+
+  const totalUnits = (result.items || []).reduce((sum, item) => sum + (Number(item.quantity) || 0), 0)
+  const summary = `E-commerce 20% sale created from outlet transfer (${result.items.length} products, ${totalUnits} units)`
+  for (const uid of targets) {
+    insertAssignment({
+      type: 'sale',
+      skuCode: result.list.id,
+      productName: `Sale list: ${result.list.title}`,
+      assignedTo: uid,
+      assignedBy: actor?.id || '',
+      shop: 'E-commerce',
+      status: 'pending',
+      note: `${result.items.length} products - auto-created from Outlet confirmation`,
+    })
+    insertNotification({
+      type: 'ecommerce_sale_created',
+      title: 'E-commerce Sale Created',
+      message: `${actor?.name || 'Outlet'} confirmed an outlet transfer. ${summary}.`,
+      userId: uid,
+      relatedId: result.list.id,
+    })
+  }
+  act(actor, {
+    category: 'markdown',
+    action: 'ecommerce_sale_created',
+    entityType: 'markdown_list',
+    entityId: result.list.id,
+    summary,
+    meta: { sourceTransferId: transferId, products: result.items.length, units: totalUnits },
+  })
+  return result
 }
 
 function storeTransferVisibleToUser(t, user) {
@@ -1737,8 +1878,12 @@ app.put('/api/outlet-transfers/:id', (req, res) => {
     ) {
       return res.status(403).json({ error: 'Can only assign outlet transfer to yourself' })
     }
+    validateOutletTransferUpdate(row, req.authUser, req.body || {})
     const updated = updateOutletTransfer(req.params.id, req.body)
     if (!updated) return res.status(404).json({ error: 'Not found' })
+    const ecommerceSale = req.body?.status === 'received' && row.status !== 'received'
+      ? createOutletEcommerceSaleIfNeeded(req.params.id, req.authUser)
+      : null
     act(req.authUser, {
       category: 'transfer_outlet',
       action: 'updated',
@@ -1747,7 +1892,30 @@ app.put('/api/outlet-transfers/:id', (req, res) => {
       summary: `Outlet transfer updated — ${updated.status || row.status}`,
       meta: { patch: req.body, status: updated.status },
     })
-    res.json(updated)
+    res.json(ecommerceSale ? { transfer: updated, ecommerceSale } : updated)
+  } catch (e) { safeError(res, e) }
+})
+
+app.delete('/api/outlet-transfers/:id', (req, res) => {
+  try {
+    const row = getOutletTransferById(req.params.id)
+    if (!row) return res.status(404).json({ error: 'Not found' })
+    if (!outletTransferVisibleToUser(row, req.authUser)) {
+      return res.status(403).json({ error: 'Forbidden' })
+    }
+    const n = Array.isArray(row.items) ? row.items.length : 0
+    const status = row.status || 'pending'
+    const deleted = deleteOutletTransfer(req.params.id)
+    if (!deleted) return res.status(404).json({ error: 'Not found' })
+    act(req.authUser, {
+      category: 'transfer_outlet',
+      action: status === 'received' ? 'deleted_confirmed' : 'discarded',
+      entityType: 'outlet_transfer',
+      entityId: req.params.id,
+      summary: `${status === 'received' ? 'Deleted confirmed' : 'Discarded'} outlet transfer (${n} items)`,
+      meta: { status, products: n, removedLinkedEcommerceSale: status === 'received' },
+    })
+    res.json({ ok: true })
   } catch (e) { safeError(res, e) }
 })
 
@@ -1809,7 +1977,32 @@ app.put('/api/store-transfers/:id', (req, res) => {
   } catch (e) { safeError(res, e) }
 })
 
+app.delete('/api/store-transfers/:id', (req, res) => {
+  try {
+    const row = getStoreTransferById(req.params.id)
+    if (!row) return res.status(404).json({ error: 'Not found' })
+    if (!storeTransferVisibleToUser(row, req.authUser)) {
+      return res.status(403).json({ error: 'Forbidden' })
+    }
+    const n = Array.isArray(row.items) ? row.items.length : 0
+    const status = row.status || 'pending'
+    const deleted = deleteStoreTransfer(req.params.id)
+    if (!deleted) return res.status(404).json({ error: 'Not found' })
+    act(req.authUser, {
+      category: 'transfer_store',
+      action: status === 'completed' || status === 'received' ? 'deleted_confirmed' : 'discarded',
+      entityType: 'store_transfer',
+      entityId: req.params.id,
+      summary: `${status === 'completed' || status === 'received' ? 'Deleted confirmed' : 'Discarded'} store transfer ${row.fromShop || '?'} → ${row.toShop || '?'} (${n} items)`,
+      meta: { fromShop: row.fromShop, toShop: row.toShop, status, products: n },
+    })
+    res.json({ ok: true })
+  } catch (e) { safeError(res, e) }
+})
+
 // ── Markdown / sale lists ───────────────────────────────────────────────────
+
+const MARKDOWN_LANES = ['Ring Mall', 'Village', 'E-commerce']
 
 function markdownListVisibleToUser(l, user) {
   if (user.role === 'executive') return true
@@ -1826,7 +2019,18 @@ function markdownLaneForUser(user, requestedLane) {
   const lane = String(requestedLane || '').trim()
   if (user.role === 'executive') {
     if (!lane) return ''
-    return lane
+    return MARKDOWN_LANES.includes(lane) ? lane : ''
+  }
+  if (user.role === 'marketing') return 'E-commerce'
+  if (user.role === 'manager' && (user.shop === 'Ring Mall' || user.shop === 'Village')) return user.shop
+  return ''
+}
+
+function saleChangeShopForUser(user, requestedShop) {
+  const shop = String(requestedShop || '').trim()
+  if (user.role === 'executive') {
+    if (!shop) return ''
+    return MARKDOWN_LANES.includes(shop) ? shop : ''
   }
   if (user.role === 'marketing') return 'E-commerce'
   if (user.role === 'manager' && (user.shop === 'Ring Mall' || user.shop === 'Village')) return user.shop
@@ -1956,6 +2160,9 @@ app.patch('/api/markdown-lists/:id/items/:skuCode/tagged', (req, res) => {
     }
     const lane = markdownLaneForUser(u, req.body?.lane)
     if (!lane) return res.status(403).json({ error: 'No markdown lane available for this user' })
+    if (row.kind === 'ecommerce_sale' && lane !== 'E-commerce') {
+      return res.status(403).json({ error: 'This sale list is E-commerce only' })
+    }
     const skuCode = decodeURIComponent(req.params.skuCode || '')
     const updated = toggleMarkdownListItemTagged(req.params.id, skuCode, lane, u.id)
     const isTagged = updated.item_statuses?.[skuCode]?.[lane]?.status === 'tagged'
@@ -2003,6 +2210,31 @@ app.patch('/api/markdown-lists/:id/items/:skuCode/sale-pct', (req, res) => {
   } catch (e) { safeError(res, e) }
 })
 
+app.delete('/api/markdown-lists/:id/items/:skuCode', (req, res) => {
+  try {
+    const u = req.authUser
+    if (u.role !== 'executive') {
+      return res.status(403).json({ error: 'Executive access required' })
+    }
+    const row = getMarkdownListById(req.params.id)
+    if (!row) return res.status(404).json({ error: 'Not found' })
+    if (!markdownListVisibleToUser(row, u)) {
+      return res.status(403).json({ error: 'Forbidden' })
+    }
+    const skuCode = decodeURIComponent(req.params.skuCode || '')
+    const result = removeMarkdownListItemFromSale(req.params.id, skuCode)
+    act(u, {
+      category: 'markdown',
+      action: 'sale_item_removed',
+      entityType: 'markdown_list',
+      entityId: req.params.id,
+      summary: `Removed ${result.item?.productName || skuCode} from sale list "${row.title || 'Sale list'}"`,
+      meta: { listId: req.params.id, skuCode },
+    })
+    res.json(result)
+  } catch (e) { safeError(res, e) }
+})
+
 app.get('/api/sale-change-reports', (req, res) => {
   try {
     res.json(getAllSaleChangeReports().filter((r) => saleChangeReportVisibleToUser(r, req.authUser)))
@@ -2029,15 +2261,8 @@ app.patch('/api/sale-change-reports/:id/items/:skuCode/marked', (req, res) => {
       return res.status(403).json({ error: 'Forbidden' })
     }
     const skuCode = decodeURIComponent(req.params.skuCode || '')
-    let shop = String(req.body?.shop || '').trim()
-    if (u.role === 'manager') {
-      if (!u.shop) return res.status(403).json({ error: 'Manager shop required' })
-      shop = u.shop
-    } else if (u.role === 'marketing') {
-      shop = 'E-commerce'
-    } else if (!shop) {
-      return res.status(400).json({ error: 'shop required' })
-    }
+    const shop = saleChangeShopForUser(u, req.body?.shop)
+    if (!shop) return res.status(403).json({ error: 'No sale change lane available for this user' })
     const updated = toggleSaleChangeItemMarked(req.params.id, skuCode, u.id, shop)
     const marked = updated.item_statuses?.[skuCode]?.[shop]?.status === 'marked'
     act(u, {

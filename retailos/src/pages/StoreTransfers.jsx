@@ -802,6 +802,7 @@ export function StoreTransfers() {
   const navigate = useNavigate()
   const transfers = useStore((s) => s.storeTransfers)
   const updateStoreTransfer = useStore((s) => s.updateStoreTransfer)
+  const deleteStoreTransfer = useStore((s) => s.deleteStoreTransfer)
   const addNotification = useStore((s) => s.addNotification)
   const users = useStore((s) => s.users)
   const activeUser = useStore((s) => s.activeUser)
@@ -852,6 +853,17 @@ export function StoreTransfers() {
   const handleTransferCompleted = useCallback((received, missing) => {
     setToast(`${received} units verified${missing > 0 ? `, ${missing} units reported missing` : '. All items accounted for.'}`)
   }, [])
+
+  const handleDeleteTransfer = useCallback((batch) => {
+    const isFinal = batch.status === 'completed' || batch.status === 'received'
+    const ok = window.confirm(
+      `${isFinal ? 'Delete confirmed' : 'Discard'} transfer from ${batch.fromShop || '?'} to ${batch.toShop || '?'}?\nThis removes the transfer list for everyone.`,
+    )
+    if (!ok) return
+    deleteStoreTransfer(batch.id)
+      .then(() => setToast(`Transfer ${isFinal ? 'deleted' : 'discarded'}.`))
+      .catch(() => {})
+  }, [deleteStoreTransfer])
 
   const issues = useMemo(() => history.filter((t) => {
     const st = t.item_statuses || {}
@@ -1020,6 +1032,13 @@ export function StoreTransfers() {
                             Mark as Received
                           </button>
                         )}
+                        <button
+                          type="button"
+                          className="ot-delete-transfer-btn"
+                          onClick={() => handleDeleteTransfer(batch)}
+                        >
+                          {isCompleted ? 'Delete' : 'Discard'}
+                        </button>
                         <button type="button" className="ot-export-btn" onClick={() => downloadCSV(batch)}>
                           <IconDownload size={12} strokeWidth={1.75} className="ot-export-btn__icon" />
                           CSV

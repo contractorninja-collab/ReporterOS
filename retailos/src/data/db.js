@@ -278,6 +278,8 @@ function safeAddColumn(table, column, type) {
 }
 safeAddColumn('outlet_transfers', 'assignedTo', 'TEXT')
 safeAddColumn('outlet_transfers', 'note', 'TEXT')
+safeAddColumn('outlet_transfers', 'fromShop', 'TEXT')
+safeAddColumn('outlet_transfers', 'item_statuses', 'TEXT')
 safeAddColumn('store_transfers', 'assignedTo', 'TEXT')
 safeAddColumn('store_transfers', 'note', 'TEXT')
 safeAddColumn('skus', 'cost_price', 'REAL')
@@ -319,6 +321,7 @@ safeAddColumn('skus', 'sale_percent', 'INTEGER')
 safeAddColumn('skus', 'sale_active', 'INTEGER DEFAULT 0')
 safeAddColumn('skus', 'sale_list_id', 'TEXT')
 safeAddColumn('markdown_lists', 'kind', 'TEXT')
+safeAddColumn('markdown_lists', 'sourceTransferId', 'TEXT')
 safeAddColumn('sale_change_reports', 'item_statuses', 'TEXT')
 
 db.exec(`
@@ -2451,6 +2454,7 @@ export function getAllOutletTransfers() {
   return db.prepare('SELECT * FROM outlet_transfers ORDER BY createdAt DESC').all().map((r) => ({
     ...r,
     items: safeJsonArray(r.items, { table: 'outlet_transfers', column: 'items', id: r.id }),
+    item_statuses: safeJsonObject(r.item_statuses, { table: 'outlet_transfers', column: 'item_statuses', id: r.id }),
   }))
 }
 
@@ -2460,27 +2464,29 @@ export function getOutletTransferById(id) {
   return {
     ...row,
     items: safeJsonArray(row.items, { table: 'outlet_transfers', column: 'items', id: row.id }),
+    item_statuses: safeJsonObject(row.item_statuses, { table: 'outlet_transfers', column: 'item_statuses', id: row.id }),
   }
 }
 
 export function insertOutletTransfer(t) {
   const id = t.id || uid()
   const createdAt = t.createdAt || new Date().toISOString()
-  db.prepare(`INSERT INTO outlet_transfers (id, items, createdBy, createdAt, status, receivedAt, assignedTo, note)
-    VALUES (@id, @items, @createdBy, @createdAt, @status, @receivedAt, @assignedTo, @note)`)
+  db.prepare(`INSERT INTO outlet_transfers (id, items, createdBy, createdAt, status, receivedAt, assignedTo, note, fromShop, item_statuses)
+    VALUES (@id, @items, @createdBy, @createdAt, @status, @receivedAt, @assignedTo, @note, @fromShop, @item_statuses)`)
     .run({ id, items: JSON.stringify(t.items || []), createdBy: t.createdBy ?? '',
       createdAt, status: t.status ?? 'pending', receivedAt: t.receivedAt ?? null,
-      assignedTo: t.assignedTo ?? null, note: t.note ?? null })
-  return { ...t, id, createdAt, receivedAt: t.receivedAt ?? null, items: t.items || [] }
+      assignedTo: t.assignedTo ?? null, note: t.note ?? null, fromShop: t.fromShop ?? '',
+      item_statuses: JSON.stringify(t.item_statuses || {}) })
+  return { ...t, id, createdAt, receivedAt: t.receivedAt ?? null, items: t.items || [], item_statuses: t.item_statuses || {} }
 }
 
 export function updateOutletTransfer(id, changes) {
   const fields = []
   const values = { id }
   for (const [k, v] of Object.entries(changes)) {
-    if (['status', 'receivedAt', 'items', 'assignedTo', 'note'].includes(k)) {
+    if (['status', 'receivedAt', 'items', 'assignedTo', 'note', 'fromShop', 'item_statuses'].includes(k)) {
       fields.push(`${k} = @${k}`)
-      values[k] = k === 'items' ? JSON.stringify(v) : v
+      values[k] = (k === 'items' || k === 'item_statuses') ? JSON.stringify(v) : v
     }
   }
   if (!fields.length) return null
@@ -2490,8 +2496,15 @@ export function updateOutletTransfer(id, changes) {
     ? {
         ...row,
         items: safeJsonArray(row.items, { table: 'outlet_transfers', column: 'items', id: row.id }),
+        item_statuses: safeJsonObject(row.item_statuses, { table: 'outlet_transfers', column: 'item_statuses', id: row.id }),
       }
     : null
+}
+
+export function deleteOutletTransfer(id) {
+  const linkedSale = getEcommerceSaleListBySourceTransfer(id)
+  if (linkedSale?.id) deleteMarkdownList(linkedSale.id)
+  return db.prepare('DELETE FROM outlet_transfers WHERE id = ?').run(id).changes
 }
 
 // ── Store transfers ─────────────────────────────────────────────────────────
@@ -2560,6 +2573,10 @@ export function updateStoreTransfer(id, changes) {
     : null
 }
 
+export function deleteStoreTransfer(id) {
+  return db.prepare('DELETE FROM store_transfers WHERE id = ?').run(id).changes
+}
+
 // ── Markdown / sale lists ───────────────────────────────────────────────────
 
 const MARKDOWN_LANES = ['Ring Mall', 'Village', 'E-commerce']
@@ -2618,20 +2635,21 @@ export function getMarkdownListById(id) {
 export function insertMarkdownList(l) {
   const id = l.id || uid()
   const createdAt = l.createdAt || new Date().toISOString()
-  db.prepare(`INSERT INTO markdown_lists (id, title, items, item_statuses, shop, createdBy, assignedTo, createdAt, status, completedAt, note, kind)
-    VALUES (@id, @title, @items, @item_statuses, @shop, @createdBy, @assignedTo, @createdAt, @status, @completedAt, @note, @kind)`)
+  db.prepare(`INSERT INTO markdown_lists (id, title, items, item_statuses, shop, createdBy, assignedTo, createdAt, status, completedAt, note, kind, sourceTransferId)
+    VALUES (@id, @title, @items, @item_statuses, @shop, @createdBy, @assignedTo, @createdAt, @status, @completedAt, @note, @kind, @sourceTransferId)`)
     .run({
       id, title: l.title ?? '', items: JSON.stringify(l.items || []),
       item_statuses: JSON.stringify(l.item_statuses || {}),
       shop: l.shop ?? '', createdBy: l.createdBy ?? '', assignedTo: l.assignedTo ?? null,
       createdAt, status: l.status ?? 'pending', completedAt: l.completedAt ?? null, note: l.note ?? null,
-      kind: l.kind === 'removal' ? 'removal' : 'sale',
+      kind: ['removal', 'ecommerce_sale'].includes(l.kind) ? l.kind : 'sale',
+      sourceTransferId: l.sourceTransferId ?? null,
     })
   return getMarkdownListById(id)
 }
 
 export function updateMarkdownList(id, changes) {
-  const ALLOWED = ['status', 'completedAt', 'item_statuses', 'note', 'assignedTo', 'items']
+  const ALLOWED = ['status', 'completedAt', 'item_statuses', 'note', 'assignedTo', 'items', 'sourceTransferId']
   const fields = []
   const values = { id }
   for (const k of ALLOWED) {
@@ -2684,7 +2702,8 @@ export function toggleMarkdownListItemTagged(listId, skuCode, lane, userId) {
   if (Object.keys(byLane).length) statuses[skuCode] = byLane
   else delete statuses[skuCode]
 
-  const allComplete = items.length > 0 && MARKDOWN_LANES.every((ln) =>
+  const requiredLanes = list.kind === 'ecommerce_sale' ? ['E-commerce'] : MARKDOWN_LANES
+  const allComplete = items.length > 0 && requiredLanes.every((ln) =>
     items.every((it) => statuses[it.skuCode]?.[ln]?.status === 'tagged'),
   )
   updateMarkdownList(listId, {
@@ -2762,10 +2781,10 @@ export function assignPendingUnassignedMarkdownListsForShift(user) {
   return tx(rows)
 }
 
-/** Whether a sale list accepts item / % edits (pending or completed, not ended/removal). */
+/** Whether a sale list accepts item / % edits. */
 function markdownListEditable(list) {
   if (!list || list.kind === 'removal' || list.status === 'ended') return false
-  return list.status === 'pending' || list.status === 'completed'
+  return list.status === 'pending'
 }
 
 /** Merge new items into an active sale list and apply SALE flags to affected SKUs. */
@@ -2951,6 +2970,144 @@ export function changeMarkdownListItemSalePct(listId, skuCode, newPct, actorUser
   })
 
   return { list: getMarkdownListById(listId), report }
+}
+
+function flattenTransferItemsWithMeta(items) {
+  const lines = []
+  for (const it of Array.isArray(items) ? items : []) {
+    if (Array.isArray(it?.sizeBreakdown) && it.sizeBreakdown.length > 0) {
+      for (const sb of it.sizeBreakdown) {
+        lines.push({
+          key: `${String(it.skuCode ?? '')}|${String(sb.size ?? '')}`,
+          skuCode: String(it.skuCode ?? ''),
+          size: String(sb.size ?? ''),
+          qty: Number(sb.qty) || 0,
+          item: it,
+        })
+      }
+      continue
+    }
+    const sizes = String(it?.sizes || '').split(',').map((s) => s.trim()).filter(Boolean)
+    if (sizes.length > 0) {
+      const perSize = Math.ceil((Number(it.totalQty ?? it.quantity) || 0) / sizes.length)
+      for (const size of sizes) {
+        lines.push({ key: `${String(it.skuCode ?? '')}|${size}`, skuCode: String(it.skuCode ?? ''), size, qty: perSize, item: it })
+      }
+    } else {
+      lines.push({
+        key: `${String(it?.skuCode ?? '')}|One Size`,
+        skuCode: String(it?.skuCode ?? ''),
+        size: 'One Size',
+        qty: Number(it?.totalQty ?? it?.quantity) || 0,
+        item: it,
+      })
+    }
+  }
+  return lines
+}
+
+function outletSaleTitle(iso) {
+  const d = new Date(iso || Date.now())
+  const formatted = isNaN(d.getTime())
+    ? new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+    : d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+  return `E-commerce Outlet Sale - ${formatted}`
+}
+
+export function getEcommerceSaleListBySourceTransfer(sourceTransferId) {
+  return toMarkdownList(db.prepare("SELECT * FROM markdown_lists WHERE sourceTransferId = ? AND kind = 'ecommerce_sale' ORDER BY createdAt DESC LIMIT 1").get(sourceTransferId))
+}
+
+export function createEcommerceSaleListForOutletTransfer(transferId, actorUserId = '', assignedTo = null) {
+  const existing = getEcommerceSaleListBySourceTransfer(transferId)
+  if (existing) return { list: existing, created: false, items: existing.items || [] }
+
+  const transfer = getOutletTransferById(transferId)
+  if (!transfer) throw new Error('Outlet transfer not found')
+
+  const statuses = transfer.item_statuses || {}
+  const bySku = new Map()
+  const lines = flattenTransferItemsWithMeta(transfer.items)
+  for (const line of lines) {
+    if (!line.skuCode) continue
+    const entry = statuses[line.key] || {}
+    const status = String(entry.status || '')
+    const received = entry.received == null
+      ? (status === 'done' ? line.qty : 0)
+      : Number(entry.received) || 0
+    if (received <= 0) continue
+    if (!bySku.has(line.skuCode)) {
+      bySku.set(line.skuCode, { item: line.item, sizes: new Map(), received: 0 })
+    }
+    const group = bySku.get(line.skuCode)
+    group.received += received
+    group.sizes.set(line.size, (group.sizes.get(line.size) || 0) + received)
+  }
+
+  const items = []
+  const skuMeta = db.prepare(`
+    SELECT
+      MAX(product_name) AS product_name,
+      MAX(brand) AS brand,
+      MAX(category) AS category,
+      MAX(gender) AS gender,
+      MAX(season) AS season,
+      MAX(price_tag) AS price_tag
+    FROM skus
+    WHERE sku = ? AND deleted_at IS NULL
+  `)
+  for (const [skuCode, group] of bySku.entries()) {
+    const meta = skuMeta.get(skuCode) || {}
+    const priceTag = Number(meta.price_tag ?? group.item?.priceTag ?? 0) || 0
+    items.push({
+      skuCode,
+      productName: group.item?.productName || meta.product_name || '',
+      brand: group.item?.brand || meta.brand || '',
+      category: group.item?.category || meta.category || '',
+      gender: group.item?.gender || meta.gender || '',
+      season: group.item?.season || meta.season || '',
+      priceTag,
+      salePct: 20,
+      salePrice: salePriceOf(priceTag, 20),
+      sizes: [...group.sizes.entries()].map(([size, qty]) => `${size} x${qty}`).join(', '),
+      quantity: group.received,
+    })
+  }
+
+  if (!items.length) return { list: null, created: false, items: [] }
+
+  const list = insertMarkdownList({
+    kind: 'ecommerce_sale',
+    title: outletSaleTitle(transfer.receivedAt || new Date().toISOString()),
+    items,
+    item_statuses: {},
+    shop: 'E-commerce',
+    createdBy: actorUserId || '',
+    assignedTo,
+    note: `Auto-created from outlet transfer ${transferId}`,
+    sourceTransferId: transferId,
+  })
+  applySaleToSkus(list.id, items)
+  return { list, created: true, items }
+}
+
+/** Remove one product from an active sale list and clear its SALE flag. */
+export function removeMarkdownListItemFromSale(listId, skuCode) {
+  const list = getMarkdownListById(listId)
+  if (!list) throw new Error('Sale list not found')
+  if (!markdownListEditable(list)) throw new Error('Sale list is not open for edits')
+
+  const items = list.items || []
+  const item = items.find((i) => i.skuCode === skuCode)
+  if (!item) throw new Error('Product not in list')
+
+  const nextItems = items.filter((i) => i.skuCode !== skuCode)
+  const nextStatuses = { ...(list.item_statuses || {}) }
+  delete nextStatuses[skuCode]
+  updateMarkdownList(listId, { items: nextItems, item_statuses: nextStatuses })
+  db.prepare('UPDATE skus SET sale_active = 0, sale_percent = NULL, sale_list_id = NULL WHERE sale_list_id = ? AND sku = ?')
+    .run(listId, skuCode)
+  return { list: getMarkdownListById(listId), item }
 }
 
 export function deleteMarkdownList(id) {
