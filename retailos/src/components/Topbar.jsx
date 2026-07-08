@@ -382,28 +382,28 @@ export function Topbar() {
         </div>
       </div>
 
-      <div className="topbar-actions" style={{ display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0 }}>
-        {execUser && (
-          <div className="topbar-search-wrap topbar-desktop-only">
-            <span className="topbar-search-icon" aria-hidden>
-              <IconSearch size={14} strokeWidth={1.5} />
-            </span>
-            <input
-              className="topbar-search-input"
-              type="text"
-              value={searchInput}
-              onChange={(e) => setSearchInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key !== 'Enter') return
-                const q = searchInput.trim()
-                const path = q ? `/lookup?q=${encodeURIComponent(q)}` : '/lookup'
-                navigate(path)
-              }}
-              placeholder="Search SKU, product, barcode…"
-            />
-          </div>
-        )}
+      {execUser && (
+        <div className="topbar-search-wrap">
+          <span className="topbar-search-icon" aria-hidden>
+            <IconSearch size={14} strokeWidth={1.5} />
+          </span>
+          <input
+            className="topbar-search-input"
+            type="text"
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key !== 'Enter') return
+              const q = searchInput.trim()
+              const path = q ? `/lookup?q=${encodeURIComponent(q)}` : '/lookup'
+              navigate(path)
+            }}
+            placeholder="Search SKU, product, barcode…"
+          />
+        </div>
+      )}
 
+      <div className="topbar-actions" style={{ display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0 }}>
         <div className="topbar-season-switcher">
           {seasonSwitcherList.map((s) => (
             <div

@@ -5382,10 +5382,66 @@ small,
   }
   .app-topbar {
     padding: 0 12px !important;
-    height: 50px !important;
+    height: auto !important;
+    min-height: 58px !important;
+    align-items: stretch !important;
   }
+
+  .topbar-root {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "title actions"
+      "search search";
+    align-items: center !important;
+    gap: 8px !important;
+    width: 100%;
+    padding: 8px 0 !important;
+  }
+
+  .topbar-page-title {
+    grid-area: title;
+  }
+
+  .topbar-actions {
+    grid-area: actions;
+    gap: 8px !important;
+  }
+
+  .topbar-search-wrap {
+    grid-area: search;
+    width: 100%;
+    max-width: none;
+    min-width: 0;
+    padding: 7px 10px;
+    border-radius: 10px;
+  }
+
+  .topbar-search-wrap .topbar-search-input {
+    font-size: 12px;
+  }
+
+  .topbar-search-wrap .topbar-search-input::placeholder {
+    color: transparent;
+  }
+
+  .topbar-search-wrap::after {
+    content: "Search SKU, product, barcode";
+    color: #9ca3af;
+    font-family: "DM Sans", sans-serif;
+    font-size: 12px;
+    pointer-events: none;
+    position: absolute;
+    left: 34px;
+    opacity: 0;
+  }
+
+  .topbar-search-wrap:has(.topbar-search-input:placeholder-shown)::after {
+    opacity: 1;
+  }
+
   .app-content {
-    padding: 14px 12px !important;
+    padding: 18px 12px 14px !important;
     padding-bottom: calc(80px + env(safe-area-inset-bottom, 0px)) !important;
   }
   .topbar-desktop-only {
@@ -5413,7 +5469,7 @@ small,
     position: fixed !important;
     left: 50% !important;
     right: auto !important;
-    top: calc(50px + env(safe-area-inset-top, 0px) + 8px) !important;
+    top: calc(96px + env(safe-area-inset-top, 0px) + 8px) !important;
     transform: translateX(-50%) !important;
     width: min(340px, calc(100vw - 20px)) !important;
     max-height: min(420px, 70vh) !important;
@@ -5665,6 +5721,17 @@ small,
 
   .topbar-desktop-only {
     display: none !important;
+  }
+
+  .topbar-search-wrap {
+    flex: 1 1 220px;
+    min-width: 180px;
+    max-width: 300px;
+    padding: 6px 10px;
+  }
+
+  .topbar-search-wrap .topbar-search-input {
+    font-size: 12px;
   }
 
   .topbar-season-switcher {
@@ -14190,14 +14257,17 @@ button.pl-kpi-tile {
 }
 
 .topbar-search-wrap {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 8px;
   min-width: 220px;
+  max-width: 360px;
   padding: 7px 12px;
   border: 1px solid #e5e7eb;
   border-radius: 8px;
   background: #fff;
+  flex: 0 1 360px;
 }
 
 .topbar-search-icon {
@@ -14533,10 +14603,6 @@ button.pl-kpi-tile {
   .md-lists-index-header__actions {
     width: 100%;
     justify-content: flex-end;
-  }
-
-  .topbar-search-wrap {
-    min-width: 160px;
   }
 }
 
