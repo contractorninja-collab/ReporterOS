@@ -67,7 +67,7 @@ export default function MarkdownBuilder() {
   const [seasonFilter, setSeasonFilter] = useState('All')
 
   const [title, setTitle] = useState('')
-  const [assignedTo, setAssignedTo] = useState('')
+  const [assignedToIds, setAssignedToIds] = useState([])
   const [note, setNote] = useState('')
   const [showAllUsers, setShowAllUsers] = useState(false)
   const isExec = activeUser?.role === 'executive'
@@ -151,6 +151,14 @@ export default function MarkdownBuilder() {
     setSelected((prev) => ({ ...prev, [skuCode]: pct }))
   }
 
+  function toggleAssignee(userId) {
+    setAssignedToIds((prev) => (
+      prev.includes(userId)
+        ? prev.filter((id) => id !== userId)
+        : [...prev, userId]
+    ))
+  }
+
   function handleConfirm() {
     if (selectedCount === 0) return
     const items = selectedCodes
@@ -175,7 +183,7 @@ export default function MarkdownBuilder() {
     createMarkdownList({
       title: title.trim() || null,
       items,
-      assignedTo: assignedTo || null,
+      assignedToIds,
       note: note.trim() || null,
     })
     navigate('/markdown')
@@ -223,23 +231,46 @@ export default function MarkdownBuilder() {
             }}
           />
         </div>
-        <div>
+        <div style={{ minWidth: 220, flex: '0 1 280px' }}>
           <label style={{ display: 'block', fontSize: 9, fontWeight: 700, color: S.muted, textTransform: 'uppercase', letterSpacing: '1px', marginBottom: 5 }}>
             Assign to (staff tags the products)
           </label>
-          <select
-            value={assignedTo}
-            onChange={(e) => setAssignedTo(e.target.value)}
+          <div
             style={{
               background: S.surface2, border: `1px solid ${S.border}`, borderRadius: 8,
-              padding: '6px 10px', color: S.text, fontSize: 12, fontFamily: DM, outline: 'none', minWidth: 160,
+              padding: '8px 10px', color: S.text, fontSize: 12, fontFamily: DM,
+              display: 'grid', gap: 7, maxHeight: 150, overflowY: 'auto',
             }}
           >
-            <option value="">— none —</option>
-            {assignableUsers.map((u) => (
-              <option key={u.id} value={u.id}>{u.name}</option>
-            ))}
-          </select>
+            {assignableUsers.length === 0 ? (
+              <div style={{ color: S.muted, fontSize: 11 }}>No assignable users available.</div>
+            ) : (
+              assignableUsers.map((u) => (
+                <label
+                  key={u.id}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 8,
+                    fontSize: 12, color: S.text, cursor: 'pointer', minWidth: 0,
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={assignedToIds.includes(u.id)}
+                    onChange={() => toggleAssignee(u.id)}
+                    style={{ accentColor: S.blue, width: 14, height: 14, flexShrink: 0 }}
+                  />
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {u.name}{u.shop ? ` · ${u.shop}` : ''}
+                  </span>
+                </label>
+              ))
+            )}
+          </div>
+          {assignedToIds.length > 0 && (
+            <div style={{ marginTop: 5, fontSize: 10, color: S.text2 }}>
+              {assignedToIds.length} employee{assignedToIds.length !== 1 ? 's' : ''} selected
+            </div>
+          )}
           {isExec && (
             <label style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 5, fontSize: 10, color: S.text2, cursor: 'pointer' }}>
               <input type="checkbox" checked={showAllUsers} onChange={(e) => setShowAllUsers(e.target.checked)} style={{ accentColor: S.blue }} />

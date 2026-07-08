@@ -112,6 +112,13 @@ function listLaneProgress(list, lanes) {
   return lanes.map((lane) => ({ lane, done: laneTaggedCount(list, lane), total }))
 }
 
+function splitAssignedTo(value) {
+  return String(value || '')
+    .split(',')
+    .map((id) => id.trim())
+    .filter(Boolean)
+}
+
 function buildChangeDateGroups(reports) {
   const map = new Map()
   for (const report of reports) {
@@ -385,6 +392,16 @@ export default function MarkdownLists() {
     return (id) => map[id] || '—'
   }, [users])
 
+  const assigneeNames = useMemo(() => {
+    const map = {}
+    for (const u of users) map[u.id] = u.name
+    return (value) => {
+      const ids = splitAssignedTo(value)
+      if (!ids.length) return ''
+      return ids.map((id) => map[id] || '—').join(', ')
+    }
+  }, [users])
+
   const openList = markdownLists.find((l) => l.id === openId) || null
 
   async function toggleTagged(list, skuCode, lane) {
@@ -579,7 +596,7 @@ export default function MarkdownLists() {
             </h2>
             <p className="md-sale-list-header__subtitle">
               {items.length} products · {pctLabel} · created {fmtDate(openList.createdAt)}
-              {openList.assignedTo ? ` · assigned to ${userName(openList.assignedTo)}` : ''}
+              {openList.assignedTo ? ` · assigned to ${assigneeNames(openList.assignedTo)}` : ''}
               {openList.note ? ` · ${openList.note}` : ''}
             </p>
           </div>
@@ -977,7 +994,7 @@ export default function MarkdownLists() {
               </div>
               <div className="md-lists-card__meta">
                 {items.length} products · {pctLabel} · {fmtDate(list.createdAt)}
-                {list.assignedTo ? ` · ${userName(list.assignedTo)}` : ''}
+                {list.assignedTo ? ` · ${assigneeNames(list.assignedTo)}` : ''}
               </div>
               <div className="md-lists-card__progress">
                 <div className="md-lists-card__progress-track">

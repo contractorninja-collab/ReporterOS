@@ -6,13 +6,20 @@ import {
   resyncAfterWriteFailure,
 } from '../storeHelpers.js'
 
+function splitAssignedTo(value) {
+  return String(value || '')
+    .split(',')
+    .map((id) => id.trim())
+    .filter(Boolean)
+}
+
 /** Markdown / sale lists and sale-change reports. */
 export function createMarkdownsSlice(set, get) {
   return {
     /**
      * Create a sale/markdown list (Sale Builder page), or a removal list (kind 'removal')
      * tracking the physical removal of sale tags after a sale ends.
-     * @param {{ title?, items, assignedTo?, note?, shop?, kind? }} payload
+     * @param {{ title?, items, assignedTo?, assignedToIds?, note?, shop?, kind? }} payload
      * items: [{ skuCode, productName, brand, category, gender, season, priceTag, salePct, salePrice, sizes }]
      */
     createMarkdownList: (payload) => {
@@ -21,6 +28,12 @@ export function createMarkdownsSlice(set, get) {
       const createdAt = new Date().toISOString()
       const items = payload.items || []
       const isRemoval = payload.kind === 'removal'
+      const assignmentTargets = Array.isArray(payload.assignedToIds)
+        ? payload.assignedToIds.filter(Boolean)
+        : payload.assignedTo
+          ? [payload.assignedTo]
+          : []
+      const assignedToStored = assignmentTargets.length > 0 ? assignmentTargets.join(',') : null
       const full = {
         id,
         title: payload.title || `Sale list ${new Date().toLocaleDateString('en-GB')}`,
@@ -28,7 +41,7 @@ export function createMarkdownsSlice(set, get) {
         item_statuses: {},
         shop: payload.shop ?? state.activeUser?.shop ?? '',
         createdBy: state.activeUser?.id ?? '',
-        assignedTo: payload.assignedTo ?? null,
+        assignedTo: assignedToStored,
         createdAt,
         status: 'pending',
         completedAt: null,
@@ -64,12 +77,12 @@ export function createMarkdownsSlice(set, get) {
 
       const names = items.map((i) => i.productName).filter(Boolean)
       const summary = names.length <= 3 ? names.join(', ') : `${names.slice(0, 3).join(', ')} +${names.length - 3} more`
-      if (payload.assignedTo) {
+      for (const uid of assignmentTargets) {
         get().addAssignment({
           type: 'sale',
           skuCode: id,
           productName: isRemoval ? `Remove sale tags: ${summary}` : `Sale list: ${summary}`,
-          assignedTo: payload.assignedTo,
+          assignedTo: uid,
           assignedBy: state.activeUser?.id ?? '',
           shop: full.shop,
           status: 'pending',
@@ -79,13 +92,15 @@ export function createMarkdownsSlice(set, get) {
               ? `${items.length} products — remove the sale labels`
               : `${items.length} products to tag with sale labels`,
         })
+      }
+      for (const uid of assignmentTargets) {
         get().addNotification({
           type: isRemoval ? 'sale_removal_created' : 'sale_list_created',
           title: isRemoval ? 'Sale Ended — Remove Tags' : 'New Sale List',
           message: isRemoval
             ? `${state.activeUser?.name || 'Someone'} ended a sale — ${items.length} products need their sale tags removed`
             : `${state.activeUser?.name || 'Someone'} created a sale list (${items.length} products) for you to tag`,
-          userId: payload.assignedTo,
+          userId: uid,
           relatedId: id,
         })
       }
@@ -238,13 +253,26 @@ export function createMarkdownsSlice(set, get) {
         ? `${ch.productName || ch.skuCode}: -${ch.oldSalePct}% → -${ch.newSalePct}%`
         : 'Sale % updated'
       const more = (report.changes?.length || 0) > 1 ? ` (+${report.changes.length - 1} more)` : ''
-      get().addNotification({
-        type: 'sale_pct_changed',
-        title: `Sale updated — ${list.title || 'Sale list'}`,
-        message: `${state.activeUser?.name || 'Someone'} changed ${summary}${more}`,
-        userId: list.assignedTo || 'all',
-        relatedId: report.id,
-      })
+      const notificationTargets = splitAssignedTo(list.assignedTo)
+      if (notificationTargets.length) {
+        for (const uid of notificationTargets) {
+          get().addNotification({
+            type: 'sale_pct_changed',
+            title: `Sale updated — ${list.title || 'Sale list'}`,
+            message: `${state.activeUser?.name || 'Someone'} changed ${summary}${more}`,
+            userId: uid,
+            relatedId: report.id,
+          })
+        }
+      } else {
+        get().addNotification({
+          type: 'sale_pct_changed',
+          title: `Sale updated — ${list.title || 'Sale list'}`,
+          message: `${state.activeUser?.name || 'Someone'} changed ${summary}${more}`,
+          userId: 'all',
+          relatedId: report.id,
+        })
+      }
       return report
     },
 
