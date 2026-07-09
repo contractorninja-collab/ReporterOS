@@ -15,9 +15,14 @@ const CATALOG_POLL_MS = 5 * 60_000
 const USERS_POLL_MS = 5 * 60_000
 
 async function setupServiceWorker() {
-  if (!('serviceWorker' in navigator)) return
-  const regs = await navigator.serviceWorker.getRegistrations()
-  await Promise.all(regs.map((r) => r.unregister()))
+  if ('serviceWorker' in navigator) {
+    const regs = await navigator.serviceWorker.getRegistrations()
+    await Promise.all(regs.map((r) => r.unregister()))
+  }
+  if ('caches' in window) {
+    const keys = await caches.keys()
+    await Promise.all(keys.map((key) => caches.delete(key)))
+  }
 }
 
 ;(async () => {
