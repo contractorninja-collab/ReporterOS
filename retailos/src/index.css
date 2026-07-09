@@ -16183,3 +16183,102 @@ button.pl-kpi-tile {
     font-size: 10px !important;
   }
 }
+/* Sale season announcement */
+.sale-season-glow {
+  position: fixed;
+  z-index: 140;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  background:
+    radial-gradient(ellipse at top, rgba(124, 58, 237, 0.12), transparent 60%),
+    radial-gradient(ellipse at bottom, rgba(251, 191, 36, 0.08), transparent 60%);
+  transition: opacity 2000ms ease;
+}
+
+.sale-season-glow--visible {
+  opacity: 1;
+}
+
+.sale-season-banner {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  margin-bottom: 16px;
+  padding: 12px 16px;
+  overflow: hidden;
+  color: #fff;
+  background: #7c3aed;
+  border: 1px solid #6d28d9;
+  border-radius: 8px;
+  box-shadow: 0 2px 10px rgba(124, 58, 237, 0.18);
+}
+
+.sale-season-banner::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 4px;
+  background: #fbbf24;
+}
+
+.sale-season-banner__icon {
+  display: grid;
+  flex: 0 0 34px;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  color: #fbbf24;
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+}
+
+.sale-season-banner__copy {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.sale-season-banner__copy strong {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.sale-season-banner__copy span {
+  color: #ede9fe;
+  font-size: 12px;
+}
+
+.sale-season-banner__dismiss {
+  display: grid;
+  flex: 0 0 32px;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  place-items: center;
+  color: #ede9fe;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.sale-season-banner__dismiss:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+@media (max-width: 640px) {
+  .sale-season-banner {
+    align-items: flex-start;
+    padding: 11px 12px;
+  }
+
+  .sale-season-banner__copy span {
+    line-height: 1.4;
+  }
+}

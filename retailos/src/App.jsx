@@ -3,6 +3,7 @@ import { Routes, Route, NavLink, useLocation } from 'react-router-dom'
 import { useStore } from './store/useStore'
 import { Sidebar } from './components/Sidebar.jsx'
 import { Topbar } from './components/Topbar.jsx'
+import SaleSeasonExperience from './components/SaleSeasonExperience.jsx'
 import { IconDashboard, IconPlanning, IconPlus, IconImport, IconMenu } from './utils/icons.js'
 import { RequireExecutive } from './components/RequireExecutive.jsx'
 import { isExecutive } from './utils/roles.js'
@@ -558,6 +559,7 @@ function App() {
             minHeight: 0,
           }}
         >
+          <SaleSeasonExperience />
           <div style={{ flex: 1, minHeight: 0 }}>
             <Suspense fallback={<RouteLoading />}>
               <Routes>
