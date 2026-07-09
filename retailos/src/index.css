@@ -1926,7 +1926,7 @@ textarea {
 }
 
 .topbar-search-input:focus-visible {
-  box-shadow: none !important;
+  box-shadow: none;
 }
 
 .dashboard-page .dashboard-alerts-panel,
@@ -5432,34 +5432,10 @@ small,
 
   .topbar-search-wrap {
     grid-area: search;
-    width: 100%;
+    width: calc(100% - 32px);
     max-width: none;
     min-width: 0;
-    padding: 7px 10px;
-    border-radius: 10px;
-  }
-
-  .topbar-search-wrap .topbar-search-input {
-    font-size: 12px;
-  }
-
-  .topbar-search-wrap .topbar-search-input::placeholder {
-    color: transparent;
-  }
-
-  .topbar-search-wrap::after {
-    content: "Search SKU, product, barcode";
-    color: #9ca3af;
-    font-family: "DM Sans", sans-serif;
-    font-size: 12px;
-    pointer-events: none;
-    position: absolute;
-    left: 34px;
-    opacity: 0;
-  }
-
-  .topbar-search-wrap:has(.topbar-search-input:placeholder-shown)::after {
-    opacity: 1;
+    margin: 12px 16px;
   }
 
   .app-content {
@@ -5749,11 +5725,6 @@ small,
     flex: 1 1 220px;
     min-width: 180px;
     max-width: 300px;
-    padding: 6px 10px;
-  }
-
-  .topbar-search-wrap .topbar-search-input {
-    font-size: 12px;
   }
 
   .topbar-season-switcher {
@@ -14305,39 +14276,70 @@ button.pl-kpi-tile {
 
 .topbar-search-wrap {
   position: relative;
-  display: flex;
-  align-items: center;
-  gap: 8px;
+  display: block;
   min-width: 220px;
   max-width: 360px;
-  padding: 7px 12px;
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
-  background: #fff;
   flex: 0 1 360px;
 }
 
 .topbar-search-icon {
+  position: absolute;
+  z-index: 1;
+  left: 14px;
+  top: 50%;
   display: inline-flex;
-  flex-shrink: 0;
   color: #9ca3af;
+  pointer-events: none;
+  transform: translateY(-50%);
 }
 
 .topbar-search-wrap .topbar-search-input {
-  flex: 1;
-  min-width: 0;
-  background: none;
-  border: none;
-  outline: none;
-  color: #374151;
-  font-size: 13px;
-  font-family: "DM Sans", sans-serif;
   width: 100%;
+  height: 44px;
+  padding: 0 40px;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  outline: none;
+  color: #111;
+  font-size: 16px;
+  font-family: "DM Sans", sans-serif;
   box-shadow: none !important;
 }
 
 .topbar-search-wrap .topbar-search-input::placeholder {
   color: #9ca3af;
+  opacity: 1;
+}
+
+.topbar-search-wrap .topbar-search-input:focus {
+  background: #fff;
+  border-color: #7c3aed;
+  box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.1) !important;
+}
+
+.topbar-search-clear {
+  position: absolute;
+  z-index: 1;
+  right: 10px;
+  top: 50%;
+  display: grid;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  place-items: center;
+  color: #9ca3af;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+  transform: translateY(-50%);
+}
+
+.topbar-search-clear:hover,
+.topbar-search-clear:active {
+  color: #6b7280;
+  background: #f3f4f6;
 }
 
 .topbar-season-chip {
@@ -14751,12 +14753,8 @@ button.pl-kpi-tile {
   .topbar-search-wrap {
     flex: 1 1 240px !important;
     min-width: 180px !important;
-    max-width: 320px !important;
-    padding: 6px 10px !important;
-  }
-
-  .topbar-search-wrap .topbar-search-input {
-    font-size: 13px;
+    max-width: 480px !important;
+    margin: 12px 16px;
   }
 }
 
@@ -14791,8 +14789,8 @@ button.pl-kpi-tile {
 
   .topbar-search-wrap {
     grid-area: search;
-    width: 100%;
-    max-width: none !important;
+    width: calc(100% - 32px);
+    max-width: 480px !important;
   }
 
   .topbar-season-switcher {

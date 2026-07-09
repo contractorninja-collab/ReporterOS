@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useMemo } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { Bell, PackageCheck, AlertTriangle, CheckCircle, Truck, Clock, LogIn, LogOut, UserCheck, Plus, ChevronDown, Tag } from 'lucide-react'
+import { Bell, PackageCheck, AlertTriangle, CheckCircle, Truck, Clock, LogIn, LogOut, UserCheck, Plus, ChevronDown, Tag, X } from 'lucide-react'
 import { IconSearch } from '../utils/icons.js'
 import useStore from '../store/useStore.js'
 import { localDateKey } from '../utils/saleList.js'
@@ -385,7 +385,7 @@ export function Topbar() {
       {execUser && (
         <div className="topbar-search-wrap">
           <span className="topbar-search-icon" aria-hidden>
-            <IconSearch size={14} strokeWidth={1.5} />
+            <IconSearch size={18} strokeWidth={1.5} />
           </span>
           <input
             className="topbar-search-input"
@@ -398,8 +398,20 @@ export function Topbar() {
               const path = q ? `/lookup?q=${encodeURIComponent(q)}` : '/lookup'
               navigate(path)
             }}
-            placeholder="Search SKU, product, barcode…"
+            placeholder="Search SKU, product, barcode..."
+            aria-label="Search SKU, product, or barcode"
           />
+          {searchInput && (
+            <button
+              type="button"
+              className="topbar-search-clear"
+              onClick={() => setSearchInput('')}
+              aria-label="Clear search"
+              title="Clear search"
+            >
+              <X size={16} strokeWidth={1.8} />
+            </button>
+          )}
         </div>
       )}
 
