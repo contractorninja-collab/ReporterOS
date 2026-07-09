@@ -149,10 +149,6 @@ function productTypeFromText(row) {
   return 'other'
 }
 
-function productTypeForRow(row, productTypeMap) {
-  return productTypeMap?.[row?.sku]?.product_type || productTypeFromText(row)
-}
-
 function brandKeyFromRaw(brand) {
   const t = String(brand ?? '').trim()
   if (!t || t === '—') return ''
@@ -600,9 +596,6 @@ export function ProductLookup() {
   const [showSlowOnly, setShowSlowOnly] = useState(false)
   const [showLowStockOnly, setShowLowStockOnly] = useState(false)
   const [productType, setProductType] = useState('all')
-  const [productTypeMap, setProductTypeMap] = useState({})
-  const [isClassifyingTypes, setIsClassifyingTypes] = useState(false)
-  const [typeStatus, setTypeStatus] = useState('')
   const [skuBrandsFromApi, setSkuBrandsFromApi] = useState([])
   const [report, setReport] = useState(null)
   const [loadError, setLoadError] = useState(null)
@@ -755,21 +748,6 @@ export function ProductLookup() {
   }, [])
 
   useEffect(() => {
-    let cancelled = false
-    api
-      .fetchProductTypeLabels()
-      .then((labels) => {
-        if (!cancelled && labels && typeof labels === 'object') setProductTypeMap(labels)
-      })
-      .catch(() => {
-        if (!cancelled) setProductTypeMap({})
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
-  useEffect(() => {
     const q = searchParams.get('q')
     if (q != null) setInput(q)
     if (q && String(q).trim()) setTab('search')
@@ -859,27 +837,6 @@ export function ProductLookup() {
     setProductType(key)
   }
 
-  const classifyVisibleTypes = async () => {
-    if (isClassifyingTypes) return
-    setIsClassifyingTypes(true)
-    setTypeStatus('')
-    try {
-      const visibleSkus = reportRowsForUi.map((r) => r.sku).filter(Boolean)
-      const result = await api.classifyProductTypesBulk({ skus: visibleSkus, limit: 10 })
-      if (result?.labels) setProductTypeMap(result.labels)
-      const processed = Number(result?.processed) || 0
-      setTypeStatus(
-        result?.status === 'missing_api_key'
-          ? `No OpenAI key found. Used cached/fallback labels for ${processed} SKU(s).`
-          : `Classified ${processed} SKU(s).`,
-      )
-    } catch (e) {
-      setTypeStatus(e?.message || 'Classification failed')
-    } finally {
-      setIsClassifyingTypes(false)
-    }
-  }
-
   useEffect(() => {
     if (brand === 'all') return
     if (!brandOptions.some((o) => o.key === brand)) setBrand('all')
@@ -889,7 +846,7 @@ export function ProductLookup() {
     if (!reportRowsForUi.length) return []
     return reportRowsForUi.map((r) => ({
       ...r,
-      productType: productTypeForRow(r, productTypeMap),
+      productType: productTypeFromText(r),
     })).filter((r) => {
       if (brand !== 'all' && brandKeyFromRaw(r.brand) !== brand) return false
       if (category !== 'all' && categoryKeyFromRaw(r.category) !== category) return false
@@ -897,7 +854,7 @@ export function ProductLookup() {
       if (gender === 'all') return true
       return r.genderBucket === gender
     })
-  }, [reportRowsForUi, brand, category, productType, productTypeMap, gender])
+  }, [reportRowsForUi, brand, category, productType, gender])
 
   const slowMoverCount = useMemo(
     () => baseFilteredRows.filter(isSlowMover).length,
@@ -1136,10 +1093,10 @@ export function ProductLookup() {
     return reportRowsForUi.filter((r) => {
       if (brandKeyFromRaw(r.brand) !== brand) return false
       if (category !== 'all' && categoryKeyFromRaw(r.category) !== category) return false
-      if (productType !== 'all' && productTypeForRow(r, productTypeMap) !== productType) return false
+      if (productType !== 'all' && productTypeFromText(r) !== productType) return false
       return true
     })
-  }, [reportRowsForUi, brand, category, productType, productTypeMap])
+  }, [reportRowsForUi, brand, category, productType])
 
   const brandScopeGenderParts = useMemo(() => {
     if (!rowsForBrandSummary?.length) return null
@@ -1160,7 +1117,7 @@ export function ProductLookup() {
       <div style={{ maxWidth: 480, margin: '60px auto', textAlign: 'center' }}>
         <div style={{ fontSize: 48, marginBottom: 16 }}><IconLock size={48} strokeWidth={1.5} /></div>
         <h2 style={{ fontFamily: '"DM Sans"', fontSize: 22, letterSpacing: '2px', color: 'var(--ro-heading)', margin: '0 0 8px' }}>EXECUTIVE ACCESS ONLY</h2>
-        <p style={{ fontSize: 13, color: 'var(--ro-text-muted)' }}>Product Lookup & AI Insights are only available to Executive users.</p>
+        <p style={{ fontSize: 13, color: 'var(--ro-text-muted)' }}>Product Lookup is only available to Executive users.</p>
       </div>
     )
   }
@@ -1256,18 +1213,6 @@ export function ProductLookup() {
                 onToggle={() => setOpenMenu((m) => (m === 'gender' ? null : 'gender'))}
                 onClose={() => setOpenMenu(null)}
               />
-              {isExecutive(activeUser) && (
-                <button
-                  className="pl-ai-btn"
-                  type="button"
-                  onClick={classifyVisibleTypes}
-                  disabled={isClassifyingTypes}
-                  title={isClassifyingTypes ? 'Classifying…' : 'AI classify visible products'}
-                >
-                  <span className="pl-ai-btn__icon" aria-hidden="true">✦</span>
-                  <span className="pl-ai-btn__label">{isClassifyingTypes ? 'Classifying…' : 'AI'}</span>
-                </button>
-              )}
             </div>
           </div>
         </div>
@@ -1373,9 +1318,6 @@ export function ProductLookup() {
           )
         })()}
 
-        {typeStatus && (
-          <div className="pl-type-status">{typeStatus}</div>
-        )}
       </div>
 
       {loadError && (
@@ -1827,7 +1769,7 @@ export function ProductLookup() {
                     const thumbUrl = skuPhoto[row.sku] || photoMap[row.sku] || null
                     const lifecycleStatus = getLifecycleStatus(row.first_import_date, row.sold, row.stock)
                     const stockBadge = stockBadgeMeta.suppress ? null : stockBadgeKind(row)
-                    const rowType = formatProductType(row.productType || productTypeForRow(row, productTypeMap))
+                    const rowType = formatProductType(row.productType || productTypeFromText(row))
                     const isRowSelected = !!selectedSkus[row.sku]
                     const isExpanded = expandedSkus.has(row.sku)
                     const profitText = salesBySku == null

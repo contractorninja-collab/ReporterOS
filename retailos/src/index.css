@@ -6122,38 +6122,6 @@ tr.clickable-row:hover td {
   flex: 1;
 }
 
-/* AI button ─────────────────────────────────────────────────── */
-.pl-ai-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
-  border-radius: 8px;
-  border: 1px solid #ddd6fe;
-  background: #f5f3ff;
-  color: #7c3aed;
-  font-family: "DM Sans", sans-serif;
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  letter-spacing: 0;
-  transition: background 140ms ease, border-color 140ms ease;
-}
-
-.pl-ai-btn:hover:not(:disabled) {
-  background: #ede9fe;
-  border-color: #c4b5fd;
-}
-
-.pl-ai-btn:disabled {
-  cursor: wait;
-  opacity: 0.7;
-}
-
-.pl-ai-btn__icon {
-  font-size: 10px;
-}
-
 /* Active filter bar ─────────────────────────────────────────────────── */
 .pl-active-bar {
   display: flex;
