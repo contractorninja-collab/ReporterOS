@@ -30,14 +30,14 @@ function csvEscape(v) {
 function downloadListCSV(list) {
   const doneLabel = list.kind === 'removal' ? 'Removed' : 'Tagged'
   const headers = [
-    'SKU', 'Product', 'Brand', 'Category', 'Gender', 'Season', 'Price Tag', 'Sale %', 'Sale Price', 'Sizes',
+    'SKU', 'Product', 'Brand', 'Category', 'Gender', 'Season', 'Price Tag', 'Sale %', 'Extra Sale %', 'Sale Price', 'Sizes',
     ...MARKDOWN_LANES.map((lane) => `${lane} ${doneLabel}`),
     'Legacy Marked',
   ]
   const statuses = list.item_statuses || {}
   const rows = (list.items || []).map((it) => [
     it.skuCode, it.productName, it.brand, it.category, it.gender, it.season,
-    it.priceTag, it.salePct, it.salePrice, it.sizes,
+    it.priceTag, it.salePct, it.extraSalePct || 0, it.salePrice, it.sizes,
     ...MARKDOWN_LANES.map((lane) => laneStatus(statuses, it.skuCode, lane)?.status === 'tagged' ? 'Yes' : 'No'),
     legacyMarked(statuses, it.skuCode) ? 'Yes' : 'No',
   ])
@@ -197,6 +197,7 @@ function ChangeReportTiles({
       {changes.map((ch, idx) => {
         const photoUrl = photoMap[ch.skuCode] || null
         const salePct = Math.round(Number(ch.newSalePct) || 0)
+        const extraSalePct = Number(ch.newExtraSalePct) === 20 ? 20 : 0
         return (
           <article key={`${ch.reportId}-${ch.skuCode}-${idx}`} className="md-change-card">
             <div className="md-change-card__media">
@@ -208,7 +209,7 @@ function ChangeReportTiles({
                 </div>
               )}
               {salePct > 0 && (
-                <span className="md-change-card__sale-pill">-{salePct}%</span>
+                <span className="md-change-card__sale-pill">-{salePct}%{extraSalePct ? ' + Extra 20%' : ''}</span>
               )}
             </div>
             <div className="md-change-card__body">
@@ -236,6 +237,15 @@ function ChangeReportTiles({
                       {Number(ch.newSalePrice).toFixed(2)}€
                     </span>
                   )}
+                </div>
+                <div className="md-change-report-badges">
+                  <span className="md-change-card__shop-pill">
+                    -{Number(ch.oldSalePct) || 0}%{Number(ch.oldExtraSalePct) === 20 ? ' + Extra 20%' : ''}
+                  </span>
+                  <span className="md-change-report-badges__arrow">→</span>
+                  <span className="md-change-card__shop-pill md-change-card__shop-pill--done">
+                    -{salePct}%{extraSalePct ? ' + Extra 20%' : ''}
+                  </span>
                 </div>
                 <div className="md-change-card__changed" title={ch.changedBy ? userName(ch.changedBy) : ''}>
                   <IconManager size={11} strokeWidth={1.75} aria-hidden />
@@ -335,6 +345,7 @@ export default function MarkdownLists() {
   const [emptyAssignedTo, setEmptyAssignedTo] = useState('')
   const [editingSkuCode, setEditingSkuCode] = useState(null)
   const [editingPct, setEditingPct] = useState(30)
+  const [editingExtraPct, setEditingExtraPct] = useState(0)
   const [changingSale, setChangingSale] = useState(false)
   const [changeSaleError, setChangeSaleError] = useState('')
   const [markingKey, setMarkingKey] = useState('')
@@ -482,11 +493,12 @@ export default function MarkdownLists() {
   async function confirmChangeSale(list, skuCode) {
     if (!editingPct || changingSale) return
     const item = (list.items || []).find((i) => i.skuCode === skuCode)
-    if (!item || Number(item.salePct) === editingPct) return
+    const currentExtraPct = Number(item?.extraSalePct) === 20 ? 20 : 0
+    if (!item || (Number(item.salePct) === editingPct && currentExtraPct === editingExtraPct)) return
     setChangingSale(true)
     setChangeSaleError('')
     try {
-      await changeSaleListItemPct(list.id, skuCode, editingPct)
+      await changeSaleListItemPct(list.id, skuCode, editingPct, editingExtraPct)
       setEditingSkuCode(null)
     } catch (e) {
       setChangeSaleError(e?.message || 'Failed to update sale %')
@@ -611,6 +623,7 @@ export default function MarkdownLists() {
     const pctLabel = pcts.length
       ? (Math.min(...pcts) === Math.max(...pcts) ? `-${pcts[0]}%` : `-${Math.min(...pcts)}% to -${Math.max(...pcts)}%`)
       : '—'
+    const extraLabel = items.some((i) => Number(i.extraSalePct) === 20) ? ' · Extra 20% on selected items' : ''
 
     return (
       <div className="markdown-lists-page md-sale-list-page" style={{ maxWidth: 1100 }}>
@@ -630,7 +643,7 @@ export default function MarkdownLists() {
               )}
             </h2>
             <p className="md-sale-list-header__subtitle">
-              {items.length} products · {pctLabel} · created {fmtDate(openList.createdAt)}
+              {items.length} products · {pctLabel}{extraLabel} · created {fmtDate(openList.createdAt)}
               {openList.assignedTo ? ` · assigned to ${assigneeNames(openList.assignedTo)}` : ''}
               {openList.note ? ` · ${openList.note}` : ''}
             </p>
@@ -696,6 +709,7 @@ export default function MarkdownLists() {
             const canChangeSale = isExec && !isRemoval && !isCompleted
             const isEditing = editingSkuCode === it.skuCode
             const currentPct = Number(it.salePct) || 0
+            const currentExtraPct = Number(it.extraSalePct) === 20 ? 20 : 0
             const salePct = Math.round(currentPct)
             return (
               <article key={it.skuCode} className="md-sale-card">
@@ -708,7 +722,7 @@ export default function MarkdownLists() {
                     </div>
                   )}
                   {salePct > 0 && (
-                    <span className="md-sale-card__sale-pill">-{salePct}%</span>
+                    <span className="md-sale-card__sale-pill">-{salePct}%{currentExtraPct ? ' + Extra 20%' : ''}</span>
                   )}
                 </div>
                 <div className="md-sale-card__body">
@@ -780,12 +794,22 @@ export default function MarkdownLists() {
                             </button>
                           ))}
                         </div>
+                        {editingPct > 0 && (
+                          <label className="sale-extra-toggle sale-extra-toggle--editor">
+                            <input
+                              type="checkbox"
+                              checked={editingExtraPct === 20}
+                              onChange={(e) => setEditingExtraPct(e.target.checked ? 20 : 0)}
+                            />
+                            Extra 20% off sale price
+                          </label>
+                        )}
                         {it.priceTag > 0 && editingPct > 0 && (
                           <div className="md-change-sale-editor__preview">
                             <span className="md-change-sale-editor__preview-text">
-                              Discount: -{editingPct}% → New price: {salePriceOf(it.priceTag, editingPct).toFixed(2)}€
+                              Discount: -{editingPct}%{editingExtraPct === 20 ? ' + Extra 20%' : ''} → New price: {salePriceOf(it.priceTag, editingPct, editingExtraPct).toFixed(2)}€
                             </span>
-                            {editingPct === currentPct && (
+                            {editingPct === currentPct && editingExtraPct === currentExtraPct && (
                               <span className="md-change-sale-editor__same-pill">Same as current</span>
                             )}
                           </div>
@@ -794,7 +818,7 @@ export default function MarkdownLists() {
                           <button
                             type="button"
                             className="md-change-sale-editor__confirm"
-                            disabled={changingSale || editingPct === currentPct}
+                            disabled={changingSale || (editingPct === currentPct && editingExtraPct === currentExtraPct)}
                             onClick={() => confirmChangeSale(openList, it.skuCode)}
                           >
                             {changingSale ? 'Saving…' : 'Confirm'}
@@ -858,6 +882,7 @@ export default function MarkdownLists() {
                         onClick={() => {
                           setEditingSkuCode(it.skuCode)
                           setEditingPct(currentPct || 30)
+                          setEditingExtraPct(currentExtraPct)
                           setChangeSaleError('')
                         }}
                       >
@@ -1016,6 +1041,7 @@ export default function MarkdownLists() {
           const pctLabel = pcts.length
             ? (Math.min(...pcts) === Math.max(...pcts) ? `-${pcts[0]}%` : `-${Math.min(...pcts)}% to -${Math.max(...pcts)}%`)
             : '—'
+          const extraLabel = items.some((i) => Number(i.extraSalePct) === 20) ? ' · Extra 20% on selected items' : ''
           return (
             <div
               key={list.id}
@@ -1038,7 +1064,7 @@ export default function MarkdownLists() {
                 </div>
               </div>
               <div className="md-lists-card__meta">
-                {items.length} products · {pctLabel} · {fmtDate(list.createdAt)}
+                {items.length} products · {pctLabel}{extraLabel} · {fmtDate(list.createdAt)}
                 {list.assignedTo ? ` · ${assigneeNames(list.assignedTo)}` : ''}
               </div>
               <div className="md-lists-card__progress">

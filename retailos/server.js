@@ -2094,7 +2094,10 @@ app.put('/api/markdown-lists/:id', (req, res) => {
       const existing = row.items || []
       const newOrUpdated = incoming.filter((it) => {
         const prev = existing.find((e) => e.skuCode === it.skuCode)
-        return !prev || prev.salePct !== it.salePct || prev.salePrice !== it.salePrice
+        return !prev ||
+          prev.salePct !== it.salePct ||
+          Number(prev.extraSalePct || 0) !== Number(it.extraSalePct || 0) ||
+          prev.salePrice !== it.salePrice
       })
       updated = appendItemsToMarkdownList(req.params.id, incoming)
       act(u, {
@@ -2193,8 +2196,13 @@ app.patch('/api/markdown-lists/:id/items/:skuCode/sale-pct', (req, res) => {
     }
     const salePct = Number(req.body?.salePct)
     if (!salePct || salePct <= 0) return res.status(400).json({ error: 'salePct required' })
+    const rawExtraSalePct = Number(req.body?.extraSalePct || 0)
+    if (![0, 20].includes(rawExtraSalePct)) {
+      return res.status(400).json({ error: 'extraSalePct must be 0 or 20' })
+    }
+    const extraSalePct = rawExtraSalePct
     const skuCode = decodeURIComponent(req.params.skuCode || '')
-    const result = changeMarkdownListItemSalePct(req.params.id, skuCode, salePct, u.id)
+    const result = changeMarkdownListItemSalePct(req.params.id, skuCode, salePct, extraSalePct, u.id)
     const ch = result.report?.changes?.[0]
     act(u, {
       category: 'markdown',
@@ -2202,7 +2210,7 @@ app.patch('/api/markdown-lists/:id/items/:skuCode/sale-pct', (req, res) => {
       entityType: 'sale_change_report',
       entityId: result.report?.id,
       summary: ch
-        ? `Sale % changed on "${row.title || 'Sale list'}" — ${ch.productName || ch.skuCode} -${ch.oldSalePct}% → -${ch.newSalePct}%`
+        ? `Sale discount changed on "${row.title || 'Sale list'}" — ${ch.productName || ch.skuCode} -${ch.oldSalePct}%${ch.oldExtraSalePct === 20 ? ' + Extra 20%' : ''} → -${ch.newSalePct}%${ch.newExtraSalePct === 20 ? ' + Extra 20%' : ''}`
         : `Sale % changed on "${row.title || 'Sale list'}"`,
       meta: { listId: req.params.id, skuCode, reportId: result.report?.id },
     })

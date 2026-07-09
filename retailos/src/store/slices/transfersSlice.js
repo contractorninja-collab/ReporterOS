@@ -50,7 +50,13 @@ export function createTransfersSlice(set, get) {
               skus: state.skus.map((row) => {
                 const item = (ecommerceSale.items || []).find((it) => it.skuCode === row.sku)
                 return item
-                  ? { ...row, sale_active: 1, sale_percent: item.salePct, sale_list_id: ecommerceSale.list.id }
+                  ? {
+                      ...row,
+                      sale_active: 1,
+                      sale_percent: item.salePct,
+                      sale_extra_percent: item.extraSalePct || null,
+                      sale_list_id: ecommerceSale.list.id,
+                    }
                   : row
               }),
             }))

@@ -110,7 +110,7 @@ function ProductCard({ sku, rank, onClick, metric, metricLabel, velocity, lowSto
 
       {/* Top-right badges */}
       <div className="product-card-tile__top-right" style={{ position: 'absolute', top: 8, right: 8, zIndex: 2, display: 'flex', alignItems: 'center', gap: 4 }}>
-        {sku.sale_active ? <SaleBadge percent={sku.sale_percent} variant="overlay" /> : null}
+        {sku.sale_active ? <SaleBadge percent={sku.sale_percent} extraPercent={sku.sale_extra_percent} variant="overlay" /> : null}
         {!hideSalesCounts && isBestseller && (
           <span className="product-card-tile__hot-icon" aria-hidden>
             <IconHot size={18} strokeWidth={1.5} />
@@ -322,7 +322,7 @@ function ProductCard({ sku, rank, onClick, metric, metricLabel, velocity, lowSto
         </div>
 
         <div className="product-card-tile__chips" style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', marginTop: '7px' }}>
-          {sku.sale_active ? <SaleBadge percent={sku.sale_percent} /> : null}
+          {sku.sale_active ? <SaleBadge percent={sku.sale_percent} extraPercent={sku.sale_extra_percent} /> : null}
           {!hideSalesCounts && isBestseller && (
             <StatusBadge variant="hot" className="product-card-tile__chip product-card-tile__chip--hot">
               Hot

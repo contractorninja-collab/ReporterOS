@@ -318,6 +318,7 @@ safeAddColumn('product_type_labels', 'confidence', 'REAL')
 safeAddColumn('product_type_labels', 'photo_signature', 'TEXT')
 safeAddColumn('product_type_labels', 'updated_at', 'TEXT')
 safeAddColumn('skus', 'sale_percent', 'INTEGER')
+safeAddColumn('skus', 'sale_extra_percent', 'INTEGER')
 safeAddColumn('skus', 'sale_active', 'INTEGER DEFAULT 0')
 safeAddColumn('skus', 'sale_list_id', 'TEXT')
 safeAddColumn('markdown_lists', 'kind', 'TEXT')
@@ -761,7 +762,8 @@ db.exec(`
     createdBy TEXT,
     assignedTo TEXT,
     createdAt TEXT,
-    changes TEXT
+    changes TEXT,
+    item_statuses TEXT
   );
 `)
 
@@ -894,7 +896,10 @@ function toSku(row) {
     quantity: row.quantity, sold_quantity: row.sold_quantity,
     import_date: row.import_date, last_import_date: row.last_import_date ?? row.import_date,
     gender: row.gender, season: row.season, category: row.category, brand: row.brand,
-    sale_active: row.sale_active ? 1 : 0, sale_percent: row.sale_percent ?? null, sale_list_id: row.sale_list_id ?? null,
+    sale_active: row.sale_active ? 1 : 0,
+    sale_percent: row.sale_percent ?? null,
+    sale_extra_percent: row.sale_extra_percent ?? null,
+    sale_list_id: row.sale_list_id ?? null,
     _importId: row._importId,
   }
 }
@@ -2032,6 +2037,7 @@ export function getProductNameReport(searchQuery = '', options = {}) {
       MAX(s.season) AS season,
       MAX(s.sale_active) AS sale_active,
       MAX(s.sale_percent) AS sale_percent,
+      MAX(s.sale_extra_percent) AS sale_extra_percent,
       GROUP_CONCAT(DISTINCT s.size) AS sizes
     FROM skus s WHERE s.sku IN (${placeholders}) AND s.deleted_at IS NULL
     GROUP BY s.sku
@@ -2158,6 +2164,7 @@ export function getProductNameReport(searchQuery = '', options = {}) {
       avgTicket: soldQty > 0 ? totalRevenue / soldQty : 0,
       sale_active: r.sale_active ? 1 : 0,
       sale_percent: r.sale_percent ?? null,
+      sale_extra_percent: r.sale_extra_percent ?? null,
     }
   })
 
@@ -2585,9 +2592,14 @@ const MARKDOWN_LANE_SET = new Set(MARKDOWN_LANES)
 function toMarkdownList(row) {
   if (!row) return null
   const rawStatuses = safeJsonObject(row.item_statuses, { table: 'markdown_lists', column: 'item_statuses', id: row.id })
+  const items = safeJsonArray(row.items, { table: 'markdown_lists', column: 'items', id: row.id })
+    .map((item) => ({
+      ...item,
+      extraSalePct: Number(item?.extraSalePct) === 20 ? 20 : 0,
+    }))
   return {
     ...row,
-    items: safeJsonArray(row.items, { table: 'markdown_lists', column: 'items', id: row.id }),
+    items,
     item_statuses: normalizeMarkdownListItemStatuses(rawStatuses, row.shop),
   }
 }
@@ -2815,7 +2827,12 @@ function toSaleChangeReport(row) {
   const rawStatuses = safeJsonObject(row.item_statuses, { table: 'sale_change_reports', column: 'item_statuses', id: row.id })
   return {
     ...row,
-    changes: safeJsonArray(row.changes, { table: 'sale_change_reports', column: 'changes', id: row.id }),
+    changes: safeJsonArray(row.changes, { table: 'sale_change_reports', column: 'changes', id: row.id })
+      .map((change) => ({
+        ...change,
+        oldExtraSalePct: Number(change?.oldExtraSalePct) === 20 ? 20 : 0,
+        newExtraSalePct: Number(change?.newExtraSalePct) === 20 ? 20 : 0,
+      })),
     item_statuses: normalizeSaleChangeItemStatuses(rawStatuses, row.shop),
   }
 }
@@ -2924,13 +2941,14 @@ export function saleChangeReportVisibleToUser(report, user) {
 }
 
 /** Update one product's sale % on an active list; records a sale change report. */
-export function changeMarkdownListItemSalePct(listId, skuCode, newPct, actorUserId) {
+export function changeMarkdownListItemSalePct(listId, skuCode, newPct, newExtraPct, actorUserId) {
   const list = getMarkdownListById(listId)
   if (!list) throw new Error('Sale list not found')
   if (!markdownListEditable(list)) throw new Error('Sale list is not open for edits')
 
   const pct = Math.max(0, Math.min(90, Math.round(Number(newPct) || 0)))
   if (pct <= 0) throw new Error('Invalid sale percent')
+  const extraPct = Number(newExtraPct) === 20 ? 20 : 0
 
   const items = list.items || []
   const idx = items.findIndex((i) => i.skuCode === skuCode)
@@ -2938,11 +2956,12 @@ export function changeMarkdownListItemSalePct(listId, skuCode, newPct, actorUser
 
   const item = items[idx]
   const oldPct = Number(item.salePct) || 0
-  if (oldPct === pct) throw new Error('Sale percent unchanged')
+  const oldExtraPct = Number(item.extraSalePct) === 20 ? 20 : 0
+  if (oldPct === pct && oldExtraPct === extraPct) throw new Error('Sale discount unchanged')
 
-  const oldSalePrice = Number(item.salePrice) || salePriceOf(item.priceTag, oldPct)
-  const newSalePrice = salePriceOf(item.priceTag, pct)
-  const updatedItem = { ...item, salePct: pct, salePrice: newSalePrice }
+  const oldSalePrice = Number(item.salePrice) || salePriceOf(item.priceTag, oldPct, oldExtraPct)
+  const newSalePrice = salePriceOf(item.priceTag, pct, extraPct)
+  const updatedItem = { ...item, salePct: pct, extraSalePct: extraPct, salePrice: newSalePrice }
   const newItems = [...items]
   newItems[idx] = updatedItem
 
@@ -2963,6 +2982,8 @@ export function changeMarkdownListItemSalePct(listId, skuCode, newPct, actorUser
       priceTag: Number(item.priceTag) || 0,
       oldSalePct: oldPct,
       newSalePct: pct,
+      oldExtraSalePct: oldExtraPct,
+      newExtraSalePct: extraPct,
       oldSalePrice,
       newSalePrice,
       changedBy: actorUserId || '',
@@ -3068,6 +3089,7 @@ export function createEcommerceSaleListForOutletTransfer(transferId, actorUserId
       season: group.item?.season || meta.season || '',
       priceTag,
       salePct: 20,
+      extraSalePct: 0,
       salePrice: salePriceOf(priceTag, 20),
       sizes: [...group.sizes.entries()].map(([size, qty]) => `${size} x${qty}`).join(', '),
       quantity: group.received,
@@ -3105,7 +3127,7 @@ export function removeMarkdownListItemFromSale(listId, skuCode) {
   const nextStatuses = { ...(list.item_statuses || {}) }
   delete nextStatuses[skuCode]
   updateMarkdownList(listId, { items: nextItems, item_statuses: nextStatuses })
-  db.prepare('UPDATE skus SET sale_active = 0, sale_percent = NULL, sale_list_id = NULL WHERE sale_list_id = ? AND sku = ?')
+  db.prepare('UPDATE skus SET sale_active = 0, sale_percent = NULL, sale_extra_percent = NULL, sale_list_id = NULL WHERE sale_list_id = ? AND sku = ?')
     .run(listId, skuCode)
   return { list: getMarkdownListById(listId), item }
 }
@@ -3117,12 +3139,13 @@ export function deleteMarkdownList(id) {
 
 /** Mark all size rows of the listed SKUs as on sale with their per-product percent. */
 export function applySaleToSkus(listId, items) {
-  const stmt = db.prepare('UPDATE skus SET sale_active = 1, sale_percent = ?, sale_list_id = ? WHERE sku = ? AND deleted_at IS NULL')
+  const stmt = db.prepare('UPDATE skus SET sale_active = 1, sale_percent = ?, sale_extra_percent = ?, sale_list_id = ? WHERE sku = ? AND deleted_at IS NULL')
   const run = db.transaction((rows) => {
     for (const it of rows) {
       const pct = Math.max(0, Math.min(90, Math.round(Number(it.salePct) || 0)))
       if (!it.skuCode || pct <= 0) continue
-      stmt.run(pct, listId, it.skuCode)
+      const extraPct = Number(it.extraSalePct) === 20 ? 20 : null
+      stmt.run(pct, extraPct, listId, it.skuCode)
     }
   })
   run(items || [])
@@ -3130,7 +3153,7 @@ export function applySaleToSkus(listId, items) {
 
 /** Remove the sale flag from every SKU that belongs to this list. */
 export function clearSaleForList(listId) {
-  return db.prepare('UPDATE skus SET sale_active = 0, sale_percent = NULL, sale_list_id = NULL WHERE sale_list_id = ?')
+  return db.prepare('UPDATE skus SET sale_active = 0, sale_percent = NULL, sale_extra_percent = NULL, sale_list_id = NULL WHERE sale_list_id = ?')
     .run(listId).changes
 }
 

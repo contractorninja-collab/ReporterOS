@@ -605,6 +605,7 @@ export function ProductLookup() {
   const [selectedSkus, setSelectedSkus] = useState({})
   const [bulkListId, setBulkListId] = useState('')
   const [bulkPct, setBulkPct] = useState(30)
+  const [bulkExtraPct, setBulkExtraPct] = useState(0)
   const [bulkMessage, setBulkMessage] = useState('')
   const [bulkAssigning, setBulkAssigning] = useState(false)
   const [salesBySku, setSalesBySku] = useState(undefined)
@@ -1018,7 +1019,8 @@ export function ProductLookup() {
         season: row.season || '',
         priceTag: Number(row.price_tag) || 0,
         salePct: bulkPct,
-        salePrice: salePriceOf(row.price_tag, bulkPct),
+        extraSalePct: bulkExtraPct,
+        salePrice: salePriceOf(row.price_tag, bulkPct, bulkExtraPct),
         sizes: Array.isArray(row.sizes) ? row.sizes.join(', ') : String(row.sizes || reportRow?.sizes || ''),
       }
       if (addItemToMarkdownList(bulkListId, item)) added += 1
@@ -1029,9 +1031,9 @@ export function ProductLookup() {
     if (added === 0 && skipped > 0) {
       setBulkMessage(`No products added — ${skipped} already on another active sale list.`)
     } else if (skipped > 0) {
-      setBulkMessage(`Added ${added} to “${listTitle}” at -${bulkPct}% (${skipped} skipped — on other list).`)
+      setBulkMessage(`Added ${added} to “${listTitle}” at -${bulkPct}%${bulkExtraPct === 20 ? ' + Extra 20%' : ''} (${skipped} skipped — on other list).`)
     } else {
-      setBulkMessage(`Added ${added} product${added !== 1 ? 's' : ''} to “${listTitle}” at -${bulkPct}%.`)
+      setBulkMessage(`Added ${added} product${added !== 1 ? 's' : ''} to “${listTitle}” at -${bulkPct}%${bulkExtraPct === 20 ? ' + Extra 20%' : ''}.`)
     }
     setTimeout(() => setBulkMessage(''), 5000)
   }
@@ -1473,6 +1475,16 @@ export function ProductLookup() {
                         </button>
                       ))}
                     </div>
+                    {bulkPct > 0 && (
+                      <label className="sale-extra-toggle sale-extra-toggle--compact">
+                        <input
+                          type="checkbox"
+                          checked={bulkExtraPct === 20}
+                          onChange={(e) => setBulkExtraPct(e.target.checked ? 20 : 0)}
+                        />
+                        Extra 20%
+                      </label>
+                    )}
                     <button
                       type="button"
                       className="pl-bulk-bar__action"
@@ -1562,7 +1574,7 @@ export function ProductLookup() {
                               <span className="pl-mobile-card__name">{toTitleCase(row.product_name)}</span>
                             </div>
                             <div className="pl-chip-row pl-mobile-card__badges">
-                              {row.sale_active ? <SaleBadge percent={row.sale_percent} /> : null}
+                              {row.sale_active ? <SaleBadge percent={row.sale_percent} extraPercent={row.sale_extra_percent} /> : null}
                               {lifecycleStatus && lifecycleStatus !== '—' ? (
                                 <span className={lifecycleBadgeClass(lifecycleStatus)}>
                                   {lifecycleStatus}
@@ -1796,7 +1808,7 @@ export function ProductLookup() {
                             <div className="pl-product-cell__main">
                               <div className="pl-product-name">{toTitleCase(row.product_name)}</div>
                               <div className="pl-chip-row">
-                                {row.sale_active ? <SaleBadge percent={row.sale_percent} /> : null}
+                                {row.sale_active ? <SaleBadge percent={row.sale_percent} extraPercent={row.sale_extra_percent} /> : null}
                                 {lifecycleStatus && lifecycleStatus !== '—' ? (
                                   <span className={`pl-chip-lifecycle ${lifecycleBadgeClass(lifecycleStatus)}`}>
                                     {lifecycleStatus}

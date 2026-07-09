@@ -73,7 +73,9 @@ export default function ProductDetailModal({ sku, status, statusData, onClose, s
   const [transferShop, setTransferShop] = useState('')
   const [selectedSaleListId, setSelectedSaleListId] = useState('')
   const [salePct, setSalePct] = useState(30)
+  const [saleExtraPct, setSaleExtraPct] = useState(0)
   const [quickSalePct, setQuickSalePct] = useState(30)
+  const [quickSaleExtraPct, setQuickSaleExtraPct] = useState(0)
   const [quickSaleSaving, setQuickSaleSaving] = useState(false)
   const [quickSaleError, setQuickSaleError] = useState('')
   const [saleListLookupRefreshing, setSaleListLookupRefreshing] = useState(false)
@@ -105,6 +107,7 @@ export default function ProductDetailModal({ sku, status, statusData, onClose, s
     [activeSaleList, sku.sku],
   )
   const currentSalePct = Math.round(Number(activeSaleItem?.salePct ?? sku.sale_percent) || 0)
+  const currentSaleExtraPct = Number(activeSaleItem?.extraSalePct ?? sku.sale_extra_percent) === 20 ? 20 : 0
   const canQuickChangeSale = isExecutive(activeUser) && Boolean(activeSaleList && activeSaleItem)
   const shouldRefreshSaleList = isExecutive(activeUser) && skuHasActiveSaleList && !referencedSaleList && !saleListLookupAttempted
   const isResolvingSaleList = shouldRefreshSaleList || saleListLookupRefreshing
@@ -183,9 +186,11 @@ export default function ProductDetailModal({ sku, status, statusData, onClose, s
     if (actionType === 'sale_list') {
       setSelectedSaleListId(pendingSaleLists[0]?.id || '')
       setSalePct(30)
+      setSaleExtraPct(0)
     }
     if (actionType === 'change_sale') {
       setQuickSalePct(currentSalePct || 30)
+      setQuickSaleExtraPct(currentSaleExtraPct)
     }
   }
 
@@ -202,14 +207,15 @@ export default function ProductDetailModal({ sku, status, statusData, onClose, s
       season: sku.season || '',
       priceTag: Number(sku.price_tag) || 0,
       salePct,
-      salePrice: salePriceOf(sku.price_tag, salePct),
+      extraSalePct: saleExtraPct,
+      salePrice: salePriceOf(sku.price_tag, salePct, saleExtraPct),
       sizes: Array.isArray(sku.sizes) ? sku.sizes.join(', ') : String(sku.sizes || ''),
     }
     const ok = addItemToMarkdownList(selectedSaleListId, item)
     if (!ok) return
     const listTitle = pendingSaleLists.find((l) => l.id === selectedSaleListId)?.title || 'sale list'
     setAssignPanel(null)
-    setAssignDone(`Added to ${listTitle} at -${salePct}%`)
+    setAssignDone(`Added to ${listTitle} at -${salePct}%${saleExtraPct === 20 ? ' + Extra 20%' : ''}`)
     setTimeout(() => setAssignDone(null), 1600)
   }
 
@@ -218,9 +224,9 @@ export default function ProductDetailModal({ sku, status, statusData, onClose, s
     setQuickSaleSaving(true)
     setQuickSaleError('')
     try {
-      await changeSaleListItemPct(activeSaleList.id, sku.sku, quickSalePct)
+      await changeSaleListItemPct(activeSaleList.id, sku.sku, quickSalePct, quickSaleExtraPct)
       setAssignPanel(null)
-      setAssignDone(`Sale changed to -${quickSalePct}%`)
+      setAssignDone(`Sale changed to -${quickSalePct}%${quickSaleExtraPct === 20 ? ' + Extra 20%' : ''}`)
       setTimeout(() => setAssignDone(null), 1600)
     } catch (err) {
       setQuickSaleError(err?.message || 'Failed to update sale')
@@ -901,12 +907,22 @@ export default function ProductDetailModal({ sku, status, statusData, onClose, s
                   </button>
                 ))}
               </div>
+              {quickSalePct > 0 && (
+                <label className="sale-extra-toggle sale-extra-toggle--editor">
+                  <input
+                    type="checkbox"
+                    checked={quickSaleExtraPct === 20}
+                    onChange={(e) => setQuickSaleExtraPct(e.target.checked ? 20 : 0)}
+                  />
+                  Extra 20% off sale price
+                </label>
+              )}
               {priceTag > 0 && quickSalePct > 0 && (
                 <div className="md-change-sale-editor__preview">
                   <span className="md-change-sale-editor__preview-text">
-                    Discount: -{quickSalePct}% - New price: {salePriceOf(priceTag, quickSalePct).toFixed(2)}€
+                    Discount: -{quickSalePct}%{quickSaleExtraPct === 20 ? ' + Extra 20%' : ''} - New price: {salePriceOf(priceTag, quickSalePct, quickSaleExtraPct).toFixed(2)}€
                   </span>
-                  {quickSalePct === currentSalePct && (
+                  {quickSalePct === currentSalePct && quickSaleExtraPct === currentSaleExtraPct && (
                     <span className="md-change-sale-editor__same-pill">Same as current</span>
                   )}
                 </div>
@@ -916,7 +932,7 @@ export default function ProductDetailModal({ sku, status, statusData, onClose, s
                   type="button"
                   className="md-change-sale-editor__confirm"
                   onClick={handleQuickSaleChange}
-                  disabled={quickSaleSaving || quickSalePct === currentSalePct}
+                  disabled={quickSaleSaving || (quickSalePct === currentSalePct && quickSaleExtraPct === currentSaleExtraPct)}
                 >
                   {quickSaleSaving ? 'Saving...' : 'Confirm'}
                 </button>
@@ -1033,9 +1049,19 @@ export default function ProductDetailModal({ sku, status, statusData, onClose, s
                         </button>
                       ))}
                     </div>
+                    {salePct > 0 && (
+                      <label className="sale-extra-toggle sale-extra-toggle--editor">
+                        <input
+                          type="checkbox"
+                          checked={saleExtraPct === 20}
+                          onChange={(e) => setSaleExtraPct(e.target.checked ? 20 : 0)}
+                        />
+                        Extra 20% off sale price
+                      </label>
+                    )}
                     {priceTag > 0 && salePct > 0 && (
                       <div style={{ fontSize: 11, color: 'var(--ro-text-dim)', marginTop: 8, fontFamily: '"DM Sans"' }}>
-                        {priceTag.toFixed(2)}€ → <span style={{ color: '#00e676', fontWeight: 700 }}>{salePriceOf(priceTag, salePct).toFixed(2)}€</span>
+                        {priceTag.toFixed(2)}€ → <span style={{ color: '#00e676', fontWeight: 700 }}>{salePriceOf(priceTag, salePct, saleExtraPct).toFixed(2)}€</span>
                       </div>
                     )}
                   </div>

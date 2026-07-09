@@ -250,10 +250,10 @@ export const patchMarkdownListItemTagged = (listId, skuCode, lane) =>
     method: 'PATCH',
     body: JSON.stringify({ lane }),
   })
-export const patchMarkdownListItemSalePct = (listId, skuCode, salePct) =>
+export const patchMarkdownListItemSalePct = (listId, skuCode, salePct, extraSalePct = 0) =>
   request(`/markdown-lists/${listId}/items/${encodeURIComponent(skuCode)}/sale-pct`, {
     method: 'PATCH',
-    body: JSON.stringify({ salePct }),
+    body: JSON.stringify({ salePct, extraSalePct }),
   })
 export const deleteMarkdownListItem = (listId, skuCode) =>
   request(`/markdown-lists/${listId}/items/${encodeURIComponent(skuCode)}`, { method: 'DELETE' })

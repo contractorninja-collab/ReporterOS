@@ -74,6 +74,7 @@ export default function MarkdownBuilder() {
 
   // selection: { [skuCode]: pct }
   const [selected, setSelected] = useState({})
+  const [extraSelected, setExtraSelected] = useState({})
 
   const brands = useMemo(() => {
     const set = new Set()
@@ -141,8 +142,14 @@ export default function MarkdownBuilder() {
   function toggleSelect(skuCode) {
     setSelected((prev) => {
       const next = { ...prev }
-      if (next[skuCode] != null) delete next[skuCode]
-      else next[skuCode] = 30
+      if (next[skuCode] != null) {
+        delete next[skuCode]
+        setExtraSelected((extras) => {
+          const nextExtras = { ...extras }
+          delete nextExtras[skuCode]
+          return nextExtras
+        })
+      } else next[skuCode] = 30
       return next
     })
   }
@@ -166,6 +173,7 @@ export default function MarkdownBuilder() {
         const p = productsByCode[code]
         if (!p) return null
         const pct = selected[code]
+        const extraSalePct = extraSelected[code] ? 20 : 0
         return {
           skuCode: code,
           productName: p.product_name || '',
@@ -175,7 +183,8 @@ export default function MarkdownBuilder() {
           season: p.season || '',
           priceTag: Number(p.price_tag) || 0,
           salePct: pct,
-          salePrice: salePriceOf(p.price_tag, pct),
+          extraSalePct,
+          salePrice: salePriceOf(p.price_tag, pct, extraSalePct),
           sizes: Array.isArray(p.sizes) ? p.sizes.join(', ') : String(p.sizes || ''),
         }
       })
@@ -400,7 +409,7 @@ export default function MarkdownBuilder() {
                   </div>
                   {isSelected && priceTag > 0 && (
                     <div style={{ fontSize: 11, fontWeight: 700, color: S.green, fontFamily: DM }}>
-                      → {salePriceOf(priceTag, pct).toFixed(2)}€
+                      → {salePriceOf(priceTag, pct, extraSelected[p.sku] ? 20 : 0).toFixed(2)}€
                     </div>
                   )}
                 </div>
@@ -419,6 +428,16 @@ export default function MarkdownBuilder() {
                     -{d}%
                   </button>
                 ))}
+                {isSelected && pct > 0 && (
+                  <label className="sale-extra-toggle">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(extraSelected[p.sku])}
+                      onChange={(e) => setExtraSelected((prev) => ({ ...prev, [p.sku]: e.target.checked }))}
+                    />
+                    Extra 20%
+                  </label>
+                )}
               </div>
             </div>
           )

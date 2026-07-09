@@ -356,7 +356,7 @@ export default function ProductPanelCard({
                 >
                   {sku.size}
                 </span>
-                {sku.sale_active ? <SaleBadge percent={sku.sale_percent} /> : null}
+                {sku.sale_active ? <SaleBadge percent={sku.sale_percent} extraPercent={sku.sale_extra_percent} /> : null}
                 {lowStock && (
                   <StatusBadge variant="low-stock" className="product-panel-card-tile__chip">
                     Low stock
@@ -405,7 +405,7 @@ export default function ProductPanelCard({
               >
                 {sku.size}
               </span>
-              {sku.sale_active ? <SaleBadge percent={sku.sale_percent} /> : null}
+              {sku.sale_active ? <SaleBadge percent={sku.sale_percent} extraPercent={sku.sale_extra_percent} /> : null}
               {lowStock && (
                 <StatusBadge variant="low-stock" className="product-panel-card-tile__chip">
                   Low stock
@@ -513,7 +513,7 @@ export default function ProductPanelCard({
         )}
         {sku.sale_active ? (
           <div style={{ position: 'absolute', bottom: 7, left: 7, zIndex: 2 }}>
-            <SaleBadge percent={sku.sale_percent} variant="overlay" />
+            <SaleBadge percent={sku.sale_percent} extraPercent={sku.sale_extra_percent} variant="overlay" />
           </div>
         ) : null}
         <div

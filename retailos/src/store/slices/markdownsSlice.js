@@ -20,7 +20,7 @@ export function createMarkdownsSlice(set, get) {
      * Create a sale/markdown list (Sale Builder page), or a removal list (kind 'removal')
      * tracking the physical removal of sale tags after a sale ends.
      * @param {{ title?, items, assignedTo?, assignedToIds?, note?, shop?, kind? }} payload
-     * items: [{ skuCode, productName, brand, category, gender, season, priceTag, salePct, salePrice, sizes }]
+     * items: [{ skuCode, productName, brand, category, gender, season, priceTag, salePct, extraSalePct, salePrice, sizes }]
      */
     createMarkdownList: (payload) => {
       const state = get()
@@ -58,7 +58,7 @@ export function createMarkdownsSlice(set, get) {
             .filter((n) => n.relatedId !== id ? !n.read : false)
             .length,
           skus: s.skus.map((row) => (row.sale_list_id === id
-            ? { ...row, sale_active: 0, sale_percent: null, sale_list_id: null }
+            ? { ...row, sale_active: 0, sale_percent: null, sale_extra_percent: null, sale_list_id: null }
             : row)),
         }))
         notifyLocalWriteFailure(set, get, 'Sale list was not saved', err)
@@ -67,10 +67,16 @@ export function createMarkdownsSlice(set, get) {
 
       // Reflect the sale flags locally so badges show without waiting for a sync.
       if (!isRemoval) {
-        const pctBySku = new Map(items.map((i) => [i.skuCode, i.salePct]))
+        const saleBySku = new Map(items.map((i) => [i.skuCode, i]))
         set((s) => ({
-          skus: s.skus.map((row) => (pctBySku.has(row.sku)
-            ? { ...row, sale_active: 1, sale_percent: pctBySku.get(row.sku), sale_list_id: id }
+          skus: s.skus.map((row) => (saleBySku.has(row.sku)
+            ? {
+                ...row,
+                sale_active: 1,
+                sale_percent: saleBySku.get(row.sku).salePct,
+                sale_extra_percent: saleBySku.get(row.sku).extraSalePct || null,
+                sale_list_id: id,
+              }
             : row)),
         }))
       }
@@ -117,7 +123,7 @@ export function createMarkdownsSlice(set, get) {
       set((state) => ({
         markdownLists: state.markdownLists.map((l) => (l.id === listId ? { ...l, status: 'ended' } : l)),
         skus: state.skus.map((row) => (row.sale_list_id === listId
-          ? { ...row, sale_active: 0, sale_percent: null, sale_list_id: null }
+          ? { ...row, sale_active: 0, sale_percent: null, sale_extra_percent: null, sale_list_id: null }
           : row)),
       }))
       api.putMarkdownList(listId, { status: 'ended' }).catch((err) => {
@@ -181,7 +187,7 @@ export function createMarkdownsSlice(set, get) {
     /**
      * Add or update a product on an existing pending sale list (Product Lookup assign flow).
      * @param {string} listId
-     * @param {{ skuCode, productName, brand, category, gender, season, priceTag, salePct, salePrice, sizes }} item
+     * @param {{ skuCode, productName, brand, category, gender, season, priceTag, salePct, extraSalePct, salePrice, sizes }} item
      */
     addItemToMarkdownList: (listId, item) => {
       const state = get()
@@ -198,7 +204,13 @@ export function createMarkdownsSlice(set, get) {
       set((s) => ({
         markdownLists: s.markdownLists.map((l) => (l.id === listId ? { ...l, items: merged } : l)),
         skus: s.skus.map((row) => (row.sku === item.skuCode
-          ? { ...row, sale_active: 1, sale_percent: item.salePct, sale_list_id: listId }
+          ? {
+              ...row,
+              sale_active: 1,
+              sale_percent: item.salePct,
+              sale_extra_percent: item.extraSalePct || null,
+              sale_list_id: listId,
+            }
           : row)),
       }))
       api.putMarkdownList(listId, { items: merged }).catch((err) => {
@@ -219,7 +231,7 @@ export function createMarkdownsSlice(set, get) {
     /**
      * Change sale % for one product on an active list; creates a sale change report.
      */
-    changeSaleListItemPct: async (listId, skuCode, newPct) => {
+    changeSaleListItemPct: async (listId, skuCode, newPct, newExtraPct = 0) => {
       const state = get()
       const list = state.markdownLists.find((l) => l.id === listId)
       if (!list || list.kind === 'removal' || list.status !== 'pending') {
@@ -231,11 +243,13 @@ export function createMarkdownsSlice(set, get) {
       if (!item) throw new Error('Product not found in this list')
 
       const oldPct = Number(item.salePct) || 0
+      const oldExtraPct = Number(item.extraSalePct) === 20 ? 20 : 0
       const pct = Math.round(Number(newPct) || 0)
+      const extraPct = Number(newExtraPct) === 20 ? 20 : 0
       if (pct <= 0) throw new Error('Select a valid discount')
-      if (oldPct === pct) throw new Error('Choose a different discount %')
+      if (oldPct === pct && oldExtraPct === extraPct) throw new Error('Choose a different discount')
 
-      const result = await api.patchMarkdownListItemSalePct(listId, skuCode, pct)
+      const result = await api.patchMarkdownListItemSalePct(listId, skuCode, pct, extraPct)
       const report = result?.report
       const updatedList = result?.list
       if (!report || !updatedList) throw new Error('Server did not save the sale change')
@@ -244,14 +258,20 @@ export function createMarkdownsSlice(set, get) {
         markdownLists: s.markdownLists.map((l) => (l.id === listId ? updatedList : l)),
         saleChangeReports: [report, ...s.saleChangeReports.filter((r) => r.id !== report.id)],
         skus: s.skus.map((row) => (row.sku === skuCode
-          ? { ...row, sale_active: 1, sale_percent: pct, sale_list_id: listId }
+          ? {
+              ...row,
+              sale_active: 1,
+              sale_percent: pct,
+              sale_extra_percent: extraPct || null,
+              sale_list_id: listId,
+            }
           : row)),
       }))
 
       const ch = report.changes?.[0]
       const summary = ch
-        ? `${ch.productName || ch.skuCode}: -${ch.oldSalePct}% → -${ch.newSalePct}%`
-        : 'Sale % updated'
+        ? `${ch.productName || ch.skuCode}: -${ch.oldSalePct}%${ch.oldExtraSalePct === 20 ? ' + Extra 20%' : ''} → -${ch.newSalePct}%${ch.newExtraSalePct === 20 ? ' + Extra 20%' : ''}`
+        : 'Sale discount updated'
       const more = (report.changes?.length || 0) > 1 ? ` (+${report.changes.length - 1} more)` : ''
       const notificationTargets = splitAssignedTo(list.assignedTo)
       if (notificationTargets.length) {
@@ -296,7 +316,7 @@ export function createMarkdownsSlice(set, get) {
           ? { ...l, items: nextItems, item_statuses: statuses }
           : l)),
         skus: s.skus.map((row) => (row.sku === skuCode && row.sale_list_id === listId
-          ? { ...row, sale_active: 0, sale_percent: null, sale_list_id: null }
+          ? { ...row, sale_active: 0, sale_percent: null, sale_extra_percent: null, sale_list_id: null }
           : row)),
       }))
 
@@ -366,7 +386,7 @@ export function createMarkdownsSlice(set, get) {
       set((state) => ({
         markdownLists: state.markdownLists.filter((l) => l.id !== listId),
         skus: state.skus.map((row) => (row.sale_list_id === listId
-          ? { ...row, sale_active: 0, sale_percent: null, sale_list_id: null }
+          ? { ...row, sale_active: 0, sale_percent: null, sale_extra_percent: null, sale_list_id: null }
           : row)),
       }))
       api.deleteMarkdownList(listId).catch((err) => {
