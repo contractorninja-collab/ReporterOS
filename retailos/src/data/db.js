@@ -2796,7 +2796,12 @@ export function assignPendingUnassignedMarkdownListsForShift(user) {
 /** Whether a sale list accepts item / % edits. */
 function markdownListEditable(list) {
   if (!list || list.kind === 'removal' || list.status === 'ended') return false
-  return list.status === 'pending'
+  return list.status === 'pending' || list.status === 'completed'
+}
+
+function markdownSaleChangeable(list) {
+  if (!list || list.kind === 'removal' || list.status === 'ended') return false
+  return list.status === 'pending' || list.status === 'completed'
 }
 
 /** Merge new items into an active sale list and apply SALE flags to affected SKUs. */
@@ -2809,15 +2814,22 @@ export function appendItemsToMarkdownList(listId, newItems) {
   const existing = list.items || []
   const byCode = new Map(existing.map((i) => [i.skuCode, i]))
   const affected = []
+  let hasNewSku = false
   for (const it of newItems || []) {
     if (!it?.skuCode) continue
+    if (!byCode.has(it.skuCode)) hasNewSku = true
     byCode.set(it.skuCode, it)
     affected.push(it)
   }
   if (!affected.length) return list
 
   const merged = Array.from(byCode.values())
-  updateMarkdownList(listId, { items: merged })
+  updateMarkdownList(listId, {
+    items: merged,
+    ...(hasNewSku && list.status === 'completed'
+      ? { status: 'pending', completedAt: null }
+      : {}),
+  })
   applySaleToSkus(listId, affected)
   return getMarkdownListById(listId)
 }
@@ -2944,7 +2956,7 @@ export function saleChangeReportVisibleToUser(report, user) {
 export function changeMarkdownListItemSalePct(listId, skuCode, newPct, newExtraPct, actorUserId) {
   const list = getMarkdownListById(listId)
   if (!list) throw new Error('Sale list not found')
-  if (!markdownListEditable(list)) throw new Error('Sale list is not open for edits')
+  if (!markdownSaleChangeable(list)) throw new Error('Sale list is not open for edits')
 
   const pct = Math.max(0, Math.min(90, Math.round(Number(newPct) || 0)))
   if (pct <= 0) throw new Error('Invalid sale percent')
@@ -3117,7 +3129,7 @@ export function createEcommerceSaleListForOutletTransfer(transferId, actorUserId
 export function removeMarkdownListItemFromSale(listId, skuCode) {
   const list = getMarkdownListById(listId)
   if (!list) throw new Error('Sale list not found')
-  if (!markdownListEditable(list)) throw new Error('Sale list is not open for edits')
+  if (!markdownSaleChangeable(list)) throw new Error('Sale list is not open for edits')
 
   const items = list.items || []
   const item = items.find((i) => i.skuCode === skuCode)

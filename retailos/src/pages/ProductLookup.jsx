@@ -908,8 +908,8 @@ export function ProductLookup() {
     return map
   }, [skus, shipmentMeta, activeSeason])
 
-  const pendingSaleLists = useMemo(
-    () => markdownLists.filter((l) => l.kind !== 'removal' && l.status === 'pending'),
+  const activeSaleLists = useMemo(
+    () => markdownLists.filter((l) => l.kind !== 'removal' && l.status !== 'ended'),
     [markdownLists],
   )
 
@@ -919,8 +919,8 @@ export function ProductLookup() {
   const someVisibleSelected = sortedRows.some((r) => selectedSkus[r.sku])
 
   useEffect(() => {
-    if (!bulkListId && pendingSaleLists[0]?.id) setBulkListId(pendingSaleLists[0].id)
-  }, [bulkListId, pendingSaleLists])
+    if (!bulkListId && activeSaleLists[0]?.id) setBulkListId(activeSaleLists[0].id)
+  }, [bulkListId, activeSaleLists])
 
   const toggleExpandedSku = (sku) => {
     setExpandedSkus((prev) => {
@@ -1027,7 +1027,7 @@ export function ProductLookup() {
     }
     setBulkAssigning(false)
     if (added > 0) setSelectedSkus({})
-    const listTitle = pendingSaleLists.find((l) => l.id === bulkListId)?.title || 'sale list'
+    const listTitle = activeSaleLists.find((l) => l.id === bulkListId)?.title || 'sale list'
     if (added === 0 && skipped > 0) {
       setBulkMessage(`No products added — ${skipped} already on another active sale list.`)
     } else if (skipped > 0) {
@@ -1446,7 +1446,7 @@ export function ProductLookup() {
                 <span className="pl-bulk-bar__count">
                   <strong>{selectedCount}</strong> selected
                 </span>
-                {pendingSaleLists.length === 0 ? (
+                {activeSaleLists.length === 0 ? (
                   <span className="pl-bulk-bar__hint">
                     No open sale lists — <Link to="/markdown">create one</Link>
                   </span>
@@ -1457,7 +1457,7 @@ export function ProductLookup() {
                       value={bulkListId}
                       onChange={(e) => setBulkListId(e.target.value)}
                     >
-                      {pendingSaleLists.map((l) => (
+                      {activeSaleLists.map((l) => (
                         <option key={l.id} value={l.id}>
                           {l.title || 'Sale list'} ({(l.items || []).length})
                         </option>

@@ -185,7 +185,7 @@ export function createMarkdownsSlice(set, get) {
     },
 
     /**
-     * Add or update a product on an existing pending sale list (Product Lookup assign flow).
+     * Add or update a product on an active sale list (Product Lookup assign flow).
      * @param {string} listId
      * @param {{ skuCode, productName, brand, category, gender, season, priceTag, salePct, extraSalePct, salePrice, sizes }} item
      */
@@ -198,11 +198,20 @@ export function createMarkdownsSlice(set, get) {
 
       const existing = list.items || []
       const byCode = new Map(existing.map((i) => [i.skuCode, i]))
+      const hasNewSku = !byCode.has(item.skuCode)
       byCode.set(item.skuCode, item)
       const merged = Array.from(byCode.values())
 
       set((s) => ({
-        markdownLists: s.markdownLists.map((l) => (l.id === listId ? { ...l, items: merged } : l)),
+        markdownLists: s.markdownLists.map((l) => (l.id === listId
+          ? {
+              ...l,
+              items: merged,
+              ...(hasNewSku && l.status === 'completed'
+                ? { status: 'pending', completedAt: null }
+                : {}),
+            }
+          : l)),
         skus: s.skus.map((row) => (row.sku === item.skuCode
           ? {
               ...row,
@@ -234,7 +243,7 @@ export function createMarkdownsSlice(set, get) {
     changeSaleListItemPct: async (listId, skuCode, newPct, newExtraPct = 0) => {
       const state = get()
       const list = state.markdownLists.find((l) => l.id === listId)
-      if (!list || list.kind === 'removal' || list.status !== 'pending') {
+      if (!list || list.kind === 'removal' || list.status === 'ended') {
         throw new Error('This sale list cannot be edited')
       }
 
@@ -299,7 +308,7 @@ export function createMarkdownsSlice(set, get) {
     removeSaleListItem: async (listId, skuCode) => {
       const state = get()
       const list = state.markdownLists.find((l) => l.id === listId)
-      if (!list || list.kind === 'removal' || list.status !== 'pending') {
+      if (!list || list.kind === 'removal' || list.status === 'ended') {
         throw new Error('This sale list cannot be edited')
       }
       const item = (list.items || []).find((i) => i.skuCode === skuCode)

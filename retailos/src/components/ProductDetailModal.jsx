@@ -86,8 +86,8 @@ export default function ProductDetailModal({ sku, status, statusData, onClose, s
   const skuSaleListId = String(sku.sale_list_id ?? '')
   const skuHasActiveSaleList = Boolean(sku.sale_active && skuSaleListId)
 
-  const pendingSaleLists = useMemo(
-    () => markdownLists.filter((l) => l.kind !== 'removal' && l.status === 'pending'),
+  const activeSaleLists = useMemo(
+    () => markdownLists.filter((l) => l.kind !== 'removal' && l.status !== 'ended'),
     [markdownLists],
   )
   const referencedSaleList = useMemo(() => {
@@ -99,7 +99,7 @@ export default function ProductDetailModal({ sku, status, statusData, onClose, s
   const activeSaleList = useMemo(() => {
     if (!referencedSaleList) return null
     const hasItem = (referencedSaleList.items || []).some((it) => String(it.skuCode) === String(sku.sku))
-    if (referencedSaleList.kind === 'removal' || referencedSaleList.status !== 'pending' || !hasItem) return null
+    if (referencedSaleList.kind === 'removal' || referencedSaleList.status === 'ended' || !hasItem) return null
     return referencedSaleList
   }, [referencedSaleList, sku.sku])
   const activeSaleItem = useMemo(
@@ -184,7 +184,7 @@ export default function ProductDetailModal({ sku, status, statusData, onClose, s
     const otherShops = SHOPS.filter((s) => s !== (activeUser?.shop || ''))
     setTransferShop(otherShops[0] || SHOPS[0])
     if (actionType === 'sale_list') {
-      setSelectedSaleListId(pendingSaleLists[0]?.id || '')
+      setSelectedSaleListId(activeSaleLists[0]?.id || '')
       setSalePct(30)
       setSaleExtraPct(0)
     }
@@ -213,7 +213,7 @@ export default function ProductDetailModal({ sku, status, statusData, onClose, s
     }
     const ok = addItemToMarkdownList(selectedSaleListId, item)
     if (!ok) return
-    const listTitle = pendingSaleLists.find((l) => l.id === selectedSaleListId)?.title || 'sale list'
+    const listTitle = activeSaleLists.find((l) => l.id === selectedSaleListId)?.title || 'sale list'
     setAssignPanel(null)
     setAssignDone(`Added to ${listTitle} at -${salePct}%${saleExtraPct === 20 ? ' + Extra 20%' : ''}`)
     setTimeout(() => setAssignDone(null), 1600)
@@ -997,7 +997,7 @@ export default function ProductDetailModal({ sku, status, statusData, onClose, s
               <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--ro-text-dim)', textTransform: 'uppercase', letterSpacing: '0.8px', marginBottom: 10 }}>
                 Assign to sale list
               </div>
-              {pendingSaleLists.length === 0 ? (
+              {activeSaleLists.length === 0 ? (
                 <div style={{ fontSize: 12, color: 'var(--ro-text-dim)', marginBottom: 10 }}>
                   No open sale lists yet.{' '}
                   <Link to="/markdown" style={{ color: '#38bdf8', textDecoration: 'none', fontWeight: 600 }}>Create one first</Link>
@@ -1021,7 +1021,7 @@ export default function ProductDetailModal({ sku, status, statusData, onClose, s
                         outline: 'none',
                       }}
                     >
-                      {pendingSaleLists.map((l) => (
+                      {activeSaleLists.map((l) => (
                         <option key={l.id} value={l.id}>
                           {l.title || 'Sale list'} ({(l.items || []).length} products)
                         </option>

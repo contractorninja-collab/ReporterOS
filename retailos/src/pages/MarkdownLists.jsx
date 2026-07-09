@@ -706,7 +706,7 @@ export default function MarkdownLists() {
               ? laneStatus(statuses, it.skuCode, visibleItemLanes[0])?.status === 'tagged'
               : listRequiredLanes.every((lane) => laneStatus(statuses, it.skuCode, lane)?.status === 'tagged')
             const photoUrl = photoMap[it.skuCode] || null
-            const canChangeSale = isExec && !isRemoval && !isCompleted
+            const canChangeSale = isExec && !isRemoval && !isEnded
             const isEditing = editingSkuCode === it.skuCode
             const currentPct = Number(it.salePct) || 0
             const currentExtraPct = Number(it.extraSalePct) === 20 ? 20 : 0
