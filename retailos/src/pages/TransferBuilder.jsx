@@ -142,11 +142,11 @@ export function TransferBuilder() {
           u.role !== 'outlet',
       )
     } else {
-      pool = users.filter((u) => u.role === 'manager' && sameShop(u.shop, toShop))
+      pool = users.filter((u) => u.role === 'manager' && sameShop(u.shop, fromShop))
     }
     if (showAllUsers && isExec) return pool
     return pool.filter((u) => onShiftIds.has(u.id))
-  }, [users, transferType, toShop, activeShifts, showAllUsers, isExec])
+  }, [users, transferType, fromShop, activeShifts, showAllUsers, isExec])
 
   useEffect(() => {
     const allowed = new Set(assignableUsers.map((u) => u.id))
@@ -403,7 +403,7 @@ export function TransferBuilder() {
 
         <div className="tb-form-field-group tb-form-field-group--assign">
           <label className="tb-form-label">
-            {transferType === 'outlet' ? 'Assign to (Ring Mall & Village managers)' : `Assign ${toShop} manager`}
+            {transferType === 'outlet' ? 'Assign to (Ring Mall & Village managers)' : `Assign ${fromShop} manager`}
           </label>
           {transferType === 'outlet' ? (
             <>
@@ -467,7 +467,7 @@ export function TransferBuilder() {
                 <div className="tb-form-alert">
                   <IconWarning size={14} strokeWidth={1.75} className="tb-form-alert__icon" />
                   <div>
-                    <div className="tb-form-alert__text">No managers on shift at {toShop}</div>
+                    <div className="tb-form-alert__text">No managers on shift at {fromShop}</div>
                     {isExec && (
                       <label className="tb-form-checkbox tb-form-checkbox--alert">
                         <input type="checkbox" className="tb-form-checkbox__input pl-bulk-check" checked={showAllUsers} onChange={(e) => setShowAllUsers(e.target.checked)} />

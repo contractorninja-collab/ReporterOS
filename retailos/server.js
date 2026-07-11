@@ -15,7 +15,7 @@ import {
   attachImportCsvFile, getImportCsvFileMeta, getLifetimeImportedBySku, getLifetimeImportCostBySku, getImportCostAudit, getProductNameReport, getDistinctSkuBrands,
   getAllUsers, getUsersPublicDirectory, updateUser, addUser, removeUser, regenerateUserPin,
   getUserRowByUserCode, verifyPin, getPublicUserById, toPublicUser,
-  getAllAssignments, getAssignmentById, insertAssignment, insertAssignments, updateAssignment,
+  getAllAssignments, getAssignmentById, insertAssignment, insertAssignments, updateAssignment, updateSharedAssignment,
   getAllOutletTransfers, getOutletTransferById, insertOutletTransfer, updateOutletTransfer, deleteOutletTransfer,
   getAllStoreTransfers, getStoreTransferById, insertStoreTransfer, updateStoreTransfer, deleteStoreTransfer,
   getAllMarkdownLists, getMarkdownListById, insertMarkdownList, updateMarkdownList, deleteMarkdownList,
@@ -1815,7 +1815,18 @@ app.put('/api/assignments/:id', (req, res) => {
     if (!assignmentVisibleToUser(row, req.authUser)) {
       return res.status(403).json({ error: 'Forbidden' })
     }
-    const updated = updateAssignment(req.params.id, req.body)
+    const patch = { ...req.body }
+    if (patch.status === 'done') {
+      patch.completedAt = new Date().toISOString()
+      patch.completedBy = req.authUser.id
+    } else if (patch.status === 'pending' || patch.status === 'in_progress') {
+      patch.completedAt = null
+      patch.completedBy = null
+    } else {
+      delete patch.completedBy
+    }
+    const linkedAssignments = updateSharedAssignment(req.params.id, patch)
+    const updated = linkedAssignments.find((assignment) => assignment.id === req.params.id)
     if (!updated) return res.status(404).json({ error: 'Not found' })
     const statusChanged = req.body?.status != null && req.body.status !== row.status
     act(req.authUser, {
@@ -1824,11 +1835,11 @@ app.put('/api/assignments/:id', (req, res) => {
       entityType: 'assignment',
       entityId: req.params.id,
       summary: statusChanged
-        ? `Assignment ${req.params.id}: status → ${updated.status}`
+        ? `Assignment ${req.params.id}: status → ${updated.status}${updated.status === 'done' ? ` by ${req.authUser.name}` : ''}`
         : `Assignment updated: ${req.params.id}`,
-      meta: { patch: req.body, previousStatus: row.status, status: updated.status },
+      meta: { patch, previousStatus: row.status, status: updated.status, linkedCount: linkedAssignments.length },
     })
-    res.json(updated)
+    res.json({ assignment: updated, linkedAssignments })
   } catch (e) { safeError(res, e) }
 })
 
@@ -1948,8 +1959,8 @@ app.post('/api/store-transfers', (req, res) => {
     const assigneeIds = splitIdList(body.assignedTo)
     for (const assigneeId of assigneeIds) {
       const assignee = getPublicUserById(assigneeId)
-      if (!assignee || assignee.role !== 'manager' || !strEq(assignee.shop, body.toShop)) {
-        return res.status(400).json({ error: 'Assignee must be a manager from the destination shop' })
+      if (!assignee || assignee.role !== 'manager' || !strEq(assignee.shop, body.fromShop)) {
+        return res.status(400).json({ error: 'Assignee must be a manager from the sending shop' })
       }
     }
     const t = insertStoreTransfer(body)

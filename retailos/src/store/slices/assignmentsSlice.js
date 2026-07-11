@@ -5,6 +5,15 @@ import {
   resyncAfterWriteFailure,
 } from '../storeHelpers.js'
 
+const SHARED_ASSIGNMENT_TYPES = new Set(['store_transfer', 'outlet_move', 'sale'])
+
+function isLinkedAssignment(source, candidate) {
+  return SHARED_ASSIGNMENT_TYPES.has(source?.type)
+    && Boolean(String(source?.skuCode || '').trim())
+    && candidate.type === source.type
+    && candidate.skuCode === source.skuCode
+}
+
 /** Task/assignment workflow (incl. photo-task completion). */
 export function createAssignmentsSlice(set, get) {
   return {
@@ -37,16 +46,33 @@ export function createAssignmentsSlice(set, get) {
     },
 
     updateAssignment: (assignmentId, changes) => {
-      const prev = get().assignments.find((a) => a.id === assignmentId)
+      const previousAssignments = get().assignments
+      const source = previousAssignments.find((a) => a.id === assignmentId)
+      const syncSharedStatus = source && changes.status && SHARED_ASSIGNMENT_TYPES.has(source.type)
+      const completedBy = changes.status === 'done' ? get().activeUser?.id || null : null
+      const optimisticChanges = changes.status === 'done'
+        ? { ...changes, completedBy }
+        : changes.status
+          ? { ...changes, completedAt: null, completedBy: null }
+          : changes
       set((state) => ({
-        assignments: state.assignments.map((a) => (a.id === assignmentId ? { ...a, ...changes } : a)),
+        assignments: state.assignments.map((a) => (
+          a.id === assignmentId || (syncSharedStatus && isLinkedAssignment(source, a))
+            ? { ...a, ...optimisticChanges }
+            : a
+        )),
       }))
-      api.putAssignment(assignmentId, changes).catch((err) => {
-        if (prev) {
+      return api.putAssignment(assignmentId, changes).then((result) => {
+        const updated = result?.linkedAssignments || (result?.assignment ? [result.assignment] : [result])
+        const byId = new Map(updated.filter(Boolean).map((a) => [a.id, a]))
+        if (byId.size) {
           set((state) => ({
-            assignments: state.assignments.map((a) => (a.id === assignmentId ? prev : a)),
+            assignments: state.assignments.map((a) => byId.get(a.id) || a),
           }))
         }
+        return result
+      }).catch((err) => {
+        set({ assignments: previousAssignments })
         notifyLocalWriteFailure(set, get, 'Task update was not saved', err)
         resyncAfterWriteFailure(get)
       })

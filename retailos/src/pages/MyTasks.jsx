@@ -155,7 +155,7 @@ export function MyTasks() {
                     </div>
                     {t.completedAt ? (
                       <p className="mt-task-card__completed">
-                        Completed{' '}
+                        {t.completedBy ? `Completed by ${getUserName(t.completedBy)} · ` : 'Completed '}
                         {new Date(t.completedAt).toLocaleDateString('en-GB', {
                           day: 'numeric',
                           month: 'short',

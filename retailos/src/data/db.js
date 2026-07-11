@@ -167,7 +167,8 @@ db.exec(`
     status TEXT DEFAULT 'pending',
     note TEXT,
     createdAt TEXT,
-    completedAt TEXT
+    completedAt TEXT,
+    completedBy TEXT
   );
 
   CREATE TABLE IF NOT EXISTS outlet_transfers (
@@ -288,6 +289,7 @@ safeAddColumn('skus', 'deleted_by', 'TEXT')
 safeAddColumn('users', 'user_code', 'TEXT')
 safeAddColumn('users', 'pin_plain', 'TEXT')
 safeAddColumn('store_transfers', 'item_statuses', 'TEXT')
+safeAddColumn('assignments', 'completedBy', 'TEXT')
 safeAddColumn('import_history', 'imported_by_user_id', 'TEXT')
 safeAddColumn('import_history', 'imported_by_name', 'TEXT')
 safeAddColumn('import_history', 'total_units', 'INTEGER')
@@ -2416,12 +2418,13 @@ export function getAssignmentById(id) {
 function runInsertAssignment(a) {
   const id = a.id || uid()
   const createdAt = a.createdAt || new Date().toISOString()
-  db.prepare(`INSERT INTO assignments (id, type, skuCode, productName, assignedTo, assignedBy, shop, status, note, createdAt, completedAt)
-    VALUES (@id, @type, @skuCode, @productName, @assignedTo, @assignedBy, @shop, @status, @note, @createdAt, @completedAt)`)
+  db.prepare(`INSERT INTO assignments (id, type, skuCode, productName, assignedTo, assignedBy, shop, status, note, createdAt, completedAt, completedBy)
+    VALUES (@id, @type, @skuCode, @productName, @assignedTo, @assignedBy, @shop, @status, @note, @createdAt, @completedAt, @completedBy)`)
     .run({ id, type: a.type ?? '', skuCode: a.skuCode ?? '', productName: a.productName ?? '',
       assignedTo: a.assignedTo ?? '', assignedBy: a.assignedBy ?? '', shop: a.shop ?? '',
-      status: a.status ?? 'pending', note: a.note ?? '', createdAt, completedAt: a.completedAt ?? null })
-  return { ...a, id, createdAt, completedAt: a.completedAt ?? null }
+      status: a.status ?? 'pending', note: a.note ?? '', createdAt, completedAt: a.completedAt ?? null,
+      completedBy: a.completedBy ?? null })
+  return { ...a, id, createdAt, completedAt: a.completedAt ?? null, completedBy: a.completedBy ?? null }
 }
 
 export function insertAssignment(a) {
@@ -2445,7 +2448,7 @@ export function updateAssignment(id, changes) {
   const fields = []
   const values = { id }
   for (const [k, v] of Object.entries(changes)) {
-    if (['status', 'completedAt', 'note'].includes(k)) {
+    if (['status', 'completedAt', 'completedBy', 'note'].includes(k)) {
       fields.push(`${k} = @${k}`)
       values[k] = v
     }
@@ -2453,6 +2456,21 @@ export function updateAssignment(id, changes) {
   if (!fields.length) return null
   db.prepare(`UPDATE assignments SET ${fields.join(', ')} WHERE id = @id`).run(values)
   return db.prepare('SELECT * FROM assignments WHERE id = ?').get(id)
+}
+
+const SHARED_ASSIGNMENT_TYPES = new Set(['store_transfer', 'outlet_move', 'sale'])
+
+export function updateSharedAssignment(id, changes) {
+  const source = getAssignmentById(id)
+  if (!source) return []
+
+  const shouldSync = SHARED_ASSIGNMENT_TYPES.has(source.type) && String(source.skuCode || '').trim()
+  const ids = shouldSync
+    ? db.prepare('SELECT id FROM assignments WHERE type = ? AND skuCode = ?').all(source.type, source.skuCode).map((row) => row.id)
+    : [id]
+
+  const tx = db.transaction(() => ids.map((assignmentId) => updateAssignment(assignmentId, changes)).filter(Boolean))
+  return tx()
 }
 
 // ── Outlet transfers ────────────────────────────────────────────────────────
