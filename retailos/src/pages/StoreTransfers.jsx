@@ -164,44 +164,6 @@ function flattenItems(items) {
   return lines
 }
 
-function QtyCounter({ value, max, onChange, disabled }) {
-  return (
-    <div style={{ display: 'inline-flex', alignItems: 'center', gap: 0, borderRadius: 6, border: '1px solid var(--ro-border-hover)', overflow: 'hidden' }}>
-      <button
-        type="button"
-        disabled={disabled || value <= 0}
-        onClick={() => onChange(Math.max(0, value - 1))}
-        style={{
-          width: 26, height: 26, border: 'none', background: 'var(--ro-fill-muted)',
-          color: disabled ? '#333' : 'var(--ro-text-dim)', fontSize: 14, fontWeight: 700, cursor: disabled ? 'default' : 'pointer',
-          display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: '"DM Sans"',
-        }}
-      >
-        −
-      </button>
-      <span style={{
-        minWidth: 30, textAlign: 'center', fontSize: 12, fontWeight: 700,
-        color: value === max ? '#00e676' : value === 0 ? '#fbbf24' : '#38bdf8',
-        fontFamily: '"DM Sans"', background: 'var(--ro-surface)', height: 26, lineHeight: '26px',
-      }}>
-        {value}
-      </span>
-      <button
-        type="button"
-        disabled={disabled || value >= max}
-        onClick={() => onChange(Math.min(max, value + 1))}
-        style={{
-          width: 26, height: 26, border: 'none', background: 'var(--ro-fill-muted)',
-          color: disabled ? '#333' : 'var(--ro-text-dim)', fontSize: 14, fontWeight: 700, cursor: disabled ? 'default' : 'pointer',
-          display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: '"DM Sans"',
-        }}
-      >
-        +
-      </button>
-    </div>
-  )
-}
-
 function ReceivingPanel({ batch, onUpdate, onCompleted, onSkuClick }) {
   const addNotification = useStore((s) => s.addNotification)
   const completeAssignmentsForTransfer = useStore((s) => s.completeAssignmentsForTransfer)
@@ -229,59 +191,29 @@ function ReceivingPanel({ batch, onUpdate, onCompleted, onSkuClick }) {
     onUpdate(batch.id, { item_statuses: next })
   }, [batch.id, onUpdate])
 
-  const setReceived = useCallback((key, qty) => {
-    setLocalStatuses((prev) => {
-      const next = { ...prev, [key]: { ...prev[key], received: qty } }
-      persist(next)
-      return next
-    })
-  }, [persist])
-
-  const confirmLine = useCallback((key, expectedQty) => {
-    setLocalStatuses((prev) => {
-      const entry = prev[key] || {}
-      const received = entry.received ?? expectedQty
-      if (received < expectedQty) {
-        const diff = expectedQty - received
-        const ok = window.confirm(`You counted ${received} out of ${expectedQty}.\n${diff} unit(s) missing — confirm?`)
-        if (!ok) return prev
-        const next = { ...prev, [key]: { ...entry, status: 'partial', received, missing: diff, comment: entry.comment || '' } }
-        persist(next)
-        return next
-      }
-      const next = { ...prev, [key]: { ...entry, status: 'done', received, missing: 0, comment: '' } }
-      persist(next)
-      return next
-    })
-  }, [persist])
-
-  const markFullMissing = useCallback((key, expectedQty) => {
-    setLocalStatuses((prev) => {
-      const entry = prev[key] || {}
-      const next = { ...prev, [key]: { ...entry, status: 'missing', received: 0, missing: expectedQty, comment: entry.comment || '' } }
-      persist(next)
-      return next
-    })
-  }, [persist])
-
-  const setLineComment = useCallback((key, comment) => {
-    setLocalStatuses((prev) => {
-      const next = { ...prev, [key]: { ...prev[key], comment } }
-      persist(next)
-      return next
-    })
-  }, [persist])
-
-  const handleSelectAllDone = useCallback((skuCode) => {
+  const setSkuStatus = useCallback((skuCode, status) => {
     setLocalStatuses((prev) => {
       const next = { ...prev }
       for (const line of lines) {
         if (line.skuCode === skuCode) {
           const key = `${line.skuCode}|${line.size}`
-          if (!next[key]?.status) {
-            const received = next[key]?.received ?? line.qty
-            next[key] = { ...next[key], status: 'done', received, missing: 0, comment: '' }
-          }
+          next[key] = status === 'done'
+            ? { ...next[key], status: 'done', received: line.qty, missing: 0, expected: line.qty, comment: '' }
+            : { ...next[key], status: 'missing', received: 0, missing: line.qty, expected: line.qty, comment: next[key]?.comment || '' }
+        }
+      }
+      persist(next)
+      return next
+    })
+  }, [lines, persist])
+
+  const setSkuComment = useCallback((skuCode, comment) => {
+    setLocalStatuses((prev) => {
+      const next = { ...prev }
+      for (const line of lines) {
+        if (line.skuCode === skuCode) {
+          const key = `${line.skuCode}|${line.size}`
+          next[key] = { ...next[key], comment }
         }
       }
       persist(next)
@@ -298,9 +230,18 @@ function ReceivingPanel({ batch, onUpdate, onCompleted, onSkuClick }) {
     return [...map.values()]
   }, [lines])
 
-  const allVerified = lines.every((l) => {
-    const st = localStatuses[`${l.skuCode}|${l.size}`]
-    return st?.status === 'done' || st?.status === 'missing' || st?.status === 'partial'
+  const groupState = useCallback((group) => {
+    const entries = group.sizes.map((line) => localStatuses[`${line.skuCode}|${line.size}`] || {})
+    if (entries.every((entry) => entry.status === 'done')) return { status: 'done', comment: '' }
+    if (entries.every((entry) => entry.status === 'missing')) {
+      return { status: 'missing', comment: entries.find((entry) => entry.comment)?.comment || '' }
+    }
+    return { status: '', comment: '' }
+  }, [localStatuses])
+
+  const allVerified = skuGroups.every((group) => {
+    const state = groupState(group)
+    return state.status === 'done' || (state.status === 'missing' && state.comment.trim())
   })
 
   const fireCompletionNotifications = useCallback((finalStatuses) => {
@@ -316,10 +257,10 @@ function ReceivingPanel({ batch, onUpdate, onCompleted, onSkuClick }) {
     })
 
     if (totalMissing > 0) {
-      const missingLines = Object.entries(finalStatuses)
-        .filter(([, v]) => (v.missing ?? 0) > 0)
-        .map(([key, v]) => { const [sku, size] = key.split('|'); return `${sku} ${size} ×${v.missing}` })
-        .join(', ')
+      const missingLines = skuGroups
+        .filter((group) => groupState(group).status === 'missing')
+        .map((group) => `${group.skuCode}: ${groupState(group).comment}`)
+        .join('; ')
       addNotification({
         type: 'transfer_missing_items',
         title: 'Missing Items Reported',
@@ -331,33 +272,11 @@ function ReceivingPanel({ batch, onUpdate, onCompleted, onSkuClick }) {
 
     completeAssignmentsForTransfer(batch.id)
     if (onCompleted) onCompleted(totalReceived, totalMissing)
-  }, [addNotification, activeUser, batch, onCompleted, completeAssignmentsForTransfer])
+  }, [addNotification, activeUser, batch, onCompleted, completeAssignmentsForTransfer, groupState, skuGroups])
 
   const handleComplete = () => {
+    if (!allVerified) return
     const current = statusesRef.current
-    const unverified = lines.filter((l) => {
-      const st = current[`${l.skuCode}|${l.size}`]
-      return !st?.status
-    })
-    if (unverified.length > 0) {
-      const skuList = [...new Set(unverified.map((u) => `${u.skuCode} (${u.size})`))]
-      const confirmMissing = window.confirm(
-        `The following have not been verified:\n${skuList.join('\n')}\n\nAre these products missing?`
-      )
-      if (confirmMissing) {
-        const finalStatuses = { ...current }
-        for (const line of unverified) {
-          const key = `${line.skuCode}|${line.size}`
-          finalStatuses[key] = { status: 'missing', received: 0, missing: line.qty, expected: line.qty, comment: '' }
-        }
-        statusesRef.current = finalStatuses
-        setLocalStatuses(finalStatuses)
-        onUpdate(batch.id, { item_statuses: finalStatuses, status: 'completed' })
-        fireCompletionNotifications(finalStatuses)
-      }
-      return
-    }
-
     onUpdate(batch.id, { status: 'completed', item_statuses: current })
     fireCompletionNotifications(current)
   }
@@ -366,7 +285,7 @@ function ReceivingPanel({ batch, onUpdate, onCompleted, onSkuClick }) {
     <div style={{ padding: '0 0 12px' }}>
       {skuGroups.map((group) => (
         <div key={group.skuCode} style={{ borderBottom: '1px solid var(--ro-border)', padding: '10px 18px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', marginBottom: 6 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <Thumb src={photoMap?.[group.skuCode] || null} onClick={onSkuClick ? (e) => { e.stopPropagation(); onSkuClick(group.skuCode) } : undefined} />
               <div onClick={onSkuClick ? (e) => { e.stopPropagation(); onSkuClick(group.skuCode) } : undefined} style={onSkuClick ? { cursor: 'pointer' } : undefined}>
@@ -374,84 +293,43 @@ function ReceivingPanel({ batch, onUpdate, onCompleted, onSkuClick }) {
                 <span style={{ fontSize: 10, color: 'var(--ro-text-dim)', marginLeft: 8 }}>{group.skuCode}</span>
               </div>
             </div>
-            <button
-              type="button"
-              onClick={() => handleSelectAllDone(group.skuCode)}
-              style={{ ...BTN, background: 'var(--ro-fill-muted)', color: 'var(--ro-text-dim)', fontSize: 10, padding: '4px 10px' }}
-            >
-              All sizes done
-            </button>
+            <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+              <button
+                type="button"
+                onClick={() => setSkuStatus(group.skuCode, 'done')}
+                style={{ ...BTN, background: groupState(group).status === 'done' ? '#16A34A' : '#DCFCE7', color: groupState(group).status === 'done' ? '#fff' : '#15803D', fontSize: 11 }}
+              >
+                <Check size={12} style={{ marginRight: 4, verticalAlign: 'middle' }} /> Done
+              </button>
+              <button
+                type="button"
+                onClick={() => setSkuStatus(group.skuCode, 'missing')}
+                style={{ ...BTN, background: groupState(group).status === 'missing' ? '#DC2626' : '#FEE2E2', color: groupState(group).status === 'missing' ? '#fff' : '#B91C1C', fontSize: 11 }}
+              >
+                <AlertTriangle size={11} style={{ marginRight: 4, verticalAlign: 'middle' }} /> Not in stock
+              </button>
+            </div>
           </div>
-          {group.sizes.map((line) => {
-            const key = `${line.skuCode}|${line.size}`
-            const st = localStatuses[key] || {}
-            const isDone = st.status === 'done'
-            const isPartial = st.status === 'partial'
-            const isMissing = st.status === 'missing'
-            const isConfirmed = isDone || isPartial || isMissing
-            const received = st.received ?? line.qty
-            return (
-              <div key={key} style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, padding: '6px 0', borderTop: '1px solid var(--ro-border)' }}>
-                <span style={{
-                  fontSize: 11, fontWeight: 600, color: 'var(--ro-text)', background: 'var(--ro-fill-muted)',
-                  padding: '2px 8px', borderRadius: 4, minWidth: 54, textAlign: 'center',
-                }}>
-                  {line.size} <span style={{ color: 'var(--ro-text-dim)', fontWeight: 400 }}>×{line.qty}</span>
-                </span>
-
-                <QtyCounter value={received} max={line.qty} onChange={(v) => setReceived(key, v)} disabled={isConfirmed} />
-
-                {!isConfirmed && (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => confirmLine(key, line.qty)}
-                      style={{ ...BTN, background: 'rgba(0,230,118,0.12)', color: '#00e676', fontSize: 10, padding: '4px 10px' }}
-                    >
-                      <Check size={12} style={{ marginRight: 3, verticalAlign: 'middle' }} /> Confirm
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => markFullMissing(key, line.qty)}
-                      style={{ ...BTN, background: 'rgba(251,191,36,0.1)', color: '#fbbf24', fontSize: 10, padding: '4px 10px' }}
-                    >
-                      <AlertTriangle size={11} style={{ marginRight: 3, verticalAlign: 'middle' }} /> Missing
-                    </button>
-                  </>
-                )}
-
-                {isDone && (
-                  <span style={{ fontSize: 10, fontWeight: 700, color: '#00e676', display: 'flex', alignItems: 'center', gap: 3 }}>
-                    <Check size={13} /> {received}/{line.qty} received
-                  </span>
-                )}
-                {isPartial && (
-                  <span style={{ fontSize: 10, fontWeight: 700, color: '#fbbf24', display: 'flex', alignItems: 'center', gap: 3 }}>
-                    <AlertTriangle size={13} /> {received}/{line.qty} — {st.missing} missing
-                  </span>
-                )}
-                {isMissing && (
-                  <span style={{ fontSize: 10, fontWeight: 700, color: '#ff5555', display: 'flex', alignItems: 'center', gap: 3 }}>
-                    <AlertTriangle size={13} /> All {line.qty} missing
-                  </span>
-                )}
-
-                {(isPartial || isMissing) && (
-                  <input
-                    type="text"
-                    placeholder="Comment (e.g. not in box)"
-                    value={st.comment || ''}
-                    onChange={(e) => setLineComment(key, e.target.value)}
-                    style={{
-                      flex: '1 1 100%', minWidth: 0, fontSize: 11, padding: '5px 8px', borderRadius: 6,
-                      border: '1px solid rgba(251,191,36,0.3)', background: 'rgba(251,191,36,0.05)',
-                      color: '#fbbf24', fontFamily: '"DM Sans"', outline: 'none', marginTop: 2,
-                    }}
-                  />
-                )}
-              </div>
-            )
-          })}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginTop: 8 }}>
+            {group.sizes.map((line) => (
+              <span key={`${line.skuCode}|${line.size}`} style={{ fontSize: 10, color: 'var(--ro-text-dim)', background: 'var(--ro-fill-muted)', padding: '3px 7px', borderRadius: 5 }}>
+                {line.size} ×{line.qty}
+              </span>
+            ))}
+          </div>
+          {groupState(group).status === 'missing' && (
+            <textarea
+              rows={2}
+              placeholder="Explain why this SKU is not in stock..."
+              value={groupState(group).comment}
+              onChange={(e) => setSkuComment(group.skuCode, e.target.value)}
+              style={{
+                width: '100%', resize: 'vertical', boxSizing: 'border-box', fontSize: 12, padding: '8px 10px', borderRadius: 8,
+                border: '1px solid #FCA5A5', background: '#FEF2F2', color: '#991B1B',
+                fontFamily: '"DM Sans"', outline: 'none', marginTop: 8,
+              }}
+            />
+          )}
         </div>
       ))}
 
@@ -459,18 +337,20 @@ function ReceivingPanel({ batch, onUpdate, onCompleted, onSkuClick }) {
         <button
           type="button"
           onClick={handleComplete}
+          disabled={!allVerified}
           style={{
             ...BTN,
             background: allVerified ? '#00e676' : 'rgba(0,230,118,0.15)',
             color: allVerified ? '#09090e' : '#00e676',
+            cursor: allVerified ? 'pointer' : 'not-allowed',
           }}
         >
           <PackageCheck size={13} style={{ marginRight: 4, verticalAlign: 'middle' }} />
-          Complete Transfer
+          Mark Order Done
         </button>
         {!allVerified && (
           <span style={{ fontSize: 10, color: 'var(--ro-text-muted)' }}>
-            {lines.filter((l) => !localStatuses[`${l.skuCode}|${l.size}`]?.status).length} items still need verification
+            Resolve every SKU and explain each item marked not in stock.
           </span>
         )}
       </div>
@@ -805,7 +685,6 @@ export function StoreTransfers() {
   const transfers = useStore((s) => s.storeTransfers)
   const updateStoreTransfer = useStore((s) => s.updateStoreTransfer)
   const deleteStoreTransfer = useStore((s) => s.deleteStoreTransfer)
-  const addNotification = useStore((s) => s.addNotification)
   const users = useStore((s) => s.users)
   const activeUser = useStore((s) => s.activeUser)
   const myShop = activeUser?.shop || ''
@@ -858,17 +737,6 @@ export function StoreTransfers() {
     .filter(Boolean)
     .map(getUserName)
     .join(', ')
-
-  const handleMarkReceived = (batch) => {
-    updateStoreTransfer(batch.id, { status: 'in_progress', receivedAt: new Date().toISOString() })
-    addNotification({
-      type: 'transfer_received',
-      title: 'Transfer Received',
-      message: `Transfer to ${batch.toShop} has been received by ${activeUser?.name || 'Unknown'}`,
-      userId: batch.createdBy || 'all',
-      relatedId: batch.id,
-    })
-  }
 
   const handleTransferUpdate = (transferId, changes) => {
     updateStoreTransfer(transferId, changes)
@@ -1029,11 +897,11 @@ export function StoreTransfers() {
 
                   {isExpanded && (
                     <div className="ot-batch-card__body">
-                      {(isPending || (!isInProgress && !isCompleted)) && (
+                      {(isPending || (!isInProgress && !isCompleted)) && !isIncoming && (
                         <StoreTransferTable batch={batch} onSkuClick={handleSkuClick} />
                       )}
 
-                      {isInProgress && isIncoming && tab !== 'history' && (
+                      {(isPending || isInProgress) && isIncoming && tab !== 'history' && (
                         <ReceivingPanel
                           batch={batch}
                           onUpdate={handleTransferUpdate}
@@ -1051,11 +919,6 @@ export function StoreTransfers() {
                       )}
 
                       <div className="ot-batch-card__footer transfer-batch-actions">
-                        {isPending && isIncoming && (
-                          <button type="button" className="ot-mark-received-btn" onClick={() => handleMarkReceived(batch)}>
-                            Mark as Received
-                          </button>
-                        )}
                         <button
                           type="button"
                           className="ot-delete-transfer-btn"

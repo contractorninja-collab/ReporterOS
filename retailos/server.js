@@ -921,10 +921,28 @@ function validateStoreTransferItemStatuses(row, statuses) {
   }
 }
 
+function storeTransferAllVerified(row, statuses) {
+  const expected = flattenStoreTransferItems(row.items)
+  if (!expected.length) return false
+  return expected.every((line) => {
+    const entry = statuses?.[line.key]
+    if (entry?.status === 'done') return true
+    return entry?.status === 'missing' && String(entry.comment || '').trim().length > 0
+  })
+}
+
 function validateStoreTransferUpdate(row, user, changes) {
   if (user.role === 'executive') {
     if (Object.prototype.hasOwnProperty.call(changes || {}, 'item_statuses')) {
       validateStoreTransferItemStatuses(row, changes.item_statuses)
+    }
+    if (changes?.status === 'completed') {
+      const statuses = Object.prototype.hasOwnProperty.call(changes, 'item_statuses') ? changes.item_statuses : (row.item_statuses || {})
+      if (!storeTransferAllVerified(row, statuses)) {
+        const err = new Error('Every SKU must be marked done or not in stock with an explanation')
+        err.statusCode = 400
+        throw err
+      }
     }
     return null
   }
@@ -955,12 +973,12 @@ function validateStoreTransferUpdate(row, user, changes) {
 
   if (has('item_statuses')) {
     if (!roles.receiver) {
-      const err = new Error('Only the receiving shop can update receipt quantities')
+      const err = new Error('Only an assigned manager or the receiving shop can verify transfer items')
       err.statusCode = 403
       throw err
     }
-    if (!(String(row.status || 'pending') === 'in_progress' || nextStatus === 'completed')) {
-      const err = new Error('Receipt quantities can only be updated after receipt starts')
+    if (!(String(row.status || 'pending') === 'pending' || String(row.status || 'pending') === 'in_progress' || nextStatus === 'completed')) {
+      const err = new Error('Transfer items can only be verified before completion')
       err.statusCode = 403
       throw err
     }
@@ -976,11 +994,20 @@ function validateStoreTransferUpdate(row, user, changes) {
     }
     const allowed =
       (current === 'pending' && nextStatus === 'in_progress') ||
+      (current === 'pending' && nextStatus === 'completed') ||
       (current === 'in_progress' && nextStatus === 'completed')
     if (!allowed) {
       const err = new Error('Invalid store transfer status transition')
       err.statusCode = 403
       throw err
+    }
+    if (nextStatus === 'completed') {
+      const statuses = has('item_statuses') ? changes.item_statuses : (row.item_statuses || {})
+      if (!storeTransferAllVerified(row, statuses)) {
+        const err = new Error('Every SKU must be marked done or not in stock with an explanation')
+        err.statusCode = 400
+        throw err
+      }
     }
   }
 
