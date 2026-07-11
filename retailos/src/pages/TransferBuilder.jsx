@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import useStore from '../store/useStore.js'
 import { aggregateSkus } from '../utils/aggregateSkus.js'
@@ -20,6 +20,10 @@ const S = {
   blue: '#38bdf8',
   purple: '#c084fc',
   orange: '#fbbf24',
+}
+
+function sameShop(a, b) {
+  return String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase()
 }
 
 function FilterChip({ label, active, onClick }) {
@@ -136,11 +140,16 @@ export function TransferBuilder() {
           u.role !== 'outlet',
       )
     } else {
-      pool = users.filter((u) => u.shop === toShop)
+      pool = users.filter((u) => u.role === 'manager' && sameShop(u.shop, toShop))
     }
     if (showAllUsers && isExec) return pool
     return pool.filter((u) => onShiftIds.has(u.id))
   }, [users, transferType, toShop, activeShifts, showAllUsers, isExec])
+
+  useEffect(() => {
+    if (!assignedTo) return
+    if (!assignableUsers.some((u) => u.id === assignedTo)) setAssignedTo('')
+  }, [assignedTo, assignableUsers])
 
   const filtered = useMemo(() => {
     let list = products.filter((p) => (p.quantity - p.sold_quantity) > 0)
@@ -369,7 +378,7 @@ export function TransferBuilder() {
 
         <div className="tb-form-field-group tb-form-field-group--assign">
           <label className="tb-form-label">
-            {transferType === 'outlet' ? 'Assign to (Ring Mall & Village managers)' : 'Assign to'}
+            {transferType === 'outlet' ? 'Assign to (Ring Mall & Village managers)' : `Assign ${toShop} manager`}
           </label>
           {transferType === 'outlet' ? (
             <>
@@ -403,7 +412,7 @@ export function TransferBuilder() {
               >
                 <option value="">— none —</option>
                 {assignableUsers.map((u) => (
-                  <option key={u.id} value={u.id}>{u.name}</option>
+                  <option key={u.id} value={u.id}>{u.name} · {u.shop}</option>
                 ))}
               </select>
               {assignableUsers.length === 0 && !showAllUsers && (

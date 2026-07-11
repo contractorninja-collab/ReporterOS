@@ -304,6 +304,13 @@ export function OutletTransfers() {
     return batch.status === 'completed' && (activeUser?.role === 'outlet' || activeUser?.role === 'executive')
   }
 
+  const canDeleteOutletTransfer = (batch) => {
+    if (activeUser?.role === 'executive') return true
+    return batch.createdBy === activeUser?.id ||
+      String(batch.assignedTo || '').split(',').map((id) => id.trim()).includes(activeUser?.id) ||
+      Boolean(batch.fromShop && batch.fromShop === activeUser?.shop)
+  }
+
   return (
     <div className="outlet-transfers-page store-transfers-page">
       <p className="ot-page-subtitle page-hero-mobile-hide">
@@ -390,13 +397,15 @@ export function OutletTransfers() {
                         Confirm Outlet received
                       </button>
                     )}
-                    <button
-                      type="button"
-                      className="ot-delete-transfer-btn"
-                      onClick={() => handleDeleteTransfer(batch)}
-                    >
-                      {isCompleted || isReceived ? 'Delete' : 'Discard'}
-                    </button>
+                    {canDeleteOutletTransfer(batch) && (
+                      <button
+                        type="button"
+                        className="ot-delete-transfer-btn"
+                        onClick={() => handleDeleteTransfer(batch)}
+                      >
+                        {isCompleted || isReceived ? 'Delete' : 'Discard'}
+                      </button>
+                    )}
                     <button type="button" className="ot-export-btn" onClick={() => downloadCSV(batch)}>
                       <IconDownload size={12} strokeWidth={1.75} className="ot-export-btn__icon" />
                       CSV

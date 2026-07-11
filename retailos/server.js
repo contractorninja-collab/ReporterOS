@@ -671,7 +671,7 @@ function filterNotifications(rows, user) {
 
 function filterOutletTransfers(rows, user) {
   if (user.role === 'executive') return rows
-  if (user.role === 'outlet') return rows.filter((t) => t.status === 'completed' || t.status === 'received')
+  if (user.role === 'outlet') return rows
   return rows.filter(
     (t) => t.createdBy === user.id ||
       splitIdList(t.assignedTo).includes(user.id) ||
@@ -690,7 +690,7 @@ function assignmentVisibleToUser(row, user) {
 
 function outletTransferVisibleToUser(t, user) {
   if (user.role === 'executive') return true
-  if (user.role === 'outlet') return t.status === 'completed' || t.status === 'received'
+  if (user.role === 'outlet') return true
   return t.createdBy === user.id ||
     splitIdList(t.assignedTo).includes(user.id) ||
     (t.fromShop && user.shop && t.fromShop === user.shop)
@@ -1903,6 +1903,10 @@ app.delete('/api/outlet-transfers/:id', (req, res) => {
     if (!outletTransferVisibleToUser(row, req.authUser)) {
       return res.status(403).json({ error: 'Forbidden' })
     }
+    const roles = outletTransferUserRole(row, req.authUser)
+    if (!roles.executive && !roles.sender) {
+      return res.status(403).json({ error: 'Only the sending shop or an executive can delete this transfer' })
+    }
     const n = Array.isArray(row.items) ? row.items.length : 0
     const status = row.status || 'pending'
     const deleted = deleteOutletTransfer(req.params.id)
@@ -1939,6 +1943,12 @@ app.post('/api/store-transfers', (req, res) => {
       const { fromShop, toShop } = body
       if (fromShop !== shop && toShop !== shop) {
         return res.status(403).json({ error: 'Transfer must involve your shop' })
+      }
+    }
+    if (body.assignedTo) {
+      const assignee = getPublicUserById(body.assignedTo)
+      if (!assignee || assignee.role !== 'manager' || !strEq(assignee.shop, body.toShop)) {
+        return res.status(400).json({ error: 'Assignee must be a manager from the destination shop' })
       }
     }
     const t = insertStoreTransfer(body)
