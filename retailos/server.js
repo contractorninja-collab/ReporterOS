@@ -840,7 +840,7 @@ function storeTransferVisibleToUser(t, user) {
     t.fromShop === user.shop ||
     t.toShop === user.shop ||
     t.createdBy === user.id ||
-    t.assignedTo === user.id
+    splitIdList(t.assignedTo).includes(user.id)
   )
 }
 
@@ -850,7 +850,7 @@ function storeTransferUserRole(t, user) {
   return {
     executive: false,
     sender: (shop && t.fromShop === shop) || t.createdBy === user.id,
-    receiver: (shop && t.toShop === shop) || t.assignedTo === user.id,
+    receiver: (shop && t.toShop === shop) || splitIdList(t.assignedTo).includes(user.id),
   }
 }
 
@@ -1945,8 +1945,9 @@ app.post('/api/store-transfers', (req, res) => {
         return res.status(403).json({ error: 'Transfer must involve your shop' })
       }
     }
-    if (body.assignedTo) {
-      const assignee = getPublicUserById(body.assignedTo)
+    const assigneeIds = splitIdList(body.assignedTo)
+    for (const assigneeId of assigneeIds) {
+      const assignee = getPublicUserById(assigneeId)
       if (!assignee || assignee.role !== 'manager' || !strEq(assignee.shop, body.toShop)) {
         return res.status(400).json({ error: 'Assignee must be a manager from the destination shop' })
       }

@@ -834,6 +834,12 @@ export function StoreTransfers() {
   const history = useMemo(() => myTransfers.filter((t) => t.status === 'completed' || t.status === 'received').sort((a, b) => (b.receivedAt || b.createdAt || '').localeCompare(a.receivedAt || a.createdAt || '')), [myTransfers])
 
   const getUserName = (id) => users.find((u) => u.id === id)?.name || id
+  const getAssigneeNames = (value) => String(value || '')
+    .split(',')
+    .map((id) => id.trim())
+    .filter(Boolean)
+    .map(getUserName)
+    .join(', ')
 
   const handleMarkReceived = (batch) => {
     updateStoreTransfer(batch.id, { status: 'in_progress', receivedAt: new Date().toISOString() })
@@ -972,7 +978,7 @@ export function StoreTransfers() {
                       <div className="ot-batch-card__title">Transfer — {formatDate(batch.createdAt)}</div>
                       <div className="ot-batch-card__meta">
                         {batch.items.length} products · {totalUnits} units · by {getUserName(batch.createdBy)}
-                        {batch.assignedTo && <span> · assigned to {getUserName(batch.assignedTo)}</span>}
+                        {batch.assignedTo && <span> · assigned to {getAssigneeNames(batch.assignedTo)}</span>}
                         {!isExec && (
                           <span> · {isIncoming ? `from ${batch.fromShop}` : `to ${batch.toShop}`}</span>
                         )}

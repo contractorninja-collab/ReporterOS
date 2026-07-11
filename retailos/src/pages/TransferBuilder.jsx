@@ -1,10 +1,10 @@
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import useStore from '../store/useStore.js'
 import { aggregateSkus } from '../utils/aggregateSkus.js'
 import { normalizeGenderCodeForFilter } from '../utils/gender.js'
 import { toTitleCase } from '../utils/textFormat.js'
-import { IconSearch, IconClose, IconWarning, IconCart } from '../utils/icons.js'
+import { IconSearch, IconClose, IconWarning, IconCart, IconChevronDown } from '../utils/icons.js'
 
 const DM = '"DM Sans", sans-serif'
 const SHOPS = ['Ring Mall', 'Village']
@@ -111,7 +111,9 @@ export function TransferBuilder() {
     const other = SHOPS.find((s) => s !== (activeUser?.shop || 'Ring Mall'))
     return other || 'Village'
   })
-  const [assignedTo, setAssignedTo] = useState('')
+  const [assignedToIds, setAssignedToIds] = useState([])
+  const [assignMenuOpen, setAssignMenuOpen] = useState(false)
+  const assignMenuRef = useRef(null)
   const [note, setNote] = useState('')
 
   const [search, setSearch] = useState('')
@@ -147,9 +149,28 @@ export function TransferBuilder() {
   }, [users, transferType, toShop, activeShifts, showAllUsers, isExec])
 
   useEffect(() => {
-    if (!assignedTo) return
-    if (!assignableUsers.some((u) => u.id === assignedTo)) setAssignedTo('')
-  }, [assignedTo, assignableUsers])
+    const allowed = new Set(assignableUsers.map((u) => u.id))
+    setAssignedToIds((prev) => prev.filter((id) => allowed.has(id)))
+  }, [assignableUsers])
+
+  useEffect(() => {
+    if (!assignMenuOpen) return undefined
+    const closeOutside = (event) => {
+      if (assignMenuRef.current && !assignMenuRef.current.contains(event.target)) setAssignMenuOpen(false)
+    }
+    document.addEventListener('mousedown', closeOutside)
+    document.addEventListener('touchstart', closeOutside, { passive: true })
+    return () => {
+      document.removeEventListener('mousedown', closeOutside)
+      document.removeEventListener('touchstart', closeOutside)
+    }
+  }, [assignMenuOpen])
+
+  function toggleAssignee(userId) {
+    setAssignedToIds((prev) => (
+      prev.includes(userId) ? prev.filter((id) => id !== userId) : [...prev, userId]
+    ))
+  }
 
   const filtered = useMemo(() => {
     let list = products.filter((p) => (p.quantity - p.sold_quantity) > 0)
@@ -268,7 +289,7 @@ export function TransferBuilder() {
       payload.assignedToIds = assignableUsers.map((u) => u.id)
       payload.fromShop = activeUser?.shop || fromShop
     } else {
-      payload.assignedTo = assignedTo || null
+      payload.assignedToIds = assignedToIds
     }
     if (transferType === 'store') {
       payload.fromShop = fromShop
@@ -325,7 +346,8 @@ export function TransferBuilder() {
               active={transferType === 'store'}
               onClick={() => {
                 setTransferType('store')
-                setAssignedTo('')
+                setAssignedToIds([])
+                setAssignMenuOpen(false)
               }}
             />
             <TypeToggle
@@ -333,7 +355,8 @@ export function TransferBuilder() {
               active={transferType === 'outlet'}
               onClick={() => {
                 setTransferType('outlet')
-                setAssignedTo('')
+                setAssignedToIds([])
+                setAssignMenuOpen(false)
               }}
             />
           </div>
@@ -352,7 +375,8 @@ export function TransferBuilder() {
                     setFromShop(newFrom)
                     const newTo = SHOPS.find((s) => s !== newFrom) || SHOPS[0]
                     setToShop(newTo)
-                    setAssignedTo('')
+                    setAssignedToIds([])
+                    setAssignMenuOpen(false)
                   }}
                 >
                   {SHOPS.map((s) => <option key={s} value={s}>{s}</option>)}
@@ -366,7 +390,8 @@ export function TransferBuilder() {
                   value={toShop}
                   onChange={(e) => {
                     setToShop(e.target.value)
-                    setAssignedTo('')
+                    setAssignedToIds([])
+                    setAssignMenuOpen(false)
                   }}
                 >
                   {SHOPS.filter((s) => s !== fromShop).map((s) => <option key={s} value={s}>{s}</option>)}
@@ -405,16 +430,39 @@ export function TransferBuilder() {
             </>
           ) : (
             <>
-              <select
-                className="tb-form-select tb-form-select--assign"
-                value={assignedTo}
-                onChange={(e) => setAssignedTo(e.target.value)}
-              >
-                <option value="">— none —</option>
-                {assignableUsers.map((u) => (
-                  <option key={u.id} value={u.id}>{u.name} · {u.shop}</option>
-                ))}
-              </select>
+              <div className="tb-assignee-menu" ref={assignMenuRef}>
+                <button
+                  type="button"
+                  className={`tb-assignee-menu__trigger${assignMenuOpen ? ' is-open' : ''}`}
+                  onClick={() => setAssignMenuOpen((open) => !open)}
+                  aria-expanded={assignMenuOpen}
+                  aria-haspopup="listbox"
+                >
+                  <span className={assignedToIds.length ? '' : 'tb-assignee-menu__placeholder'}>
+                    {assignedToIds.length
+                      ? `${assignedToIds.length} manager${assignedToIds.length === 1 ? '' : 's'} selected`
+                      : 'Select managers'}
+                  </span>
+                  <IconChevronDown size={15} className={assignMenuOpen ? 'is-rotated' : ''} aria-hidden />
+                </button>
+                {assignMenuOpen && (
+                  <div className="tb-assignee-menu__dropdown" role="listbox" aria-multiselectable="true">
+                    {assignableUsers.length === 0 ? (
+                      <div className="tb-assignee-menu__empty">No available managers</div>
+                    ) : assignableUsers.map((u) => (
+                      <label key={u.id} className="tb-assignee-menu__option">
+                        <input
+                          type="checkbox"
+                          checked={assignedToIds.includes(u.id)}
+                          onChange={() => toggleAssignee(u.id)}
+                        />
+                        <span>{u.name}</span>
+                        <small>{u.shop}</small>
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </div>
               {assignableUsers.length === 0 && !showAllUsers && (
                 <div className="tb-form-alert">
                   <IconWarning size={14} strokeWidth={1.75} className="tb-form-alert__icon" />

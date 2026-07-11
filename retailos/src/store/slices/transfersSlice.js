@@ -192,19 +192,20 @@ export function createTransfersSlice(set, get) {
      * Create a complete transfer batch (used by the Transfer Builder page).
      * @param {'store'|'outlet'} type
      * @param {{ items, fromShop?, toShop?, assignedTo?, assignedToIds?, note? }} payload
-     * For outlet: use `assignedToIds` (Ring Mall & Village managers); each gets an assignment and notification. `assignedTo` on the batch is stored as comma-separated ids.
+     * Use `assignedToIds` for one or more managers; each gets an assignment and notification. `assignedTo` on the batch is stored as comma-separated ids.
      */
     createTransferBatch: (type, payload) => {
       const state = get()
       const id = generateId()
       const createdAt = new Date().toISOString()
 
-      const assignmentTargets =
-        type === 'outlet'
-          ? (Array.isArray(payload.assignedToIds) ? payload.assignedToIds.filter(Boolean) : [])
+      const assignmentTargets = Array.from(new Set(
+        Array.isArray(payload.assignedToIds)
+          ? payload.assignedToIds.filter(Boolean)
           : payload.assignedTo
-            ? [payload.assignedTo]
-            : []
+            ? String(payload.assignedTo).split(',').map((id) => id.trim()).filter(Boolean)
+            : [],
+      ))
 
       const assignedToStored =
         assignmentTargets.length > 0 ? assignmentTargets.join(',') : null
