@@ -192,7 +192,7 @@ export function createTransfersSlice(set, get) {
      * Create a complete transfer batch (used by the Transfer Builder page).
      * @param {'store'|'outlet'} type
      * @param {{ items, fromShop?, toShop?, assignedTo?, assignedToIds?, note? }} payload
-     * Use `assignedToIds` for one or more managers; each gets an assignment and notification. `assignedTo` on the batch is stored as comma-separated ids.
+     * Use `assignedToIds` for one or more managers; each gets an assignment. `assignedTo` on the batch is stored as comma-separated ids.
      */
     createTransferBatch: (type, payload) => {
       const state = get()

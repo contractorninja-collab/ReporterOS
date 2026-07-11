@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import useStore from '../store/useStore.js'
 import { IconPlanning } from '../utils/icons.js'
 
@@ -36,6 +37,7 @@ function priorityBadgeClass(priority) {
 }
 
 export function MyTasks() {
+  const navigate = useNavigate()
   const assignments = useStore((s) => s.assignments)
   const activeUser = useStore((s) => s.activeUser)
   const users = useStore((s) => s.users)
@@ -76,6 +78,14 @@ export function MyTasks() {
     const changes = { status: ns }
     if (ns === 'done') changes.completedAt = new Date().toISOString()
     updateAssignment(task.id, changes)
+  }
+
+  const handleViewDetails = (task) => {
+    if (task.type === 'store_transfer') {
+      navigate(`/transfers?transfer=${encodeURIComponent(task.skuCode)}`)
+    } else if (task.type === 'outlet_move') {
+      navigate(`/outlet?transfer=${encodeURIComponent(task.skuCode)}`)
+    }
   }
 
   const taskDescription = (task) => {
@@ -174,7 +184,12 @@ export function MyTasks() {
                         {ns === 'done' ? 'Mark as done' : 'Start'}
                       </button>
                     ) : null}
-                    <button type="button" className="mt-task-card__details">
+                    <button
+                      type="button"
+                      className="mt-task-card__details"
+                      onClick={() => handleViewDetails(t)}
+                      disabled={t.type !== 'store_transfer' && t.type !== 'outlet_move'}
+                    >
                       View details
                     </button>
                   </div>

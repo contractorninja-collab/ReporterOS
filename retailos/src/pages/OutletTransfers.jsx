@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { AlertTriangle, Check } from 'lucide-react'
 import useStore from '../store/useStore.js'
 import { toTitleCase } from '../utils/textFormat.js'
@@ -259,12 +259,20 @@ function OutletVerificationPanel({ batch, onUpdate }) {
 
 export function OutletTransfers() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const requestedTransferId = searchParams.get('transfer')
   const transfers = useStore((s) => s.outletTransfers)
   const updateOutletTransfer = useStore((s) => s.updateOutletTransfer)
   const deleteOutletTransfer = useStore((s) => s.deleteOutletTransfer)
   const users = useStore((s) => s.users)
   const activeUser = useStore((s) => s.activeUser)
   const [expanded, setExpanded] = useState(null)
+
+  useEffect(() => {
+    if (requestedTransferId && transfers.some((transfer) => transfer.id === requestedTransferId)) {
+      setExpanded(requestedTransferId)
+    }
+  }, [requestedTransferId, transfers])
 
   const getUserName = (id) => users.find((u) => u.id === id)?.name || id
 

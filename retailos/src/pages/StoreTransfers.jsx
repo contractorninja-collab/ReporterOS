@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Check, AlertTriangle, PackageCheck, CheckCircle2, Clock, ArrowLeftRight, ImageOff } from 'lucide-react'
 import useStore from '../store/useStore.js'
 import ProductDetailModal from '../components/ProductDetailModal.jsx'
@@ -800,6 +800,8 @@ function SuccessToast({ message, onDismiss }) {
 
 export function StoreTransfers() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const requestedTransferId = searchParams.get('transfer')
   const transfers = useStore((s) => s.storeTransfers)
   const updateStoreTransfer = useStore((s) => s.updateStoreTransfer)
   const deleteStoreTransfer = useStore((s) => s.deleteStoreTransfer)
@@ -816,6 +818,12 @@ export function StoreTransfers() {
   const [toast, setToast] = useState(null)
   const [detailSku, setDetailSku] = useState(null)
 
+  const isAssignedToActiveUser = useCallback((transfer) => String(transfer.assignedTo || '')
+    .split(',')
+    .map((id) => id.trim())
+    .filter(Boolean)
+    .includes(activeUser?.id), [activeUser?.id])
+
   const skuMap = useMemo(() => {
     const products = aggregateSkus(skus)
     const m = {}
@@ -829,9 +837,19 @@ export function StoreTransfers() {
   }, [skuMap])
 
   const myTransfers = useMemo(() => isExec ? transfers : transfers.filter((t) => t.toShop === myShop || t.fromShop === myShop), [transfers, myShop, isExec])
-  const incoming = useMemo(() => myTransfers.filter((t) => (isExec || t.toShop === myShop) && t.status !== 'completed' && t.status !== 'received'), [myTransfers, myShop, isExec])
+  const incoming = useMemo(() => myTransfers.filter((t) => (
+    isExec || t.toShop === myShop || isAssignedToActiveUser(t)
+  ) && t.status !== 'completed' && t.status !== 'received'), [myTransfers, myShop, isExec, isAssignedToActiveUser])
   const outgoing = useMemo(() => myTransfers.filter((t) => (isExec || t.fromShop === myShop) && t.status !== 'completed' && t.status !== 'received'), [myTransfers, myShop, isExec])
   const history = useMemo(() => myTransfers.filter((t) => t.status === 'completed' || t.status === 'received').sort((a, b) => (b.receivedAt || b.createdAt || '').localeCompare(a.receivedAt || a.createdAt || '')), [myTransfers])
+
+  useEffect(() => {
+    if (!requestedTransferId) return
+    const requested = myTransfers.find((transfer) => transfer.id === requestedTransferId)
+    if (!requested) return
+    setTab(requested.status === 'completed' || requested.status === 'received' ? 'history' : 'incoming')
+    setExpanded(requested.id)
+  }, [myTransfers, requestedTransferId])
 
   const getUserName = (id) => users.find((u) => u.id === id)?.name || id
   const getAssigneeNames = (value) => String(value || '')
@@ -943,7 +961,7 @@ export function StoreTransfers() {
               const isExpanded = expanded === batch.id || (tab === 'issues' && expanded === null)
               const status = batch.status || 'pending'
               const totalUnits = batch.items.reduce((s, i) => s + (i.totalQty ?? i.quantity ?? 0), 0)
-              const isIncoming = isExec ? true : batch.toShop === myShop
+              const isIncoming = isExec || batch.toShop === myShop || isAssignedToActiveUser(batch)
               const isInProgress = status === 'in_progress'
               const isCompleted = status === 'completed' || status === 'received'
               const isPending = status === 'pending'
