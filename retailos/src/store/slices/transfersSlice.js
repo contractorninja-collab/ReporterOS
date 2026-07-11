@@ -277,25 +277,13 @@ export function createTransfersSlice(set, get) {
       }
 
       const notifyMessage = `${state.activeUser?.name || 'Someone'} sent ${totalUnits} units (${summary}) from ${fromLabel} to ${destination}`
-      if (assignmentTargets.length > 0) {
-        for (const uid of assignmentTargets) {
-          get().addNotification({
-            type: 'transfer_created',
-            title: 'New Transfer Created',
-            message: notifyMessage,
-            userId: uid,
-            relatedId: id,
-          })
-        }
-      } else {
-        get().addNotification({
-          type: 'transfer_created',
-          title: 'New Transfer Created',
-          message: notifyMessage,
-          userId: 'all',
-          relatedId: id,
-        })
-      }
+      get().addNotification({
+        type: 'transfer_created',
+        title: 'New Transfer Created',
+        message: notifyMessage,
+        userId: 'all',
+        relatedId: id,
+      })
 
       return id
     },
