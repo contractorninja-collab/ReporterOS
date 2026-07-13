@@ -563,18 +563,21 @@ export default function ProductDetailModal({ sku, status, statusData, onClose, s
             className="product-detail-kpi-grid"
             style={{
               display: 'grid',
-              gridTemplateColumns: showSalesMetrics ? 'repeat(3, 1fr)' : '1fr',
+              gridTemplateColumns: showSalesMetrics ? 'repeat(3, 1fr)' : 'repeat(2, 1fr)',
               gap: 8,
               marginBottom: 18,
             }}
           >
             {(showSalesMetrics
               ? [
-                  { label: 'Price', value: `€${ticketPrice.toFixed(2)}`, color: 'var(--ro-heading)' },
+                  { label: 'Retail Price', value: `€${ticketPrice.toFixed(2)}`, color: 'var(--ro-heading)' },
                   { label: 'Stock', value: String(totalStock), color: stockColor },
                   { label: 'Sold', value: `${Math.round(pct)}%`, color: statusData.color },
                 ]
-              : [{ label: 'Available', value: String(totalStock), color: stockColor }]
+              : [
+                  { label: 'Retail Price', value: `€${ticketPrice.toFixed(2)}`, color: 'var(--ro-heading)' },
+                  { label: 'Available', value: String(totalStock), color: stockColor },
+                ]
             ).map((c) => (
               <div
                 key={c.label}
@@ -589,7 +592,7 @@ export default function ProductDetailModal({ sku, status, statusData, onClose, s
                 <div style={{ fontSize: 9, fontWeight: 700, color: 'var(--ro-text-muted)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.6px' }}>
                   {c.label}
                 </div>
-                <div style={{ fontFamily: '"DM Sans"', fontSize: c.label === 'Price' ? 22 : 26, lineHeight: 1, color: c.color, letterSpacing: '0.5px' }}>
+                <div style={{ fontFamily: '"DM Sans"', fontSize: c.label === 'Retail Price' ? 22 : 26, lineHeight: 1, color: c.color, letterSpacing: '0.5px' }}>
                   {c.value}
                 </div>
                 {c.label === 'Sold' && showSalesMetrics && returnsCount > 0 ? (
