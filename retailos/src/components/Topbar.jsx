@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useMemo } from 'react'
+import { createPortal } from 'react-dom'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { Bell, PackageCheck, AlertTriangle, CheckCircle, Truck, Clock, LogIn, LogOut, UserCheck, Plus, ChevronDown, Tag, X } from 'lucide-react'
 import { IconSearch } from '../utils/icons.js'
@@ -665,7 +666,7 @@ export function Topbar() {
         </button>
       </div>
 
-      {searchResult && (() => {
+      {searchResult && createPortal((() => {
         const status = getProductLifecycleStatus(searchResult)
         const color = STATUS_COLORS[status] || 'var(--ro-text-dim)'
         return (
@@ -676,7 +677,7 @@ export function Topbar() {
             onClose={() => setSearchResult(null)}
           />
         )
-      })()}
+      })(), document.body)}
     </div>
   )
 }
