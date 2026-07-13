@@ -4,7 +4,7 @@ import { Bell, PackageCheck, AlertTriangle, CheckCircle, Truck, Clock, LogIn, Lo
 import { IconSearch } from '../utils/icons.js'
 import useStore from '../store/useStore.js'
 import { localDateKey } from '../utils/saleList.js'
-import { isExecutive } from '../utils/roles.js'
+import { canUseProductLookup, isExecutive } from '../utils/roles.js'
 import { buildSeasonSwitcherList, normalizeSeasonInput } from '../utils/seasons.js'
 
 const ROLE_COLORS = { manager: '#38bdf8', executive: '#c084fc', outlet: '#fbbf24' }
@@ -296,6 +296,7 @@ export function Topbar() {
   const activeUser = useStore((s) => s.activeUser)
   const setActiveUser = useStore((s) => s.setActiveUser)
   const execUser = isExecutive(activeUser)
+  const showProductSearch = canUseProductLookup(activeUser)
 
   const [seasonAddOpen, setSeasonAddOpen] = useState(false)
   const [seasonDraft, setSeasonDraft] = useState('')
@@ -382,7 +383,7 @@ export function Topbar() {
         </div>
       </div>
 
-      {execUser && (
+      {showProductSearch && (
         <div className="topbar-search-wrap">
           <span className="topbar-search-icon" aria-hidden>
             <IconSearch size={18} strokeWidth={1.5} />
