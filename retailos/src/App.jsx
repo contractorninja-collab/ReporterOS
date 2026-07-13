@@ -569,7 +569,7 @@ function App() {
                 <Route path="/bestsellers" element={<Bestsellers />} />
                 <Route path="/reports" element={<RequireExecutive><Reports /></RequireExecutive>} />
                 <Route path="/activity-log" element={<RequireExecutive><ActivityLog /></RequireExecutive>} />
-                <Route path="/lookup" element={<ProductLookup />} />
+                <Route path="/lookup" element={<RequireExecutive><ProductLookup /></RequireExecutive>} />
                 <Route path="/buy-planning" element={<RequireExecutive><BuyPlanning /></RequireExecutive>} />
                 <Route path="/import" element={<RequireExecutive><ImportCSV /></RequireExecutive>} />
                 <Route path="/photos" element={<RequireExecutive><Photos /></RequireExecutive>} />

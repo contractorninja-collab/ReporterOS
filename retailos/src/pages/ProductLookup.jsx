@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, Fragment } from 'rea
 import { createPortal } from 'react-dom'
 import { Link, useSearchParams } from 'react-router-dom'
 import useStore from '../store/useStore'
-import { canUseProductLookup, isExecutive } from '../utils/roles'
+import { isExecutive } from '../utils/roles'
 import { aggregateSkus } from '../utils/aggregateSkus'
 import { getLifecycleStatus, getReorderVerdict } from '../utils/lifecycle'
 import * as api from '../api/client'
@@ -578,7 +578,6 @@ export function ProductLookup() {
   const addItemToMarkdownList = useStore((s) => s.addItemToMarkdownList)
 
   const canManage = activeUser?.role === 'executive' || activeUser?.role === 'manager'
-  const execUser = isExecutive(activeUser)
 
   const [tab, setTab] = useState(() => (searchParams.get('q') ? 'search' : 'all'))
   const [input, setInput] = useState(() => searchParams.get('q') || '')
@@ -1115,12 +1114,12 @@ export function ProductLookup() {
     return by
   }, [rowsForBrandSummary])
 
-  if (!canUseProductLookup(activeUser)) {
+  if (!isExecutive(activeUser)) {
     return (
       <div style={{ maxWidth: 480, margin: '60px auto', textAlign: 'center' }}>
         <div style={{ fontSize: 48, marginBottom: 16 }}><IconLock size={48} strokeWidth={1.5} /></div>
-        <h2 style={{ fontFamily: '"DM Sans"', fontSize: 22, letterSpacing: '2px', color: 'var(--ro-heading)', margin: '0 0 8px' }}>PRODUCT LOOKUP UNAVAILABLE</h2>
-        <p style={{ fontSize: 13, color: 'var(--ro-text-muted)' }}>Product Lookup is available to shop managers, marketing, and executive users.</p>
+        <h2 style={{ fontFamily: '"DM Sans"', fontSize: 22, letterSpacing: '2px', color: 'var(--ro-heading)', margin: '0 0 8px' }}>EXECUTIVE ACCESS ONLY</h2>
+        <p style={{ fontSize: 13, color: 'var(--ro-text-muted)' }}>Product Lookup is only available to Executive users.</p>
       </div>
     )
   }
@@ -1661,20 +1660,18 @@ export function ProductLookup() {
                             >
                               Details
                             </button>
-                            {execUser && (
-                              <button
-                                type="button"
-                                className="pl-mobile-card__delete-btn"
-                                aria-label={`Delete ${row.sku}`}
-                                disabled={deletingSku === row.sku}
-                                onClick={() => {
-                                  setDeleteError('')
-                                  setDeleteConfirmRow(row)
-                                }}
-                              >
-                                <IconDelete size={16} strokeWidth={1.75} />
-                              </button>
-                            )}
+                            <button
+                              type="button"
+                              className="pl-mobile-card__delete-btn"
+                              aria-label={`Delete ${row.sku}`}
+                              disabled={deletingSku === row.sku}
+                              onClick={() => {
+                                setDeleteError('')
+                                setDeleteConfirmRow(row)
+                              }}
+                            >
+                              <IconDelete size={16} strokeWidth={1.75} />
+                            </button>
                           </div>
                         </div>
                       ) : null}
@@ -1923,22 +1920,20 @@ export function ProductLookup() {
                             >
                               Details
                             </button>
-                            {execUser && (
-                              <button
-                                type="button"
-                                className="pl-row-delete-btn"
-                                aria-label={`Delete ${row.sku}`}
-                                title={`Delete ${row.sku}`}
-                                disabled={deletingSku === row.sku}
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  setDeleteError('')
-                                  setDeleteConfirmRow(row)
-                                }}
-                              >
-                                <IconDelete size={14} strokeWidth={1.75} />
-                              </button>
-                            )}
+                            <button
+                              type="button"
+                              className="pl-row-delete-btn"
+                              aria-label={`Delete ${row.sku}`}
+                              title={`Delete ${row.sku}`}
+                              disabled={deletingSku === row.sku}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setDeleteError('')
+                                setDeleteConfirmRow(row)
+                              }}
+                            >
+                              <IconDelete size={14} strokeWidth={1.75} />
+                            </button>
                           </div>
                         </td>
                       </tr>
@@ -2002,22 +1997,20 @@ export function ProductLookup() {
                               >
                                 Details
                               </button>
-                              {execUser && (
-                                <button
-                                  type="button"
-                                  className="pl-row-delete-btn"
-                                  aria-label={`Delete ${row.sku}`}
-                                  title={`Delete ${row.sku}`}
-                                  disabled={deletingSku === row.sku}
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    setDeleteError('')
-                                    setDeleteConfirmRow(row)
-                                  }}
-                                >
-                                  <IconDelete size={14} strokeWidth={1.75} />
-                                </button>
-                              )}
+                              <button
+                                type="button"
+                                className="pl-row-delete-btn"
+                                aria-label={`Delete ${row.sku}`}
+                                title={`Delete ${row.sku}`}
+                                disabled={deletingSku === row.sku}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  setDeleteError('')
+                                  setDeleteConfirmRow(row)
+                                }}
+                              >
+                                <IconDelete size={14} strokeWidth={1.75} />
+                              </button>
                             </div>
                           </td>
                         </tr>
@@ -2069,7 +2062,7 @@ export function ProductLookup() {
         </div>
       )}
 
-      {execUser && deleteConfirmRow && (
+      {deleteConfirmRow && (
         <div className="pl-delete-modal-backdrop" role="presentation" onClick={() => !deletingSku && setDeleteConfirmRow(null)}>
           <div className="pl-delete-modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
             <div className="pl-delete-modal__eyebrow">Confirm delete</div>

@@ -6,6 +6,9 @@ import useStore from '../store/useStore.js'
 import { localDateKey } from '../utils/saleList.js'
 import { canUseProductLookup, isExecutive } from '../utils/roles.js'
 import { buildSeasonSwitcherList, normalizeSeasonInput } from '../utils/seasons.js'
+import { aggregateSkus } from '../utils/aggregateSkus.js'
+import { getProductLifecycleStatus, STATUS_COLORS } from '../utils/lifecycle.js'
+import ProductDetailModal from './ProductDetailModal.jsx'
 
 const ROLE_COLORS = { manager: '#38bdf8', executive: '#c084fc', outlet: '#fbbf24' }
 
@@ -292,6 +295,7 @@ export function Topbar() {
   const setActiveSeason = useStore((s) => s.setActiveSeason)
   const addExtraSeason = useStore((s) => s.addExtraSeason)
   const skus = useStore((s) => s.skus)
+  const shipmentMeta = useStore((s) => s.shipmentMeta)
   const extraSeasons = useStore((s) => s.extraSeasons)
   const activeUser = useStore((s) => s.activeUser)
   const setActiveUser = useStore((s) => s.setActiveUser)
@@ -301,12 +305,40 @@ export function Topbar() {
   const [seasonAddOpen, setSeasonAddOpen] = useState(false)
   const [seasonDraft, setSeasonDraft] = useState('')
   const [userMenuOpen, setUserMenuOpen] = useState(false)
+  const [searchResult, setSearchResult] = useState(null)
   const userMenuRef = useRef(null)
 
   const seasonSwitcherList = useMemo(
     () => buildSeasonSwitcherList(skus, extraSeasons, activeSeason),
     [skus, extraSeasons, activeSeason],
   )
+
+  const quickSearchResults = useMemo(() => {
+    if (execUser) return []
+    const query = searchInput.trim().toLowerCase()
+    if (!query) return []
+    return aggregateSkus(skus, shipmentMeta, activeSeason)
+      .filter((product) => [product.sku, product.product_name, product.barcode, product.brand]
+        .some((value) => String(value || '').toLowerCase().includes(query)))
+      .sort((a, b) => {
+        const aExact = [a.sku, a.barcode].some((value) => String(value || '').toLowerCase() === query)
+        const bExact = [b.sku, b.barcode].some((value) => String(value || '').toLowerCase() === query)
+        return Number(bExact) - Number(aExact)
+      })
+      .slice(0, 6)
+  }, [activeSeason, execUser, searchInput, shipmentMeta, skus])
+
+  const runProductSearch = () => {
+    const query = searchInput.trim()
+    if (execUser) {
+      navigate(query ? `/lookup?q=${encodeURIComponent(query)}` : '/lookup')
+      return
+    }
+    if (quickSearchResults[0]) {
+      setSearchResult(quickSearchResults[0])
+      setSearchInput('')
+    }
+  }
 
   const titleMap = {
     '/': { title: 'Dashboard', titleVariant: 'sentence' },
@@ -394,10 +426,8 @@ export function Topbar() {
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key !== 'Enter') return
-              const q = searchInput.trim()
-              const path = q ? `/lookup?q=${encodeURIComponent(q)}` : '/lookup'
-              navigate(path)
+              if (e.key === 'Enter') runProductSearch()
+              if (e.key === 'Escape') setSearchInput('')
             }}
             placeholder="Search SKU, product, barcode..."
             aria-label="Search SKU, product, or barcode"
@@ -412,6 +442,26 @@ export function Topbar() {
             >
               <X size={16} strokeWidth={1.8} />
             </button>
+          )}
+          {!execUser && searchInput.trim() && (
+            <div className="topbar-search-results" role="listbox" aria-label="Product search results">
+              {quickSearchResults.length ? quickSearchResults.map((product) => (
+                <button
+                  key={product.sku}
+                  type="button"
+                  className="topbar-search-result"
+                  onClick={() => {
+                    setSearchResult(product)
+                    setSearchInput('')
+                  }}
+                >
+                  <span className="topbar-search-result__name">{product.product_name || product.sku}</span>
+                  <span className="topbar-search-result__sku">{product.sku}</span>
+                </button>
+              )) : (
+                <div className="topbar-search-result topbar-search-result--empty">No matching products</div>
+              )}
+            </div>
           )}
         </div>
       )}
@@ -614,6 +664,19 @@ export function Topbar() {
           Import CSV
         </button>
       </div>
+
+      {searchResult && (() => {
+        const status = getProductLifecycleStatus(searchResult)
+        const color = STATUS_COLORS[status] || 'var(--ro-text-dim)'
+        return (
+          <ProductDetailModal
+            sku={searchResult}
+            status={status}
+            statusData={{ color, colorBg: `${color}18` }}
+            onClose={() => setSearchResult(null)}
+          />
+        )
+      })()}
     </div>
   )
 }
