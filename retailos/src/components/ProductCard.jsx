@@ -2,7 +2,7 @@ import { getSellThrough, getDaysInStore, getEffectiveLifecycleImportDate } from 
 import { getShipmentDisplayLines, mergeShipmentMeta } from '../utils/shipmentDisplay.js'
 import { toTitleCase } from '../utils/textFormat.js'
 import useStore from '../store/useStore'
-import { IconFootwear, IconApparel, IconAccessories, IconPackage, IconHot, IconTruck } from '../utils/icons.js'
+import { IconFootwear, IconApparel, IconAccessories, IconPackage, IconHot, IconTruck, IconPlanning } from '../utils/icons.js'
 import SaleBadge from './SaleBadge.jsx'
 import StatusBadge from './StatusBadge.jsx'
 
@@ -180,7 +180,6 @@ function ProductCard({ sku, rank, onClick, onSalesCardClick, metric, metricLabel
         <div className="product-card-tile__title" style={{ fontSize: '12px', fontWeight: 700, color: 'var(--ro-text)', marginBottom: '1px' }}>
           {toTitleCase(sku.product_name)}
         </div>
-        {onSalesCardClick && <button type="button" onClick={(e) => { e.stopPropagation(); onSalesCardClick(sku) }} style={{ width: '100%', margin: '2px 0 9px', padding: '7px 8px', borderRadius: 7, border: '1px solid var(--ro-border)', background: 'var(--ro-surface-elevated)', color: 'var(--ro-text)', cursor: 'pointer', fontSize: 10, fontWeight: 700 }}>Product Sales Card<span style={{ display: 'block', fontSize: 8, fontWeight: 500, color: 'var(--ro-text-muted)' }}>Kartela e Shitjes se Produktit</span></button>}
         <div
           className="product-card-tile__meta"
           style={{
@@ -268,6 +267,8 @@ function ProductCard({ sku, rank, onClick, onSalesCardClick, metric, metricLabel
             {avgSoldPrice.toFixed(2)}
           </span>
         </div>
+
+        {onSalesCardClick && <button className="product-card-sales-card-button" type="button" onClick={(e) => { e.stopPropagation(); onSalesCardClick(sku) }}><IconPlanning size={13} strokeWidth={1.75} aria-hidden />View sales card</button>}
 
         <div className="product-card-tile__metrics-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
           <div>

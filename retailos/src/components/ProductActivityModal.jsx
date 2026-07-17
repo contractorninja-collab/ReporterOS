@@ -22,10 +22,10 @@ export default function ProductActivityModal({ sku, onClose }) {
     try { await downloadSkuActivity(sku.sku, format, { since, until }) } catch (e) { setError(e.message) } finally { setDownloading('') }
   }
 
-  return <div role="dialog" aria-modal="true" aria-label="Product Sales Card" onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 10000, background: 'rgba(0,0,0,.72)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 18 }}>
+  return <div role="dialog" aria-modal="true" aria-label="Product sales card" onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 10000, background: 'rgba(0,0,0,.72)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 18 }}>
     <div onClick={(e) => e.stopPropagation()} style={{ width: 'min(1200px, 100%)', maxHeight: '92vh', overflow: 'auto', background: 'var(--ro-surface)', border: '1px solid var(--ro-border)', borderRadius: 16, padding: 20 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start' }}>
-        <div><div style={{ fontSize: 20, fontWeight: 800 }}>Product Sales Card</div><div style={{ color: 'var(--ro-text-muted)', fontSize: 11 }}>Kartela e Shitjes se Produktit · {sku.sku}</div><div style={{ marginTop: 4, color: 'var(--ro-text-dim)', fontSize: 12 }}>{sku.product_name}</div></div>
+        <div><div style={{ fontSize: 20, fontWeight: 800 }}>Product sales card</div><div style={{ color: 'var(--ro-text-muted)', fontSize: 11 }}>{sku.sku}</div><div style={{ marginTop: 4, color: 'var(--ro-text-dim)', fontSize: 12 }}>{sku.product_name}</div></div>
         <button type="button" onClick={onClose} style={{ fontSize: 20, background: 'none', border: 0, color: 'var(--ro-text)', cursor: 'pointer' }}>×</button>
       </div>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', margin: '18px 0' }}><label>From <input type="date" value={since} onChange={(e) => setSince(e.target.value)} /></label><label>To <input type="date" value={until} onChange={(e) => setUntil(e.target.value)} /></label><button type="button" onClick={() => download('csv')} disabled={!!downloading}>{downloading === 'csv' ? 'Preparing…' : 'Download CSV'}</button><button type="button" onClick={() => download('xlsx')} disabled={!!downloading}>{downloading === 'xlsx' ? 'Preparing…' : 'Download XLSX'}</button></div>

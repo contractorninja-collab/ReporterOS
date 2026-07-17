@@ -831,9 +831,8 @@ export default function ProductDetailModal({ sku, status, statusData, onClose, s
 
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
             {onOpenActivity && (
-              <button type="button" onClick={onOpenActivity} style={{ ...ACTION_BTN, background: '#2563eb', color: '#fff' }}>
-                Product Sales Card
-                <span style={{ display: 'block', fontSize: 8, fontWeight: 500 }}>Kartela e Shitjes se Produktit</span>
+              <button type="button" onClick={onOpenActivity} style={{ ...ACTION_BTN, background: '#fff', color: '#374151', border: '1px solid #E5E7EB', fontSize: 11, padding: '6px 10px' }}>
+                View sales card
               </button>
             )}
             {showMarkdown && (
