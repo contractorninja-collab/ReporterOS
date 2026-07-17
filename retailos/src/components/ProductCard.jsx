@@ -231,19 +231,7 @@ function ProductCard({ sku, rank, onClick, onSalesCardClick, metric, metricLabel
         )}
 
         <div
-          className="product-card-tile__avgSold"
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: 8,
-            padding: '6px 8px',
-            marginBottom: '8px',
-            borderRadius: 6,
-            background: 'var(--ro-fill-faint)',
-            border: '1px solid var(--ro-border)',
-            fontFamily: '"DM Sans"',
-          }}
+          className="product-card-tile__avgSold product-card-info-row"
         >
           <span
             style={{

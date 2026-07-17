@@ -16457,3 +16457,19 @@ button.pl-kpi-tile {
   background: #F9FAFB;
   border-color: #D1D5DB;
 }
+
+.product-card-info-row {
+  width: 100%;
+  margin: 0 0 9px;
+  padding: 6px 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  box-sizing: border-box;
+  border: 1px solid #E5E7EB;
+  border-radius: 6px;
+  background: #fff;
+  color: #374151;
+  font-family: "DM Sans", sans-serif;
+}
