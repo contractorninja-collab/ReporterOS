@@ -267,6 +267,8 @@ export const patchSaleChangeItemMarked = (reportId, skuCode, shop) =>
     method: 'PATCH',
     body: JSON.stringify({ shop }),
   })
+export const deleteSaleChangeReport = (reportId) =>
+  destructiveDelete('/sale-change-reports/' + encodeURIComponent(reportId), 'discard-sale-change-report', reportId)
 
 // ── Sales snapshots ─────────────────────────────────────────────────────────
 

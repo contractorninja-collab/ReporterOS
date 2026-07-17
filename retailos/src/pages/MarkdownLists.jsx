@@ -330,6 +330,7 @@ export default function MarkdownLists() {
   const changeSaleListItemPct = useStore((s) => s.changeSaleListItemPct)
   const removeSaleListItem = useStore((s) => s.removeSaleListItem)
   const toggleSaleChangeItemMarked = useStore((s) => s.toggleSaleChangeItemMarked)
+  const discardSaleChangeReport = useStore((s) => s.discardSaleChangeReport)
   const toggleMarkdownListItemTagged = useStore((s) => s.toggleMarkdownListItemTagged)
   const deleteMarkdownList = useStore((s) => s.deleteMarkdownList)
   const endSaleList = useStore((s) => s.endSaleList)
@@ -349,6 +350,7 @@ export default function MarkdownLists() {
   const [changingSale, setChangingSale] = useState(false)
   const [changeSaleError, setChangeSaleError] = useState('')
   const [markingKey, setMarkingKey] = useState('')
+  const [discardingReportId, setDiscardingReportId] = useState('')
   const canManage = activeUser?.role === 'executive' || activeUser?.role === 'manager'
   const isExec = isExecutive(activeUser)
   const myLane = userMarkdownLane(activeUser)
@@ -536,6 +538,24 @@ export default function MarkdownLists() {
     }
   }
 
+  async function handleDiscardChangeReport(report) {
+    if (!report || discardingReportId) return
+    const count = (report.changes || []).length
+    const ok = window.confirm(
+      'Discard this sale change report? This will restore the previous discount for ' +
+      count + ' product' + (count === 1 ? '' : 's') + ' and remove the report.',
+    )
+    if (!ok) return
+    setDiscardingReportId(report.id)
+    try {
+      await discardSaleChangeReport(report.id)
+    } catch (e) {
+      window.alert(e?.message || 'Could not discard this sale change report')
+    } finally {
+      setDiscardingReportId('')
+    }
+  }
+
   // ── Change reports (grouped by date) ─────────────────────────────────────
   if (activeTab === 'changes' && !openId) {
     return (
@@ -562,6 +582,21 @@ export default function MarkdownLists() {
             />
             {activeChangeGroup && (
               <>
+                {isExec && activeChangeGroup.reports.length > 0 && (
+                  <div className="md-change-report-tools">
+                    {activeChangeGroup.reports.map((report) => (
+                      <button
+                        key={report.id}
+                        type="button"
+                        className="md-change-report-discard"
+                        disabled={discardingReportId === report.id}
+                        onClick={() => handleDiscardChangeReport(report)}
+                      >
+                        {discardingReportId === report.id ? 'Discarding…' : 'Discard report · ' + (report.listTitle || 'Sale list')}
+                      </button>
+                    ))}
+                  </div>
+                )}
                 <div style={{ margin: '16px 0' }}>
                   <p style={{ fontSize: 12, color: S.muted, margin: 0 }}>
                     {dateTabLabel(activeChangeGroup.dateKey)} · {activeChangeGroup.changes.length} change{activeChangeGroup.changes.length !== 1 ? 's' : ''}

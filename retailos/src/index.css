@@ -16474,6 +16474,35 @@ button.pl-kpi-tile {
   font-family: "DM Sans", sans-serif;
 }
 
+.md-change-report-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.md-change-report-discard {
+  padding: 7px 10px;
+  color: #b91c1c;
+  background: #fff;
+  border: 1px solid #fecaca;
+  border-radius: 7px;
+  cursor: pointer;
+  font-family: "DM Sans", sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.md-change-report-discard:hover {
+  background: #fef2f2;
+  border-color: #fca5a5;
+}
+
+.md-change-report-discard:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
 .product-activity-overlay {
   position: fixed;
   inset: 0;
