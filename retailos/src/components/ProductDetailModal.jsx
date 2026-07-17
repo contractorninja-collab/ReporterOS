@@ -43,7 +43,7 @@ function suggestMarkdownTier(days) {
   return 70
 }
 
-export default function ProductDetailModal({ sku, status, statusData, onClose, saleListAssign = false }) {
+export default function ProductDetailModal({ sku, status, statusData, onClose, saleListAssign = false, onOpenActivity }) {
   const photoUrl = useStore((s) => s.photoMap[sku.sku]) || null
   const rawSkus = useStore((s) => s.skus)
   const users = useStore((s) => s.users)
@@ -830,6 +830,12 @@ export default function ProductDetailModal({ sku, status, statusData, onClose, s
           </div>
 
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            {onOpenActivity && (
+              <button type="button" onClick={onOpenActivity} style={{ ...ACTION_BTN, background: '#2563eb', color: '#fff' }}>
+                Product Sales Card
+                <span style={{ display: 'block', fontSize: 8, fontWeight: 500 }}>Kartela e Shitjes se Produktit</span>
+              </button>
+            )}
             {showMarkdown && (
               <button type="button" onClick={() => openAssignPanel('markdown')} style={{ ...ACTION_BTN, background: '#ff3333', color: '#fff' }}>
                 Apply Markdown

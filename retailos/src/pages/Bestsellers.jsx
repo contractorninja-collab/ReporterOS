@@ -1007,6 +1007,7 @@ export function Bestsellers() {
             status={st}
             statusData={{ color: STATUS_COLORS[st] || 'var(--ro-text-dim)', colorBg: `${STATUS_COLORS[st] || '#64748b'}18` }}
             onClose={() => setSelectedSku(null)}
+            onOpenActivity={exec ? () => { setSelectedSku(null); setActivitySku(selectedSku) } : undefined}
           />
         )
       })()}
