@@ -6,7 +6,7 @@ import { IconFootwear, IconApparel, IconAccessories, IconPackage, IconHot, IconT
 import SaleBadge from './SaleBadge.jsx'
 import StatusBadge from './StatusBadge.jsx'
 
-function ProductCard({ sku, rank, onClick, metric, metricLabel, velocity, lowStock, rankTrend, delta, hideSalesCounts = false, className = '', showDayOverlay = false, showBrandPill = false }) {
+function ProductCard({ sku, rank, onClick, onSalesCardClick, metric, metricLabel, velocity, lowStock, rankTrend, delta, hideSalesCounts = false, className = '', showDayOverlay = false, showBrandPill = false }) {
   const photoMap = useStore((s) => s.photoMap)
   const shipmentMeta = useStore((s) => s.shipmentMeta)
   const activeSeason = useStore((s) => s.activeSeason)
@@ -180,6 +180,7 @@ function ProductCard({ sku, rank, onClick, metric, metricLabel, velocity, lowSto
         <div className="product-card-tile__title" style={{ fontSize: '12px', fontWeight: 700, color: 'var(--ro-text)', marginBottom: '1px' }}>
           {toTitleCase(sku.product_name)}
         </div>
+        {onSalesCardClick && <button type="button" onClick={(e) => { e.stopPropagation(); onSalesCardClick(sku) }} style={{ width: '100%', margin: '2px 0 9px', padding: '7px 8px', borderRadius: 7, border: '1px solid var(--ro-border)', background: 'var(--ro-surface-elevated)', color: 'var(--ro-text)', cursor: 'pointer', fontSize: 10, fontWeight: 700 }}>Product Sales Card<span style={{ display: 'block', fontSize: 8, fontWeight: 500, color: 'var(--ro-text-muted)' }}>Kartela e Shitjes se Produktit</span></button>}
         <div
           className="product-card-tile__meta"
           style={{

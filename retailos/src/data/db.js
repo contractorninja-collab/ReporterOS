@@ -3293,6 +3293,57 @@ export function getSalesSummaryForSku(skuCode, options = {}) {
   }
 }
 
+/** Chronological import/sale/return ledger for a single SKU. */
+export function getSkuActivity(skuCode, options = {}) {
+  const sku = String(skuCode || '').trim()
+  if (!sku) return { sku: '', events: [], totals: { imported: 0, sold: 0, returned: 0, netUnits: 0, revenue: 0, stock: 0 } }
+  const imports = db.prepare(`
+    SELECT il.id, il.import_id, il.sku, il.size, il.barcode, il.product_name,
+           il.quantity_added, il.price_tag, il.imported_at, ih.filename AS source_file
+    FROM import_lines il
+    LEFT JOIN import_history ih ON ih.id = il.import_id
+    WHERE il.sku = ? AND il.import_id IN (SELECT id FROM import_history)
+      AND COALESCE(il.quantity_added, 0) > 0
+  `).all(sku).map((r) => ({
+    eventType: 'IMPORT', eventDate: String(r.imported_at || '').slice(0, 10),
+    sortAt: r.imported_at || '', id: `intake:${r.id}`, sku: r.sku,
+    productName: r.product_name || '', size: r.size || '', barcode: r.barcode || '',
+    quantity: Math.abs(Number(r.quantity_added) || 0), signedQuantity: Number(r.quantity_added) || 0,
+    unitPrice: null, amount: 0, sourceFile: r.source_file || '', importId: r.import_id,
+    orderId: '', exchangeGroupId: '',
+  }))
+  const sales = db.prepare(`
+    SELECT se.*, ih.filename AS source_file
+    FROM sales_events se LEFT JOIN import_history ih ON ih.id = se.import_id
+    WHERE se.sku = ?
+  `).all(sku).map((r) => {
+    const units = Number(r.units_sold) || 0
+    const isReturn = units < 0
+    return {
+      eventType: isReturn ? 'RETURN' : 'SALE', eventDate: String(r.event_date || '').slice(0, 10),
+      sortAt: r.created_at || r.event_date || '', id: `sales:${r.id}`, sku: r.sku,
+      productName: r.product_name || '', size: r.size || '', barcode: '',
+      quantity: Math.abs(units), signedQuantity: units, unitPrice: Math.abs(Number(r.price_sold) || 0),
+      amount: Number(r.revenue) || 0, sourceFile: r.source_file || '', importId: r.import_id || '',
+      orderId: r.order_id || '', exchangeGroupId: r.exchange_group_id || '',
+    }
+  })
+  const ordered = [...imports, ...sales].sort((a, b) => a.eventDate.localeCompare(b.eventDate) || a.sortAt.localeCompare(b.sortAt) || (a.eventType === 'IMPORT' ? -1 : 1) || a.id.localeCompare(b.id))
+  const all = []
+  let stock = 0, imported = 0, sold = 0, returned = 0, revenue = 0
+  for (const e of ordered) {
+    stock += e.eventType === 'IMPORT' ? e.quantity : e.signedQuantity * -1
+    e.runningStock = stock
+    if (e.eventDate < (options.since || '0000-00-00') || e.eventDate > (options.until || '9999-99-99')) continue
+    all.push(e)
+    if (e.eventType === 'IMPORT') imported += e.quantity
+    if (e.eventType === 'SALE') sold += e.quantity
+    if (e.eventType === 'RETURN') returned += e.quantity
+    revenue += e.amount
+  }
+  return { sku, events: all, totals: { imported, sold, returned, netUnits: sold - returned, revenue, stock } }
+}
+
 /** True if at least one reporting sales event exists (date-aware Reports use this path). */
 export function hasAnySalesEvents() {
   const row = db.prepare('SELECT 1 AS o FROM sales_events LIMIT 1').get()

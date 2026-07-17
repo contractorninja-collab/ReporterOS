@@ -300,6 +300,25 @@ export const fetchSalesSummaryForSku = (sku, options = {}) => {
   return request(`/sales/summary/${encodeURIComponent(sku || '')}${qs ? `?${qs}` : ''}`)
 }
 
+export const fetchSkuActivity = (sku, options = {}) => {
+  const q = new URLSearchParams()
+  if (options.since) q.set('since', options.since)
+  if (options.until) q.set('until', options.until)
+  const qs = q.toString()
+  return request(`/skus/${encodeURIComponent(sku || '')}/activity${qs ? `?${qs}` : ''}`)
+}
+
+export const downloadSkuActivity = async (sku, format = 'csv', options = {}) => {
+  const q = new URLSearchParams()
+  if (options.since) q.set('since', options.since)
+  if (options.until) q.set('until', options.until)
+  const response = await fetch(`${BASE}/skus/${encodeURIComponent(sku || '')}/activity.${format}${q.toString() ? `?${q}` : ''}`, { credentials: 'include' })
+  if (!response.ok) throw await toResponseError(response, 'Activity export failed')
+  const blob = await response.blob()
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a'); a.href = url; a.download = `RetailOS_Product_Sales_Card_${sku}.${format}`; a.click(); URL.revokeObjectURL(url)
+}
+
 export const fetchSalesByDay = (since, until, season) => {
   let url = `/sales/by-day?since=${encodeURIComponent(since || '')}`
   if (until) url += `&until=${encodeURIComponent(until)}`

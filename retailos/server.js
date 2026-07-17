@@ -6,6 +6,7 @@ import fs from 'fs'
 import cookieParser from 'cookie-parser'
 import helmet from 'helmet'
 import rateLimit from 'express-rate-limit'
+import ExcelJS from 'exceljs'
 import { SignJWT, jwtVerify } from 'jose'
 import { fileURLToPath } from 'url'
 import {
@@ -28,7 +29,7 @@ import {
   getAllSaleChangeReports, getSaleChangeReportById, saleChangeReportVisibleToUser,
   toggleSaleChangeItemMarked,
   getAllSnapshots, insertSnapshot,
-  getSoldQuantityMap, getSalesBySku, getSalesSummaryForSku, getSalesAggregatedByDay, getExchangePairs,
+  getSoldQuantityMap, getSalesBySku, getSalesSummaryForSku, getSkuActivity, getSalesAggregatedByDay, getExchangePairs,
   replaceSalesEventsForReportingImport,
   getExecutiveBuyingReport, getBrandProductivityReport, getReturnsExchangeReport, getSizeCurveHealthReport, getMarkdownRiskReport,
   getCategoryProductivityReport, getMoversReport,
@@ -1070,6 +1071,46 @@ function requireExecutive(req, res, next) {
     return res.status(403).json({ error: 'Executive access required' })
   }
   next()
+}
+
+function requireManagerOrExecutive(req, res, next) {
+  if (req.authUser?.role !== 'executive' && req.authUser?.role !== 'manager') {
+    return res.status(403).json({ error: 'Manager or executive access required' })
+  }
+  next()
+}
+
+function csvCell(value) {
+  const text = value == null ? '' : String(value)
+  return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text
+}
+
+function activityCsv(activity) {
+  const lines = [
+    ['RetailOS', 'Product Sales Card'],
+    ['SKU', activity.sku],
+    ['Generated', new Date().toISOString()],
+    [],
+    ['Event Type', 'Date', 'SKU', 'Product', 'Size', 'Barcode', 'Quantity', 'Signed Quantity', 'Unit Price', 'Amount', 'Running Stock', 'Source File', 'Import ID', 'Order ID', 'Exchange Group ID'],
+    ...activity.events.map((e) => [e.eventType, e.eventDate, e.sku, e.productName, e.size, e.barcode, e.quantity, e.signedQuantity, e.unitPrice, e.amount, e.runningStock, e.sourceFile, e.importId, e.orderId, e.exchangeGroupId]),
+  ]
+  return '\uFEFF' + lines.map((row) => row.map(csvCell).join(',')).join('\r\n') + '\r\n'
+}
+
+async function activityXlsx(activity) {
+  const workbook = new ExcelJS.Workbook()
+  workbook.creator = 'RetailOS'
+  const sheet = workbook.addWorksheet('Product Sales Card', { views: [{ state: 'frozen', ySplit: 5 }] })
+  sheet.mergeCells('A1:O1'); sheet.getCell('A1').value = 'RetailOS — Product Sales Card'; sheet.getCell('A1').font = { bold: true, size: 16, color: { argb: 'FFFFFFFF' } }; sheet.getCell('A1').fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF111827' } }
+  sheet.addRow(['SKU', activity.sku]); sheet.addRow(['Generated', new Date().toISOString()]); sheet.addRow([])
+  const headers = ['Event Type', 'Date', 'SKU', 'Product', 'Size', 'Barcode', 'Quantity', 'Signed Quantity', 'Unit Price', 'Amount', 'Running Stock', 'Source File', 'Import ID', 'Order ID', 'Exchange Group ID']
+  const headerRow = sheet.addRow(headers)
+  headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' } }; headerRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF2563EB' } }
+  activity.events.forEach((e) => sheet.addRow([e.eventType, e.eventDate, e.sku, e.productName, e.size, e.barcode, e.quantity, e.signedQuantity, e.unitPrice, e.amount, e.runningStock, e.sourceFile, e.importId, e.orderId, e.exchangeGroupId]))
+  sheet.autoFilter = { from: 'A5', to: `O${sheet.rowCount}` }
+  sheet.columns.forEach((c) => { c.width = Math.min(Math.max((c.header || '').length + 3, 12), 28) })
+  ;[9, 10].forEach((index) => sheet.getColumn(index).numFmt = '#,##0.00')
+  return workbook.xlsx.writeBuffer()
 }
 
 function apiAuthGate(req, res, next) {
@@ -2379,6 +2420,34 @@ app.get('/api/sales/summary/:sku', (req, res) => {
   try {
     const season = typeof req.query.season === 'string' && req.query.season ? req.query.season : undefined
     res.json(getSalesSummaryForSku(req.params.sku || '', { season }))
+  } catch (e) { safeError(res, e) }
+})
+
+app.get('/api/skus/:sku/activity', requireManagerOrExecutive, (req, res) => {
+  try {
+    assertSafeSku(req.params.sku)
+    res.json(getSkuActivity(req.params.sku, { since: req.query.since, until: req.query.until }))
+  } catch (e) { safeError(res, e) }
+})
+
+app.get('/api/skus/:sku/activity.csv', requireManagerOrExecutive, (req, res) => {
+  try {
+    assertSafeSku(req.params.sku)
+    const activity = getSkuActivity(req.params.sku, { since: req.query.since, until: req.query.until })
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8')
+    res.setHeader('Content-Disposition', `attachment; filename="RetailOS_Product_Sales_Card_${req.params.sku}.csv"`)
+    res.send(activityCsv(activity))
+  } catch (e) { safeError(res, e) }
+})
+
+app.get('/api/skus/:sku/activity.xlsx', requireManagerOrExecutive, async (req, res) => {
+  try {
+    assertSafeSku(req.params.sku)
+    const activity = getSkuActivity(req.params.sku, { since: req.query.since, until: req.query.until })
+    const buffer = await activityXlsx(activity)
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    res.setHeader('Content-Disposition', `attachment; filename="RetailOS_Product_Sales_Card_${req.params.sku}.xlsx"`)
+    res.send(Buffer.from(buffer))
   } catch (e) { safeError(res, e) }
 })
 

@@ -8,6 +8,7 @@ import { normalizeGenderCodeForFilter } from '../utils/gender.js'
 import { isSeasonFilterActive, productMatchesActiveSeason } from '../utils/seasons.js'
 import ProductCard from '../components/ProductCard'
 import ProductDetailModal from '../components/ProductDetailModal'
+import ProductActivityModal from '../components/ProductActivityModal'
 import StatusChip from '../components/StatusChip'
 import BrandSelect from '../components/BrandSelect.jsx'
 import { fetchSalesBySku } from '../api/client.js'
@@ -292,6 +293,7 @@ export function Bestsellers() {
   const [limit, setLimit] = useState(10)
   const [showAllSold, setShowAllSold] = useState(false)
   const [selectedSku, setSelectedSku] = useState(null)
+  const [activitySku, setActivitySku] = useState(null)
   const [salesData, setSalesData] = useState(null)
   const [prevSalesData, setPrevSalesData] = useState(null)
   const [showCompare, setShowCompare] = useState(false)
@@ -865,6 +867,7 @@ export function Bestsellers() {
               showBrandPill
               rankTrend={showCompare && prevRankMap ? { prevRank: prevRankMap[sku.sku] ?? null, currentRank: i + 1 } : null}
               onClick={() => setSelectedSku(sku)}
+              onSalesCardClick={exec ? () => setActivitySku(sku) : undefined}
             />
           )
         })}
@@ -1007,6 +1010,8 @@ export function Bestsellers() {
           />
         )
       })()}
+
+      {activitySku && <ProductActivityModal sku={cardDisplaySku(activitySku, skuImportTotals)} onClose={() => setActivitySku(null)} />}
 
       {filtersOpen && createPortal(
         <div className="bs-filter-drawer-root">
