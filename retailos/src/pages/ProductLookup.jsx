@@ -1927,6 +1927,16 @@ export function ProductLookup() {
                               className="pl-details-btn"
                               onClick={(e) => {
                                 e.stopPropagation()
+                                setActivitySku(row)
+                              }}
+                            >
+                              View sales card
+                            </button>
+                            <button
+                              type="button"
+                              className="pl-details-btn"
+                              onClick={(e) => {
+                                e.stopPropagation()
                                 openModal(row)
                               }}
                             >

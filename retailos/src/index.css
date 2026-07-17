@@ -16474,6 +16474,23 @@ button.pl-kpi-tile {
   font-family: "DM Sans", sans-serif;
 }
 
+.product-lookup-table-scroll th.product-lookup-col-actions,
+.product-lookup-table-scroll td.product-lookup-col-actions {
+  width: 190px;
+  min-width: 190px;
+}
+
+.product-lookup-table-scroll .pl-row-actions {
+  display: flex;
+  justify-content: center;
+  flex-wrap: nowrap;
+  white-space: nowrap;
+}
+
+.product-lookup-table-scroll .pl-details-btn {
+  white-space: nowrap;
+}
+
 /* Sale change report cards: product-scoped actions and wider responsive layout. */
 .md-change-report-grid {
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
