@@ -2998,6 +2998,56 @@ export function discardSaleChangeReport(reportId) {
   return { reportId: report.id, list: getMarkdownListById(report.listId), restored }
 }
 
+/** Discard only one SKU change from a report, preserving sibling product changes. */
+export function discardSaleChangeReportProduct(reportId, skuCode) {
+  const report = getSaleChangeReportById(reportId)
+  if (!report) throw new Error('Change report not found')
+  const change = (report.changes || []).find((item) => item.skuCode === skuCode)
+  if (!change) throw new Error('Product is not in this change report')
+  const list = getMarkdownListById(report.listId)
+  if (!list) throw new Error('Sale list no longer exists')
+  const items = [...(list.items || [])]
+  const index = items.findIndex((item) => item.skuCode === skuCode)
+  if (index < 0) throw new Error('Product is no longer on the sale list')
+  const current = items[index]
+  const currentPct = Number(current.salePct) || 0
+  const currentExtra = Number(current.extraSalePct) === 20 ? 20 : 0
+  const reportPct = Number(change.newSalePct) || 0
+  const reportExtra = Number(change.newExtraSalePct) === 20 ? 20 : 0
+  if (currentPct !== reportPct || currentExtra !== reportExtra) {
+    throw new Error('The sale was changed again after this report')
+  }
+  const oldPct = Math.max(0, Math.min(90, Math.round(Number(change.oldSalePct) || 0)))
+  const oldExtra = Number(change.oldExtraSalePct) === 20 ? 20 : 0
+  items[index] = {
+    ...current,
+    salePct: oldPct,
+    extraSalePct: oldExtra,
+    salePrice: oldPct > 0 ? salePriceOf(current.priceTag, oldPct, oldExtra) : 0,
+  }
+  const remainingChanges = report.changes.filter((item) => item.skuCode !== skuCode)
+  const statuses = { ...(report.item_statuses || {}) }
+  delete statuses[skuCode]
+  const tx = db.transaction(() => {
+    updateMarkdownList(report.listId, { items })
+    db.prepare('UPDATE skus SET sale_active = 0, sale_percent = NULL, sale_extra_percent = NULL, sale_list_id = NULL WHERE sku = ? AND sale_list_id = ? AND deleted_at IS NULL').run(skuCode, report.listId)
+    applySaleToSkus(report.listId, items)
+    if (remainingChanges.length) {
+      db.prepare('UPDATE sale_change_reports SET changes = ?, item_statuses = ? WHERE id = ?')
+        .run(JSON.stringify(remainingChanges), JSON.stringify(statuses), report.id)
+    } else {
+      db.prepare('DELETE FROM sale_change_reports WHERE id = ?').run(report.id)
+    }
+  })
+  tx()
+  return {
+    reportId: report.id,
+    skuCode,
+    list: getMarkdownListById(report.listId),
+    report: remainingChanges.length ? getSaleChangeReportById(report.id) : null,
+  }
+}
+
 export function saleChangeReportVisibleToUser(report, user) {
   if (!report || !user) return false
   if (user.role === 'executive') return true

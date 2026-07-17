@@ -401,6 +401,20 @@ export function createMarkdownsSlice(set, get) {
       return result
     },
 
+    discardSaleChangeReportProduct: async (reportId, skuCode) => {
+      const result = await api.deleteSaleChangeReportProduct(reportId, skuCode)
+      set((s) => ({
+        saleChangeReports: result?.report
+          ? s.saleChangeReports.map((r) => (r.id === reportId ? result.report : r))
+          : s.saleChangeReports.filter((r) => r.id !== reportId),
+        markdownLists: result?.list
+          ? s.markdownLists.map((l) => (l.id === result.list.id ? result.list : l))
+          : s.markdownLists,
+      }))
+      get().syncCatalogData().catch(() => {})
+      return result
+    },
+
     deleteMarkdownList: (listId) => {
       const prevLists = get().markdownLists
       const prevSkus = get().skus

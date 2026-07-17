@@ -269,6 +269,12 @@ export const patchSaleChangeItemMarked = (reportId, skuCode, shop) =>
   })
 export const deleteSaleChangeReport = (reportId) =>
   destructiveDelete('/sale-change-reports/' + encodeURIComponent(reportId), 'discard-sale-change-report', reportId)
+export const deleteSaleChangeReportProduct = (reportId, skuCode) =>
+  destructiveDelete(
+    '/sale-change-reports/' + encodeURIComponent(reportId) + '/items/' + encodeURIComponent(skuCode),
+    'discard-sale-change-product',
+    reportId + ':' + skuCode,
+  )
 
 // ── Sales snapshots ─────────────────────────────────────────────────────────
 

@@ -27,7 +27,7 @@ import {
   removeMarkdownListItemFromSale,
   createEcommerceSaleListForOutletTransfer,
   getAllSaleChangeReports, getSaleChangeReportById, saleChangeReportVisibleToUser,
-  toggleSaleChangeItemMarked, discardSaleChangeReport,
+  toggleSaleChangeItemMarked, discardSaleChangeReport, discardSaleChangeReportProduct,
   getAllSnapshots, insertSnapshot,
   getSoldQuantityMap, getSalesBySku, getSalesSummaryForSku, getSkuActivity, getSalesAggregatedByDay, getExchangePairs,
   replaceSalesEventsForReportingImport,
@@ -2389,6 +2389,23 @@ app.delete('/api/sale-change-reports/:id', requireExecutive, (req, res) => {
       entityId: req.params.id,
       summary: 'Discarded sale change report — ' + (report.listTitle || report.listId),
       meta: { listId: report.listId, changeCount: report.changes?.length || 0 },
+    })
+    res.json(result)
+  } catch (e) { safeError(res, e) }
+})
+
+app.delete('/api/sale-change-reports/:id/items/:skuCode', requireExecutive, (req, res) => {
+  try {
+    const report = getSaleChangeReportById(req.params.id)
+    if (!report) return res.status(404).json({ error: 'Change report not found' })
+    const result = discardSaleChangeReportProduct(req.params.id, req.params.skuCode)
+    act(req.authUser, {
+      category: 'sale_change_report',
+      action: 'discarded_product',
+      entityType: 'sale_change_report',
+      entityId: req.params.id,
+      summary: 'Discarded sale change for ' + req.params.skuCode + ' — ' + (report.listTitle || report.listId),
+      meta: { listId: report.listId, skuCode: req.params.skuCode },
     })
     res.json(result)
   } catch (e) { safeError(res, e) }

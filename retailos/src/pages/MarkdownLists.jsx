@@ -189,17 +189,19 @@ function ChangeReportTiles({
   photoMap,
   userName,
   onToggleMarked,
+  onDiscardProduct,
   markingKey,
+  discardingKey,
   markableLanes,
 }) {
   return (
     <div className="md-change-report-grid">
-      {changes.map((ch, idx) => {
+      {changes.map((ch) => {
         const photoUrl = photoMap[ch.skuCode] || null
         const salePct = Math.round(Number(ch.newSalePct) || 0)
         const extraSalePct = Number(ch.newExtraSalePct) === 20 ? 20 : 0
         return (
-          <article key={`${ch.reportId}-${ch.skuCode}-${idx}`} className="md-change-card">
+          <article key={ch.reportId + '-' + ch.skuCode} className="md-change-card">
             <div className="md-change-card__media">
               {photoUrl ? (
                 <img src={photoUrl} alt={ch.productName} loading="lazy" className="md-change-card__img" />
@@ -258,41 +260,30 @@ function ChangeReportTiles({
                     const detail = isMarked
                       ? `${userName(st.markedBy)}${st.markedAt ? ` · ${fmtDateTime(st.markedAt)}` : ''}`
                       : 'Pending'
+                    const isMarkable = markableLanes.includes(shop)
+                    const markKey = `${ch.reportId}-${ch.skuCode}-${shop}`
+                    const isMarking = markingKey === markKey
                     return (
-                      <span
-                        key={shop}
-                        className={`md-change-card__shop-pill${isMarked ? ' md-change-card__shop-pill--done' : ''}`}
-                        title={detail}
-                      >
-                        {shop} {isMarked ? 'Done' : 'Pending'}
-                      </span>
+                      <div key={shop} className="md-change-card__channel-row" title={detail}>
+                        <span className="md-change-card__channel-name">{shop}</span>
+                        <span className={`md-change-card__channel-status${isMarked ? ' md-change-card__channel-status--done' : ''}`}>
+                          {isMarked ? 'Done' : 'Pending'}
+                        </span>
+                        {isMarkable ? (
+                          <button type="button" className="md-change-card__undo-btn" disabled={isMarking} onClick={() => onToggleMarked(ch.reportId, ch.skuCode, shop)}>
+                            {isMarking ? '…' : 'Undo'}
+                          </button>
+                        ) : <span className="md-change-card__channel-unavailable">—</span>}
+                      </div>
                     )
                   })}
                 </div>
               </div>
-              <div className="md-change-card__actions">
-                {markableLanes.map((shop) => {
-                  const st = ch.shopStatuses?.[shop]
-                  const isMarked = st?.status === 'marked'
-                  const markKey = `${ch.reportId}-${ch.skuCode}-${shop}`
-                  const isMarking = markingKey === markKey
-                  return (
-                    <button
-                      key={`action-${shop}`}
-                      type="button"
-                      className={`md-change-card__btn${isMarked ? ' md-change-card__btn--done' : ''}`}
-                      disabled={isMarking}
-                      onClick={() => onToggleMarked(ch.reportId, ch.skuCode, shop)}
-                    >
-                      {isMarking
-                        ? '…'
-                        : isMarked
-                          ? `Undo · ${shop}`
-                          : `Mark · ${shop}`}
-                    </button>
-                  )
-                })}
-              </div>
+              {onDiscardProduct && (
+                <button type="button" className="md-change-card__discard" disabled={discardingKey === ch.reportId + '-' + ch.skuCode} onClick={() => onDiscardProduct(ch)}>
+                  {discardingKey === ch.reportId + '-' + ch.skuCode ? 'Discarding…' : 'Discard this change'}
+                </button>
+              )}
             </div>
           </article>
         )
@@ -330,7 +321,7 @@ export default function MarkdownLists() {
   const changeSaleListItemPct = useStore((s) => s.changeSaleListItemPct)
   const removeSaleListItem = useStore((s) => s.removeSaleListItem)
   const toggleSaleChangeItemMarked = useStore((s) => s.toggleSaleChangeItemMarked)
-  const discardSaleChangeReport = useStore((s) => s.discardSaleChangeReport)
+  const discardSaleChangeReportProduct = useStore((s) => s.discardSaleChangeReportProduct)
   const toggleMarkdownListItemTagged = useStore((s) => s.toggleMarkdownListItemTagged)
   const deleteMarkdownList = useStore((s) => s.deleteMarkdownList)
   const endSaleList = useStore((s) => s.endSaleList)
@@ -350,7 +341,7 @@ export default function MarkdownLists() {
   const [changingSale, setChangingSale] = useState(false)
   const [changeSaleError, setChangeSaleError] = useState('')
   const [markingKey, setMarkingKey] = useState('')
-  const [discardingReportId, setDiscardingReportId] = useState('')
+  const [discardingKey, setDiscardingKey] = useState('')
   const canManage = activeUser?.role === 'executive' || activeUser?.role === 'manager'
   const isExec = isExecutive(activeUser)
   const myLane = userMarkdownLane(activeUser)
@@ -538,21 +529,20 @@ export default function MarkdownLists() {
     }
   }
 
-  async function handleDiscardChangeReport(report) {
-    if (!report || discardingReportId) return
-    const count = (report.changes || []).length
+  async function handleDiscardChangeProduct(change) {
+    if (!change || discardingKey) return
+    const key = change.reportId + '-' + change.skuCode
     const ok = window.confirm(
-      'Discard this sale change report? This will restore the previous discount for ' +
-      count + ' product' + (count === 1 ? '' : 's') + ' and remove the report.',
+      'Discard the sale change for ' + (change.productName || change.skuCode) + ' (' + change.skuCode + ')? This restores its previous discount.',
     )
     if (!ok) return
-    setDiscardingReportId(report.id)
+    setDiscardingKey(key)
     try {
-      await discardSaleChangeReport(report.id)
+      await discardSaleChangeReportProduct(change.reportId, change.skuCode)
     } catch (e) {
-      window.alert(e?.message || 'Could not discard this sale change report')
+      window.alert(e?.message || 'Could not discard this product change')
     } finally {
-      setDiscardingReportId('')
+      setDiscardingKey('')
     }
   }
 
@@ -582,21 +572,6 @@ export default function MarkdownLists() {
             />
             {activeChangeGroup && (
               <>
-                {isExec && activeChangeGroup.reports.length > 0 && (
-                  <div className="md-change-report-tools">
-                    {activeChangeGroup.reports.map((report) => (
-                      <button
-                        key={report.id}
-                        type="button"
-                        className="md-change-report-discard"
-                        disabled={discardingReportId === report.id}
-                        onClick={() => handleDiscardChangeReport(report)}
-                      >
-                        {discardingReportId === report.id ? 'Discarding…' : 'Discard report · ' + (report.listTitle || 'Sale list')}
-                      </button>
-                    ))}
-                  </div>
-                )}
                 <div style={{ margin: '16px 0' }}>
                   <p style={{ fontSize: 12, color: S.muted, margin: 0 }}>
                     {dateTabLabel(activeChangeGroup.dateKey)} · {activeChangeGroup.changes.length} change{activeChangeGroup.changes.length !== 1 ? 's' : ''}
@@ -633,7 +608,9 @@ export default function MarkdownLists() {
                   photoMap={photoMap}
                   userName={userName}
                   onToggleMarked={handleToggleChangeMarked}
+                  onDiscardProduct={isExec ? handleDiscardChangeProduct : undefined}
                   markingKey={markingKey}
+                  discardingKey={discardingKey}
                   markableLanes={viewLanes}
                 />
               </>
