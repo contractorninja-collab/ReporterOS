@@ -7,6 +7,7 @@ import { aggregateSkus } from '../utils/aggregateSkus'
 import { getLifecycleStatus, getReorderVerdict } from '../utils/lifecycle'
 import * as api from '../api/client'
 import ProductDetailModal from '../components/ProductDetailModal'
+import ProductActivityModal from '../components/ProductActivityModal'
 import SaleBadge from '../components/SaleBadge.jsx'
 import StatusBadge from '../components/StatusBadge.jsx'
 import BrandSelect from '../components/BrandSelect.jsx'
@@ -602,6 +603,7 @@ export function ProductLookup() {
   const [sortKey, setSortKey] = useState('product_name')
   const [sortDir, setSortDir] = useState('asc')
   const [modalSku, setModalSku] = useState(null)
+  const [activitySku, setActivitySku] = useState(null)
   const [selectedSkus, setSelectedSkus] = useState({})
   const [bulkListId, setBulkListId] = useState('')
   const [bulkPct, setBulkPct] = useState(30)
@@ -1655,6 +1657,16 @@ export function ProductLookup() {
                           <div className="pl-mobile-card__actions">
                             <button
                               type="button"
+                              className="pl-details-btn"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setActivitySku(row)
+                              }}
+                            >
+                              View sales card
+                            </button>
+                            <button
+                              type="button"
                               className="pl-mobile-card__details-btn"
                               onClick={() => openModal(row)}
                             >
@@ -1992,6 +2004,16 @@ export function ProductLookup() {
                                 className="pl-details-btn"
                                 onClick={(e) => {
                                   e.stopPropagation()
+                                  setActivitySku(row)
+                                }}
+                              >
+                                View sales card
+                              </button>
+                              <button
+                                type="button"
+                                className="pl-details-btn"
+                                onClick={(e) => {
+                                  e.stopPropagation()
                                   openModal(row)
                                 }}
                               >
@@ -2108,6 +2130,7 @@ export function ProductLookup() {
           onClose={() => setModalSku(null)}
         />
       )}
+      {activitySku && <ProductActivityModal sku={activitySku} onClose={() => setActivitySku(null)} />}
 
       {filtersOpen && createPortal(
         <div className="bs-filter-drawer-root">

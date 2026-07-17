@@ -20,6 +20,7 @@ import { aggregateSkus } from '../utils/aggregateSkus'
 import LifecycleTile from '../components/LifecycleTile'
 import ProductPanelCard from '../components/ProductPanelCard'
 import ProductDetailModal from '../components/ProductDetailModal'
+import ProductActivityModal from '../components/ProductActivityModal'
 import { SmartAlertsList, SmartAlertsHeaderTitle } from '../components/SmartAlertsList'
 import { toTitleCase } from '../utils/textFormat.js'
 import StatusChip from '../components/StatusChip'
@@ -266,6 +267,7 @@ export function Dashboard() {
   const [activeInventoryGender, setActiveInventoryGender] = useState(null)
   const [categoryFilter, setCategoryFilter] = useState('All')
   const [selectedSkuForModal, setSelectedSku] = useState(null)
+  const [activitySku, setActivitySku] = useState(null)
   const [salesMasked, setSalesMasked] = useState(() => {
     try {
       return localStorage.getItem(DASH_PRIVACY_KEY) === '1'
@@ -952,6 +954,7 @@ export function Dashboard() {
                       salesVisible={execUser && !salesMasked}
                       layout={panelLayout === 'list' ? 'row' : 'tile'}
                       onClick={() => setSelectedSku(sku)}
+                      onActivityClick={execUser ? () => setActivitySku(sku) : undefined}
                     />
                   ))}
                 </div>
@@ -1266,6 +1269,7 @@ export function Dashboard() {
           onClose={() => setSelectedSku(null)}
         />
       )}
+      {activitySku && <ProductActivityModal sku={activitySku} onClose={() => setActivitySku(null)} />}
     </div>
   )
 }

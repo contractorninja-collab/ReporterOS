@@ -2,7 +2,7 @@ import { getSellThrough, getDaysInStore, getEffectiveLifecycleImportDate } from 
 import { getShipmentDisplayLines, mergeShipmentMeta } from '../utils/shipmentDisplay.js'
 import useStore from '../store/useStore'
 import { useState, useEffect } from 'react'
-import { IconFootwear, IconApparel, IconAccessories, IconPackage, IconHot, IconTruck } from '../utils/icons.js'
+import { IconFootwear, IconApparel, IconAccessories, IconPackage, IconHot, IconTruck, IconPlanning } from '../utils/icons.js'
 import SaleBadge from './SaleBadge.jsx'
 import StatusBadge from './StatusBadge.jsx'
 
@@ -14,6 +14,7 @@ export default function ProductPanelCard({
   statusLabel,
   statusIcon,
   onClick,
+  onActivityClick,
   totalImported = 0,
   salesVisible = true,
   layout = 'tile',
@@ -427,6 +428,7 @@ export default function ProductPanelCard({
               )}
             </div>
           )}
+          {onActivityClick && <button className="product-card-sales-card-button" type="button" onClick={(e) => { e.stopPropagation(); onActivityClick(sku) }}><IconPlanning size={13} strokeWidth={1.75} aria-hidden />View sales card</button>}
         </div>
       </div>
     )
@@ -803,6 +805,7 @@ export default function ProductPanelCard({
             )}
           </div>
         )}
+        {onActivityClick && <button className="product-card-sales-card-button" type="button" onClick={(e) => { e.stopPropagation(); onActivityClick(sku) }}><IconPlanning size={13} strokeWidth={1.75} aria-hidden />View sales card</button>}
       </div>
     </div>
   )
