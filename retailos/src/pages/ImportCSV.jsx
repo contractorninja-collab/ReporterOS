@@ -273,6 +273,9 @@ function PreviewSection({
   const validRows = pendingSkus.filter((s) => rowValidator(s))
   const validCount = validRows.length
   const invalidCount = pendingSkus.length - validCount
+  const repairedDateRows = isReporting
+    ? pendingSkus.filter((row) => row.sale_date_repaired)
+    : []
   const mergedForStats = validRows.length
     ? mergeDuplicateSkuSizeRows(validRows, { allowSignedSold: isReporting })
     : []
@@ -372,15 +375,15 @@ function PreviewSection({
           <button
             type="button"
             onClick={onConfirm}
-            disabled={validCount === 0 || confirming}
-            title={validCount === 0 ? 'Fix validation errors first' : undefined}
+            disabled={validCount === 0 || invalidCount > 0 || confirming}
+            title={invalidCount > 0 ? 'Fix all validation errors before importing' : validCount === 0 ? 'Fix validation errors first' : undefined}
             style={{
               padding: '7px 13px',
               borderRadius: '8px',
               fontSize: '12px',
               fontWeight: 600,
-              cursor: validCount === 0 || confirming ? 'not-allowed' : 'pointer',
-              opacity: validCount === 0 || confirming ? 0.5 : 1,
+              cursor: validCount === 0 || invalidCount > 0 || confirming ? 'not-allowed' : 'pointer',
+              opacity: validCount === 0 || invalidCount > 0 || confirming ? 0.5 : 1,
               background: S.accent,
               border: 'none',
               color: '#fff',
@@ -419,6 +422,22 @@ function PreviewSection({
             </div>
           ))}
           {validationErrors.length > 3 && <div style={{ marginTop: '6px' }}>...and {validationErrors.length - 3} more</div>}
+        </div>
+      )}
+
+      {repairedDateRows.length > 0 && (
+        <div
+          style={{
+            marginBottom: '12px',
+            padding: '12px',
+            borderRadius: '8px',
+            background: 'rgba(251,191,36,0.1)',
+            border: '1px solid rgba(251,191,36,0.25)',
+            color: '#fbbf24',
+            fontSize: '12px',
+          }}
+        >
+          Repaired an accidental leading minus in sale_date for {repairedDateRows.length} return row{repairedDateRows.length === 1 ? '' : 's'}.
         </div>
       )}
 
@@ -1038,6 +1057,10 @@ export function ImportCSV() {
 
   async function handleConfirmReporting() {
     const validSkus = pendingSkusReporting.filter((s) => isValidReportingRow(s))
+    if (validSkus.length !== pendingSkusReporting.length) {
+      setErrorReporting('Fix all invalid reporting rows before confirming the import. No rows were imported.')
+      return
+    }
     if (validSkus.length === 0) {
       setErrorReporting(
         'No valid rows to import. Fix the highlighted rows or required fields (barcode, sku, sold_quantity, sale_date as DD.MM.YY).',

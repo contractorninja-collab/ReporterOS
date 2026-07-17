@@ -3253,7 +3253,8 @@ export function getSalesBySku(sinceDate, untilDate, season) {
   return db.prepare(`
     SELECT sku,
            SUM(units_sold) AS sold_qty,
-           SUM(revenue) AS revenue
+           SUM(revenue) AS revenue,
+           SUM(CASE WHEN units_sold < 0 THEN ABS(units_sold) ELSE 0 END) AS return_units
     FROM sales_events
     WHERE ${where}
     GROUP BY sku

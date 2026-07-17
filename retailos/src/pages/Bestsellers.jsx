@@ -11,6 +11,7 @@ import ProductDetailModal from '../components/ProductDetailModal'
 import StatusChip from '../components/StatusChip'
 import BrandSelect from '../components/BrandSelect.jsx'
 import { fetchSalesBySku } from '../api/client.js'
+import { enrichBestsellerProducts } from '../utils/bestsellerMetrics.js'
 import {
   IconFootwear,
   IconApparel,
@@ -441,12 +442,7 @@ export function Bestsellers() {
   // ── Enrich products with period data ────────────────────────────────────────
   const enrichProducts = useCallback((prods) => {
     if (hasEventSales) {
-      return prods.map((s) => {
-        const ev = salesData[s.sku]
-        return ev
-          ? { ...s, _periodSold: ev.sold_qty ?? 0, _periodRevenue: ev.revenue ?? 0 }
-          : { ...s, _periodSold: 0, _periodRevenue: 0 }
-      })
+      return enrichBestsellerProducts(prods, salesData)
     }
     return prods.map((s) => ({
       ...s,

@@ -324,8 +324,9 @@ export function parseReportingSaleDate(value) {
   if (value instanceof Date) {
     return Number.isNaN(value.getTime()) ? null : value
   }
-  const str = String(value).trim()
-  if (!str) return null
+  const raw = String(value).trim()
+  if (!raw) return null
+  const str = raw.replace(/^-(?=\d{1,2}\.\d{1,2}\.\d{2,4}$)/, '')
 
   const dot = str.match(/^(\d{1,2})\.(\d{1,2})\.(\d{2,4})$/)
   if (dot) {
@@ -349,6 +350,10 @@ export function parseReportingSaleDate(value) {
   }
 
   return null
+}
+
+export function reportingSaleDateWasRepaired(value) {
+  return /^-\d{1,2}\.\d{1,2}\.\d{2,4}$/.test(String(value ?? '').trim())
 }
 
 /**
@@ -411,6 +416,7 @@ function mapRow(row, headerMap) {
     costPrice = Math.round((lineTotal / quantity) * 10000) / 10000
   }
 
+  const rawSaleDate = get('sale_date')
   const mapped = {
     id: generateId(),
     barcode: normalizeBarcodeValue(getRaw('barcode')).trim(),
@@ -427,7 +433,8 @@ function mapRow(row, headerMap) {
     season: get('season').trim(),
     category: normalizeCategory(get('category')),
     brand: get('brand').trim(),
-    sale_date: parseReportingSaleDate(get('sale_date')),
+    sale_date: parseReportingSaleDate(rawSaleDate),
+    sale_date_repaired: reportingSaleDateWasRepaired(rawSaleDate),
     transaction_type: normalizeTransactionType(get('transaction_type')),
   }
   mapped.transaction_type = classifyReportingMovement(mapped)

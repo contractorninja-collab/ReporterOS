@@ -287,7 +287,7 @@ function ProductCard({ sku, rank, onClick, metric, metricLabel, velocity, lowSto
                 metricLabel || 'Sell-through'
               )}
             </div>
-            {isRevenueMetric && returnsCount > 0 && (
+            {returnsCount > 0 && (
               <div
                 style={{
                   display: 'inline-flex',
