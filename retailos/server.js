@@ -55,6 +55,7 @@ import {
   reportingLineRevenueFromRow,
   classifyReportingMovement,
 } from './src/utils/csvParser.js'
+import { detectImageExtension } from './src/utils/imageFormat.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -106,14 +107,6 @@ function assertSafeSku(sku) {
   }
 }
 
-function detectImageExt(buffer) {
-  if (!buffer || buffer.length < 12) return null
-  if (buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) return '.jpg'
-  if (buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4e && buffer[3] === 0x47) return '.png'
-  if (buffer.toString('ascii', 0, 4) === 'RIFF' && buffer.toString('ascii', 8, 12) === 'WEBP') return '.webp'
-  return null
-}
-
 function removeExistingPhotosForSku(skuCode) {
   let files
   try {
@@ -130,9 +123,9 @@ function removeExistingPhotosForSku(skuCode) {
 
 function writePhotoForSku(skuCode, buffer) {
   assertSafeSku(skuCode)
-  const ext = detectImageExt(buffer)
+  const ext = detectImageExtension(buffer)
   if (!ext) {
-    const err = new Error('Invalid or unsupported image (use JPEG, PNG, or WebP)')
+    const err = new Error('Invalid or unsupported image (use JPEG, PNG, WebP, or AVIF)')
     err.statusCode = 400
     throw err
   }
@@ -2527,6 +2520,7 @@ app.get('/api/photos/:skuCode', (req, res) => {
     const files = fs.readdirSync(PHOTOS_DIR)
     const match = files.find((f) => path.basename(f, path.extname(f)) === req.params.skuCode)
     if (!match) return res.status(404).json({ error: 'Photo not found' })
+    if (path.extname(match).toLowerCase() === '.avif') res.type('avif')
     res.sendFile(path.join(PHOTOS_DIR, match))
   } catch (e) { safeError(res, e, e.statusCode || 500) }
 })

@@ -11,6 +11,12 @@ const THUMB_QUALITY = 0.85
 
 function resizeImage(file) {
   return new Promise((resolve, reject) => {
+    // Preserve AVIF uploads as AVIF. Some browsers cannot decode AVIF for a
+    // canvas resize, and converting it would also discard the original format.
+    if (file?.type === 'image/avif' || /\.avif$/i.test(file?.name || '')) {
+      resolve(file)
+      return
+    }
     const img = new Image()
     const url = URL.createObjectURL(file)
     img.onload = () => {

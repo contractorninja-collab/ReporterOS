@@ -312,7 +312,7 @@ export function Photos() {
         <IconCamera size={18} strokeWidth={1.75} className="photos-info-banner__icon" />
         <div className="photos-info-banner__body">
           Name your photo files using the SKU code and drop them here — the system links them to product cards instantly.{' '}
-          <span className="photos-info-banner__strong">Accepted formats: JPG, PNG, WEBP.</span>{' '}
+          <span className="photos-info-banner__strong">Accepted formats: JPG, PNG, WEBP, AVIF.</span>{' '}
           Example filename:{' '}
           <code className="photos-info-banner__code">FIL-TRN-BRA-F-M.jpg</code>
           {' '}
@@ -325,7 +325,7 @@ export function Photos() {
       <input
         ref={fileInputRef}
         type="file"
-        accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
+        accept="image/jpeg,image/png,image/webp,image/avif,.jpg,.jpeg,.png,.webp,.avif"
         multiple
         style={{ display: 'none' }}
         onChange={(e) => {
