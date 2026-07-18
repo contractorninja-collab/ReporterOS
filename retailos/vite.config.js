@@ -22,6 +22,11 @@ function retailosLanUrlPlugin() {
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react(), tailwindcss(), retailosLanUrlPlugin()],
+  build: {
+    // Keep previous hashed chunks during rolling/manual deploys so tabs
+    // holding an older index.html can still finish their lazy imports.
+    emptyOutDir: false,
+  },
   server: {
     // Bind all network interfaces so other PCs on the LAN can open http://<this-ip>:5173
     host: '0.0.0.0',

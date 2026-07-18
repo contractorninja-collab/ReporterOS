@@ -2675,7 +2675,12 @@ app.put('/api/notifications/:id/read', (req, res) => {
 const distDir = path.resolve(__dirname, 'dist')
 if (fs.existsSync(distDir)) {
   app.use(express.static(distDir))
-  app.get('/{*splat}', (_req, res) => {
+  app.get('/{*splat}', (req, res) => {
+    // Never return the SPA HTML for a missing hashed JS/CSS asset. Browsers
+    // report that HTML response as a misleading dynamic-import failure.
+    if (req.path.startsWith('/assets/')) {
+      return res.status(404).type('text').send('Asset not found')
+    }
     res.sendFile(path.join(distDir, 'index.html'))
   })
 }

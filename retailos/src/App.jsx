@@ -47,6 +47,21 @@ class AppErrorBoundary extends Component {
 
   componentDidCatch(err, info) {
     console.error(err, info)
+    const message = String(err?.message || err)
+    if (/dynamically imported module|importing a module script failed|failed to fetch/i.test(message)) {
+      try {
+        const key = 'retailos:asset-reload-at'
+        const last = Number(sessionStorage.getItem(key) || 0)
+        if (Date.now() - last > 60_000) {
+          sessionStorage.setItem(key, String(Date.now()))
+          const url = new URL(window.location.href)
+          url.searchParams.set('_asset_refresh', String(Date.now()))
+          window.location.replace(url.toString())
+        }
+      } catch {
+        /* Leave the manual reload control available if storage is unavailable. */
+      }
+    }
   }
 
   render() {
