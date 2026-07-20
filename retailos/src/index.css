@@ -16493,14 +16493,22 @@ button.pl-kpi-tile {
 
 /* Sale change report cards: product-scoped actions and wider responsive layout. */
 .md-change-report-grid {
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 18px;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 20px;
 }
 
 .md-change-card {
+  position: relative;
   min-width: 0;
   min-height: 100%;
-  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.05);
+  border-color: #f0f0f0;
+  border-radius: 8px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.04);
+  transition: box-shadow 0.18s ease;
+}
+
+.md-change-card:hover {
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
 }
 
 .md-change-card--complete {
@@ -16521,7 +16529,7 @@ button.pl-kpi-tile {
 
 .md-change-card__body {
   gap: 0;
-  padding: 14px;
+  padding: 16px;
 }
 
 .md-change-card__info {
@@ -16530,8 +16538,9 @@ button.pl-kpi-tile {
 }
 
 .md-change-card__sale-pill {
-  padding: 3px 10px;
+  padding: 3px 8px;
   background: #dc2626;
+  font-size: 10px;
   font-weight: 700;
   letter-spacing: 0;
 }
@@ -16541,25 +16550,19 @@ button.pl-kpi-tile {
   color: #9ca3af;
 }
 
-.md-change-card__list {
-  align-self: flex-start;
-  margin-top: 6px;
-  padding: 2px 8px;
-  color: #2563eb;
-  background: #eff6ff;
-  border-radius: 999px;
+.md-change-card__name {
   font-weight: 600;
-  text-transform: uppercase;
 }
 
 .md-change-card__price {
-  gap: 6px;
-  margin-top: 10px;
+  gap: 8px;
+  margin-top: 12px;
 }
 
 .md-change-card__price-old {
-  color: #9ca3af;
+  color: #b0b0b0;
   font-size: 12px;
+  font-weight: 400;
 }
 
 .md-change-card__price-arrow {
@@ -16568,26 +16571,8 @@ button.pl-kpi-tile {
 }
 
 .md-change-card__price-new {
-  color: #15803d;
-  font-size: 15px;
-}
-
-.md-change-report-badges {
-  align-self: flex-start;
-  padding: 4px 10px;
-  background: #f9fafb;
-  border-radius: 8px;
-}
-
-.md-change-report-badges__old {
-  color: #9ca3af;
-  font-size: 11px;
-  text-decoration: line-through;
-}
-
-.md-change-report-badges__new {
   color: #dc2626;
-  font-size: 11px;
+  font-size: 18px;
   font-weight: 700;
 }
 
@@ -16596,41 +16581,150 @@ button.pl-kpi-tile {
 }
 
 .md-change-card__changed {
-  margin: 6px 0;
-  color: #9ca3af;
+  margin: 6px 0 0;
+  color: #c0c0c0;
+  font-size: 10px;
 }
 
 .md-change-card__shops {
   display: flex;
-  flex-direction: column;
-  gap: 0;
-  margin: 8px 0 0;
-  padding: 8px 10px;
-  border: 1px solid #f3f4f6;
-  border-radius: 8px;
+  flex-direction: row;
+  justify-content: space-around;
+  gap: 8px;
+  margin: 10px 0 0;
+  padding: 10px 0 0;
+  border: 0;
+  border-top: 1px solid #f5f5f5;
+  border-radius: 0;
 }
 
 .md-change-card__channel-row {
   display: flex;
-  justify-content: space-between;
+  flex: 1;
+  flex-direction: column;
+  justify-content: flex-start;
   align-items: center;
-  gap: 8px;
-  min-height: 32px;
-  padding: 6px 0;
-  border-bottom: 1px solid #f9fafb;
-}
-
-.md-change-card__channel-row:last-child {
-  border-bottom: 0;
+  gap: 6px;
+  min-height: 38px;
+  padding: 0;
+  border: 0;
 }
 
 .md-change-card__channel-name {
-  min-width: 80px;
-  flex-shrink: 0;
-  color: #374151;
-  font-size: 12px;
-  font-weight: 600;
+  min-width: 0;
+  color: #9ca3af;
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
   white-space: nowrap;
+}
+
+.md-change-card__status-dot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  color: transparent;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  font-size: 0;
+}
+
+.md-change-card__status-dot::before {
+  content: '';
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  box-sizing: border-box;
+  color: #fff;
+  background: #fff;
+  border: 1.5px solid #e5e7eb;
+  border-radius: 50%;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.md-change-card__status-dot--done::before {
+  content: '✓';
+  background: #16a34a;
+  border-color: #16a34a;
+}
+
+.md-change-card__status-dot:hover:not(:disabled)::before {
+  border-color: #7c3aed;
+}
+
+.md-change-card__status-dot:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+
+.md-change-card__status-dot--readonly {
+  cursor: default;
+}
+
+.md-change-card__overflow {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 5;
+}
+
+.md-change-card__more-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 26px;
+  padding: 0 0 7px;
+  color: #d1d5db;
+  background: rgba(255, 255, 255, 0.88);
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.md-change-card__more-btn:hover {
+  color: #6b7280;
+  background: #fff;
+}
+
+.md-change-card__menu {
+  position: absolute;
+  top: 30px;
+  right: 0;
+  width: 156px;
+  padding: 5px;
+  background: #fff;
+  border: 1px solid #f0f0f0;
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
+}
+
+.md-change-card__menu-discard {
+  width: 100%;
+  padding: 7px 8px;
+  color: #dc2626;
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+  text-align: left;
+}
+
+.md-change-card__menu-discard:hover:not(:disabled) {
+  background: #fef2f2;
 }
 
 .md-change-card__channel-actions {
@@ -16734,6 +16828,9 @@ button.pl-kpi-tile {
 
 .md-change-card__undo-btn:focus-visible,
 .md-change-card__mark-btn:focus-visible,
+.md-change-card__status-dot:focus-visible,
+.md-change-card__more-btn:focus-visible,
+.md-change-card__menu-discard:focus-visible,
 .md-change-card__discard:focus-visible {
   outline: 2px solid #7c3aed;
   outline-offset: 2px;
@@ -16746,11 +16843,7 @@ button.pl-kpi-tile {
   }
 
   .md-change-card__channel-row {
-    align-items: flex-start;
-  }
-
-  .md-change-card__channel-actions {
-    flex-wrap: wrap;
+    align-items: center;
   }
 }
 

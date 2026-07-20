@@ -4,7 +4,7 @@ import useStore from '../store/useStore.js'
 import { DISCOUNTS, salePriceOf, localDateKey } from '../utils/saleList.js'
 import { isExecutive } from '../utils/roles.js'
 import { toTitleCase } from '../utils/textFormat.js'
-import { IconTag, IconDownload, IconManager, IconReorder } from '../utils/icons.js'
+import { IconTag, IconDownload } from '../utils/icons.js'
 
 const MARKDOWN_LANES = ['Ring Mall', 'Village', 'E-commerce']
 const ECOMMERCE_LANES = ['E-commerce']
@@ -196,6 +196,8 @@ function ChangeReportTiles({
   discardingKey,
   markableLanes,
 }) {
+  const [openMenuKey, setOpenMenuKey] = useState('')
+
   return (
     <div className="md-change-report-grid">
       {changes.map((ch) => {
@@ -203,8 +205,41 @@ function ChangeReportTiles({
         const salePct = Math.round(Number(ch.newSalePct) || 0)
         const extraSalePct = Number(ch.newExtraSalePct) === 20 ? 20 : 0
         const allTagged = MARKDOWN_LANES.every((shop) => ch.shopStatuses?.[shop]?.status === 'marked')
+        const menuKey = `${ch.reportId}-${ch.skuCode}`
+        const rawSeason = String(ch.listTitle || '').match(/\b(?:SS|FW|S)\d{2}\b/i)?.[0]?.toUpperCase() || ''
+        const season = /^S\d{2}$/.test(rawSeason) ? `SS${rawSeason.slice(1)}` : rawSeason
+        const meta = [ch.skuCode, ch.brand, season].filter(Boolean).join(' · ')
+        const discountHistory = `-${Number(ch.oldSalePct) || 0}%${Number(ch.oldExtraSalePct) === 20 ? ' + Extra 20%' : ''} → -${salePct}%${extraSalePct ? ' + Extra 20%' : ''}`
         return (
           <article key={ch.reportId + '-' + ch.skuCode} className={`md-change-card${allTagged ? ' md-change-card--complete' : ''}`}>
+            {onDiscardProduct && (
+              <div className="md-change-card__overflow">
+                <button
+                  type="button"
+                  className="md-change-card__more-btn"
+                  onClick={() => setOpenMenuKey(openMenuKey === menuKey ? '' : menuKey)}
+                  aria-label="More sale change options"
+                  aria-expanded={openMenuKey === menuKey}
+                >
+                  ...
+                </button>
+                {openMenuKey === menuKey && (
+                  <div className="md-change-card__menu">
+                    <button
+                      type="button"
+                      className="md-change-card__menu-discard"
+                      disabled={discardingKey === menuKey}
+                      onClick={() => {
+                        setOpenMenuKey('')
+                        onDiscardProduct(ch)
+                      }}
+                    >
+                      {discardingKey === menuKey ? 'Discarding...' : 'Discard this change'}
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
             <div className="md-change-card__media">
               {photoUrl ? (
                 <img src={photoUrl} alt={ch.productName} loading="lazy" className="md-change-card__img" />
@@ -223,15 +258,9 @@ function ChangeReportTiles({
                   {toTitleCase(ch.productName)}
                 </h3>
                 <p className="md-change-card__meta">
-                  {ch.skuCode}{ch.brand ? ` · ${ch.brand}` : ''}
+                  {meta}
                 </p>
-                {ch.sizes && (
-                  <p className="md-change-card__sizes">{ch.sizes}</p>
-                )}
-                {ch.listTitle && (
-                  <p className="md-change-card__list">{ch.listTitle}</p>
-                )}
-                <div className="md-change-card__price">
+                <div className="md-change-card__price" title={`Discount changed ${discountHistory}`}>
                   {ch.priceTag > 0 && (
                     <span className="md-change-card__price-old">
                       {Number(ch.priceTag).toFixed(2)}€
@@ -246,17 +275,7 @@ function ChangeReportTiles({
                     </span>
                   )}
                 </div>
-                <div className="md-change-report-badges">
-                  <span className="md-change-report-badges__old">
-                    -{Number(ch.oldSalePct) || 0}%{Number(ch.oldExtraSalePct) === 20 ? ' + Extra 20%' : ''}
-                  </span>
-                  <span className="md-change-report-badges__arrow">→</span>
-                  <span className="md-change-report-badges__new">
-                    -{salePct}%{extraSalePct ? ' + Extra 20%' : ''}
-                  </span>
-                </div>
                 <div className="md-change-card__changed" title={ch.changedBy ? userName(ch.changedBy) : ''}>
-                  <IconManager size={11} strokeWidth={1.75} aria-hidden />
                   <span>{ch.changedBy ? userName(ch.changedBy) : '—'}</span>
                 </div>
                 <div className="md-change-card__shops">
@@ -269,48 +288,35 @@ function ChangeReportTiles({
                     const isMarkable = markableLanes.includes(shop)
                     const markKey = `${ch.reportId}-${ch.skuCode}-${shop}`
                     const isMarking = markingKey === markKey
+                    const toggle = () => (isMarked
+                      ? onUndoTagged(ch.reportId, ch.skuCode, shop)
+                      : onMarkTagged(ch.reportId, ch.skuCode, shop))
                     return (
                       <div key={shop} className="md-change-card__channel-row" title={detail}>
                         <span className="md-change-card__channel-name">{shop}</span>
-                        <div className="md-change-card__channel-actions">
-                          <span className={`md-change-card__channel-status${isMarked ? ' md-change-card__channel-status--done' : ''}`}>
-                            {isMarked ? '✓ Tagged' : 'Pending'}
+                        {isMarkable ? (
+                          <button
+                            type="button"
+                            className={`md-change-card__status-dot${isMarked ? ' md-change-card__status-dot--done' : ''}`}
+                            disabled={isMarking}
+                            onClick={toggle}
+                            aria-label={isMarked ? `Undo ${shop} tagged status` : `Mark ${shop} as tagged`}
+                          >
+                            {isMarked ? '✓' : ''}
+                          </button>
+                        ) : (
+                          <span
+                            className={`md-change-card__status-dot md-change-card__status-dot--readonly${isMarked ? ' md-change-card__status-dot--done' : ''}`}
+                            aria-label={isMarked ? `${shop} tagged` : `${shop} pending`}
+                          >
+                            {isMarked ? '✓' : ''}
                           </span>
-                          {isMarkable && !isMarked && (
-                            <button
-                              type="button"
-                              className="md-change-card__mark-btn"
-                              disabled={isMarking}
-                              onClick={() => onMarkTagged(ch.reportId, ch.skuCode, shop)}
-                            >
-                              {isMarking ? 'Saving...' : 'Mark tagged'}
-                            </button>
-                          )}
-                          {(isMarked ? isMarkable : Boolean(onDiscardProduct)) ? (
-                            <button
-                              type="button"
-                              className="md-change-card__undo-btn"
-                              disabled={isMarking || Boolean(discardingKey)}
-                              onClick={() => (isMarked
-                                ? onUndoTagged(ch.reportId, ch.skuCode, shop)
-                                : onDiscardProduct(ch))}
-                              title={isMarked ? `Undo ${shop} tagged status` : 'Discard this sale change and restore the previous discount'}
-                              aria-label={isMarked ? `Undo ${shop} tagged status` : 'Discard this sale change'}
-                            >
-                              <IconReorder size={14} strokeWidth={1.8} aria-hidden />
-                            </button>
-                          ) : !isMarkable ? <span className="md-change-card__channel-unavailable">—</span> : null}
-                        </div>
+                        )}
                       </div>
                     )
                   })}
                 </div>
               </div>
-              {onDiscardProduct && (
-                <button type="button" className="md-change-card__discard" disabled={discardingKey === ch.reportId + '-' + ch.skuCode} onClick={() => onDiscardProduct(ch)}>
-                  {discardingKey === ch.reportId + '-' + ch.skuCode ? 'Discarding…' : 'Discard this change'}
-                </button>
-              )}
             </div>
           </article>
         )
