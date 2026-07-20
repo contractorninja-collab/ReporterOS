@@ -3,7 +3,8 @@ import { Link, useSearchParams } from 'react-router-dom'
 import useStore from '../store/useStore.js'
 import { DISCOUNTS, salePriceOf, localDateKey } from '../utils/saleList.js'
 import { isExecutive } from '../utils/roles.js'
-import { IconTag, IconDownload, IconManager } from '../utils/icons.js'
+import { toTitleCase } from '../utils/textFormat.js'
+import { IconTag, IconDownload, IconManager, IconReorder } from '../utils/icons.js'
 
 const MARKDOWN_LANES = ['Ring Mall', 'Village', 'E-commerce']
 const ECOMMERCE_LANES = ['E-commerce']
@@ -188,7 +189,8 @@ function ChangeReportTiles({
   changes,
   photoMap,
   userName,
-  onToggleMarked,
+  onMarkTagged,
+  onUndoTagged,
   onDiscardProduct,
   markingKey,
   discardingKey,
@@ -200,8 +202,9 @@ function ChangeReportTiles({
         const photoUrl = photoMap[ch.skuCode] || null
         const salePct = Math.round(Number(ch.newSalePct) || 0)
         const extraSalePct = Number(ch.newExtraSalePct) === 20 ? 20 : 0
+        const allTagged = MARKDOWN_LANES.every((shop) => ch.shopStatuses?.[shop]?.status === 'marked')
         return (
-          <article key={ch.reportId + '-' + ch.skuCode} className="md-change-card">
+          <article key={ch.reportId + '-' + ch.skuCode} className={`md-change-card${allTagged ? ' md-change-card--complete' : ''}`}>
             <div className="md-change-card__media">
               {photoUrl ? (
                 <img src={photoUrl} alt={ch.productName} loading="lazy" className="md-change-card__img" />
@@ -217,7 +220,7 @@ function ChangeReportTiles({
             <div className="md-change-card__body">
               <div className="md-change-card__info">
                 <h3 className="md-change-card__name" title={ch.productName}>
-                  {ch.productName}
+                  {toTitleCase(ch.productName)}
                 </h3>
                 <p className="md-change-card__meta">
                   {ch.skuCode}{ch.brand ? ` · ${ch.brand}` : ''}
@@ -234,6 +237,9 @@ function ChangeReportTiles({
                       {Number(ch.priceTag).toFixed(2)}€
                     </span>
                   )}
+                  {ch.priceTag > 0 && ch.newSalePrice > 0 && (
+                    <span className="md-change-card__price-arrow">→</span>
+                  )}
                   {ch.newSalePrice > 0 && (
                     <span className="md-change-card__price-new">
                       {Number(ch.newSalePrice).toFixed(2)}€
@@ -241,11 +247,11 @@ function ChangeReportTiles({
                   )}
                 </div>
                 <div className="md-change-report-badges">
-                  <span className="md-change-card__shop-pill">
+                  <span className="md-change-report-badges__old">
                     -{Number(ch.oldSalePct) || 0}%{Number(ch.oldExtraSalePct) === 20 ? ' + Extra 20%' : ''}
                   </span>
                   <span className="md-change-report-badges__arrow">→</span>
-                  <span className="md-change-card__shop-pill md-change-card__shop-pill--done">
+                  <span className="md-change-report-badges__new">
                     -{salePct}%{extraSalePct ? ' + Extra 20%' : ''}
                   </span>
                 </div>
@@ -266,14 +272,35 @@ function ChangeReportTiles({
                     return (
                       <div key={shop} className="md-change-card__channel-row" title={detail}>
                         <span className="md-change-card__channel-name">{shop}</span>
-                        <span className={`md-change-card__channel-status${isMarked ? ' md-change-card__channel-status--done' : ''}`}>
-                          {isMarked ? 'Done' : 'Pending'}
-                        </span>
-                        {isMarkable ? (
-                          <button type="button" className="md-change-card__undo-btn" disabled={isMarking} onClick={() => onToggleMarked(ch.reportId, ch.skuCode, shop)}>
-                            {isMarking ? '…' : 'Undo'}
-                          </button>
-                        ) : <span className="md-change-card__channel-unavailable">—</span>}
+                        <div className="md-change-card__channel-actions">
+                          <span className={`md-change-card__channel-status${isMarked ? ' md-change-card__channel-status--done' : ''}`}>
+                            {isMarked ? '✓ Tagged' : 'Pending'}
+                          </span>
+                          {isMarkable && !isMarked && (
+                            <button
+                              type="button"
+                              className="md-change-card__mark-btn"
+                              disabled={isMarking}
+                              onClick={() => onMarkTagged(ch.reportId, ch.skuCode, shop)}
+                            >
+                              {isMarking ? 'Saving...' : 'Mark tagged'}
+                            </button>
+                          )}
+                          {(isMarked ? isMarkable : Boolean(onDiscardProduct)) ? (
+                            <button
+                              type="button"
+                              className="md-change-card__undo-btn"
+                              disabled={isMarking || Boolean(discardingKey)}
+                              onClick={() => (isMarked
+                                ? onUndoTagged(ch.reportId, ch.skuCode, shop)
+                                : onDiscardProduct(ch))}
+                              title={isMarked ? `Undo ${shop} tagged status` : 'Discard this sale change and restore the previous discount'}
+                              aria-label={isMarked ? `Undo ${shop} tagged status` : 'Discard this sale change'}
+                            >
+                              <IconReorder size={14} strokeWidth={1.8} aria-hidden />
+                            </button>
+                          ) : !isMarkable ? <span className="md-change-card__channel-unavailable">—</span> : null}
+                        </div>
                       </div>
                     )
                   })}
@@ -529,11 +556,15 @@ export default function MarkdownLists() {
     }
   }
 
+  async function handleMarkChangeTagged(reportId, skuCode, shop) {
+    return handleToggleChangeMarked(reportId, skuCode, shop)
+  }
+
   async function handleDiscardChangeProduct(change) {
     if (!change || discardingKey) return
     const key = change.reportId + '-' + change.skuCode
     const ok = window.confirm(
-      'Discard the sale change for ' + (change.productName || change.skuCode) + ' (' + change.skuCode + ')? This restores its previous discount.',
+      'Discard this sale change? This reverts the discount for all locations.',
     )
     if (!ok) return
     setDiscardingKey(key)
@@ -607,7 +638,8 @@ export default function MarkdownLists() {
                   changes={activeChangeGroup.changes}
                   photoMap={photoMap}
                   userName={userName}
-                  onToggleMarked={handleToggleChangeMarked}
+                  onMarkTagged={handleMarkChangeTagged}
+                  onUndoTagged={handleToggleChangeMarked}
                   onDiscardProduct={isExec ? handleDiscardChangeProduct : undefined}
                   markingKey={markingKey}
                   discardingKey={discardingKey}
