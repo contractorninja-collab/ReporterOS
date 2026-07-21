@@ -289,6 +289,12 @@ safeAddColumn('skus', 'deleted_by', 'TEXT')
 safeAddColumn('users', 'user_code', 'TEXT')
 safeAddColumn('users', 'pin_plain', 'TEXT')
 safeAddColumn('store_transfers', 'item_statuses', 'TEXT')
+safeAddColumn('store_transfers', 'workflow_version', 'INTEGER')
+safeAddColumn('store_transfers', 'send_item_statuses', 'TEXT')
+safeAddColumn('store_transfers', 'sentAt', 'TEXT')
+safeAddColumn('store_transfers', 'sentBy', 'TEXT')
+safeAddColumn('store_transfers', 'receivedBy', 'TEXT')
+safeAddColumn('store_transfers', 'receiverAssignedTo', 'TEXT')
 safeAddColumn('assignments', 'completedBy', 'TEXT')
 safeAddColumn('import_history', 'imported_by_user_id', 'TEXT')
 safeAddColumn('import_history', 'imported_by_name', 'TEXT')
@@ -2458,7 +2464,7 @@ export function updateAssignment(id, changes) {
   return db.prepare('SELECT * FROM assignments WHERE id = ?').get(id)
 }
 
-const SHARED_ASSIGNMENT_TYPES = new Set(['store_transfer', 'outlet_move', 'sale'])
+const SHARED_ASSIGNMENT_TYPES = new Set(['store_transfer', 'store_transfer_send', 'store_transfer_receive', 'outlet_move', 'sale'])
 
 export function updateSharedAssignment(id, changes) {
   const source = getAssignmentById(id)
@@ -2539,6 +2545,7 @@ export function getAllStoreTransfers() {
     ...r,
     items: safeJsonArray(r.items, { table: 'store_transfers', column: 'items', id: r.id }),
     item_statuses: safeJsonObject(r.item_statuses, { table: 'store_transfers', column: 'item_statuses', id: r.id }),
+    send_item_statuses: safeJsonObject(r.send_item_statuses, { table: 'store_transfers', column: 'send_item_statuses', id: r.id }),
   }))
 }
 
@@ -2549,22 +2556,47 @@ export function getStoreTransferById(id) {
     ...row,
     items: safeJsonArray(row.items, { table: 'store_transfers', column: 'items', id: row.id }),
     item_statuses: safeJsonObject(row.item_statuses, { table: 'store_transfers', column: 'item_statuses', id: row.id }),
+    send_item_statuses: safeJsonObject(row.send_item_statuses, { table: 'store_transfers', column: 'send_item_statuses', id: row.id }),
   }
 }
 
 export function insertStoreTransfer(t) {
   const id = t.id || uid()
   const createdAt = t.createdAt || new Date().toISOString()
-  db.prepare(`INSERT INTO store_transfers (id, items, fromShop, toShop, createdBy, createdAt, status, receivedAt, assignedTo, note)
-    VALUES (@id, @items, @fromShop, @toShop, @createdBy, @createdAt, @status, @receivedAt, @assignedTo, @note)`)
+  db.prepare(`INSERT INTO store_transfers (
+      id, items, fromShop, toShop, createdBy, createdAt, status, receivedAt, assignedTo, note,
+      item_statuses, workflow_version, send_item_statuses, sentAt, sentBy, receivedBy, receiverAssignedTo
+    ) VALUES (
+      @id, @items, @fromShop, @toShop, @createdBy, @createdAt, @status, @receivedAt, @assignedTo, @note,
+      @item_statuses, @workflow_version, @send_item_statuses, @sentAt, @sentBy, @receivedBy, @receiverAssignedTo
+    )`)
     .run({ id, items: JSON.stringify(t.items || []), fromShop: t.fromShop ?? '', toShop: t.toShop ?? '',
       createdBy: t.createdBy ?? '', createdAt, status: t.status ?? 'pending', receivedAt: t.receivedAt ?? null,
-      assignedTo: t.assignedTo ?? null, note: t.note ?? null })
-  return { ...t, id, createdAt, receivedAt: t.receivedAt ?? null, items: t.items || [] }
+      assignedTo: t.assignedTo ?? null, note: t.note ?? null,
+      item_statuses: JSON.stringify(t.item_statuses || {}), workflow_version: t.workflow_version ?? null,
+      send_item_statuses: JSON.stringify(t.send_item_statuses || {}), sentAt: t.sentAt ?? null,
+      sentBy: t.sentBy ?? null, receivedBy: t.receivedBy ?? null, receiverAssignedTo: t.receiverAssignedTo ?? null })
+  return {
+    ...t, id, createdAt, receivedAt: t.receivedAt ?? null, items: t.items || [],
+    item_statuses: t.item_statuses || {}, send_item_statuses: t.send_item_statuses || {},
+  }
+}
+
+export function insertStoreTransferWorkflow(t, assignments = [], notifications = []) {
+  const tx = db.transaction(() => {
+    const transfer = insertStoreTransfer(t)
+    for (const assignment of assignments) runInsertAssignment(assignment)
+    for (const notification of notifications) insertNotification(notification)
+    return transfer
+  })
+  return tx()
 }
 
 export function updateStoreTransfer(id, changes) {
-  const ALLOWED = ['status', 'receivedAt', 'items', 'assignedTo', 'note', 'item_statuses']
+  const ALLOWED = [
+    'status', 'receivedAt', 'items', 'assignedTo', 'note', 'item_statuses', 'workflow_version',
+    'send_item_statuses', 'sentAt', 'sentBy', 'receivedBy', 'receiverAssignedTo',
+  ]
   const buildUpdate = (keys) => {
     const fields = []
     const values = { id }
@@ -2572,7 +2604,7 @@ export function updateStoreTransfer(id, changes) {
       const v = changes[k]
       if (v === undefined) continue
       fields.push(`${k} = @${k}`)
-      values[k] = (k === 'items' || k === 'item_statuses') ? JSON.stringify(v) : v
+      values[k] = (k === 'items' || k === 'item_statuses' || k === 'send_item_statuses') ? JSON.stringify(v) : v
     }
     return { fields, values }
   }
@@ -2594,8 +2626,52 @@ export function updateStoreTransfer(id, changes) {
         ...row,
         items: safeJsonArray(row.items, { table: 'store_transfers', column: 'items', id: row.id }),
         item_statuses: safeJsonObject(row.item_statuses, { table: 'store_transfers', column: 'item_statuses', id: row.id }),
+        send_item_statuses: safeJsonObject(row.send_item_statuses, { table: 'store_transfers', column: 'send_item_statuses', id: row.id }),
       }
     : null
+}
+
+export function updateStoreTransferVerification(id, phase, key, entry) {
+  const column = phase === 'send' ? 'send_item_statuses' : 'item_statuses'
+  const tx = db.transaction(() => {
+    const row = db.prepare(`SELECT ${column} FROM store_transfers WHERE id = ?`).get(id)
+    if (!row) return null
+    const statuses = safeJsonObject(row[column], { table: 'store_transfers', column, id })
+    statuses[key] = entry
+    db.prepare(`UPDATE store_transfers SET ${column} = ? WHERE id = ?`).run(JSON.stringify(statuses), id)
+    return getStoreTransferById(id)
+  })
+  return tx()
+}
+
+export function transitionStoreTransferPhase(id, options) {
+  const tx = db.transaction(() => {
+    const row = getStoreTransferById(id)
+    if (!row) return null
+    const now = options.now || new Date().toISOString()
+    if (options.phase === 'send') {
+      if (row.status !== 'sent') {
+        db.prepare(`UPDATE store_transfers
+          SET status = 'sent', sentAt = ?, sentBy = ?, receiverAssignedTo = ?
+          WHERE id = ?`).run(now, options.actorId || '', options.receiverAssignedTo || null, id)
+        db.prepare(`UPDATE assignments SET status = 'done', completedAt = ?, completedBy = ?
+          WHERE type = 'store_transfer_send' AND skuCode = ? AND status <> 'done'`)
+          .run(now, options.actorId || '', id)
+        for (const assignment of options.assignments || []) runInsertAssignment(assignment)
+        for (const notification of options.notifications || []) insertNotification(notification)
+      }
+    } else if (row.status !== 'received') {
+      db.prepare(`UPDATE store_transfers
+        SET status = 'received', receivedAt = ?, receivedBy = ?
+        WHERE id = ?`).run(now, options.actorId || '', id)
+      db.prepare(`UPDATE assignments SET status = 'done', completedAt = ?, completedBy = ?
+        WHERE type = 'store_transfer_receive' AND skuCode = ? AND status <> 'done'`)
+        .run(now, options.actorId || '', id)
+      for (const notification of options.notifications || []) insertNotification(notification)
+    }
+    return getStoreTransferById(id)
+  })
+  return tx()
 }
 
 export function deleteStoreTransfer(id) {
@@ -4579,17 +4655,9 @@ export function markNotificationsReadForViewer(userId, isExecutive) {
  */
 export function notificationVisibleTo(n, userId, isExecutive) {
   if (isExecutive) return true
+  if (!n.userId || n.userId === 'all') return true
   if (n.userId === 'executives') return false
-  if (
-    n.type === 'alert_assigned' &&
-    n.userId &&
-    n.userId !== 'all' &&
-    userId &&
-    n.userId !== userId
-  ) {
-    return false
-  }
-  return true
+  return Boolean(userId) && n.userId === userId
 }
 
 // ── Shifts ──────────────────────────────────────────────────────────────────

@@ -162,7 +162,12 @@ export function createTransfersSlice(set, get) {
       set((state) => ({
         storeTransfers: state.storeTransfers.map((t) => (t.id === transferId ? { ...t, ...changes } : t)),
       }))
-      api.putStoreTransfer(transferId, changes).catch((err) => {
+      return api.putStoreTransfer(transferId, changes).then((updated) => {
+        if (updated?.id) {
+          set((state) => ({ storeTransfers: state.storeTransfers.map((t) => (t.id === transferId ? updated : t)) }))
+        }
+        return updated
+      }).catch((err) => {
         if (prev) {
           set((state) => ({
             storeTransfers: state.storeTransfers.map((t) => (t.id === transferId ? prev : t)),
@@ -171,6 +176,44 @@ export function createTransfersSlice(set, get) {
         notifyLocalWriteFailure(set, get, 'Store transfer update was not saved', err)
         resyncAfterWriteFailure(get)
       })
+    },
+
+    verifyStoreTransferLine: async (transferId, payload) => {
+      try {
+        const updated = await api.patchStoreTransferVerification(transferId, payload)
+        set((state) => ({ storeTransfers: state.storeTransfers.map((t) => (t.id === transferId ? updated : t)) }))
+        return updated
+      } catch (err) {
+        notifyLocalWriteFailure(set, get, 'Size confirmation was not saved', err)
+        resyncAfterWriteFailure(get)
+        throw err
+      }
+    },
+
+    markStoreTransferSent: async (transferId) => {
+      try {
+        const updated = await api.markStoreTransferSent(transferId)
+        set((state) => ({ storeTransfers: state.storeTransfers.map((t) => (t.id === transferId ? updated : t)) }))
+        get().syncOperationalData?.().catch(() => {})
+        return updated
+      } catch (err) {
+        notifyLocalWriteFailure(set, get, 'Transfer was not marked as sent', err)
+        resyncAfterWriteFailure(get)
+        throw err
+      }
+    },
+
+    markStoreTransferReceived: async (transferId) => {
+      try {
+        const updated = await api.markStoreTransferReceived(transferId)
+        set((state) => ({ storeTransfers: state.storeTransfers.map((t) => (t.id === transferId ? updated : t)) }))
+        get().syncOperationalData?.().catch(() => {})
+        return updated
+      } catch (err) {
+        notifyLocalWriteFailure(set, get, 'Transfer was not marked as received', err)
+        resyncAfterWriteFailure(get)
+        throw err
+      }
     },
 
     deleteStoreTransfer: async (transferId) => {
@@ -237,9 +280,16 @@ export function createTransfersSlice(set, get) {
           resyncAfterWriteFailure(get)
         })
       } else {
-        const full = { ...base, fromShop: payload.fromShop ?? '', toShop: payload.toShop ?? '' }
+        const full = {
+          ...base, fromShop: payload.fromShop ?? '', toShop: payload.toShop ?? '',
+          workflow_version: 2, send_item_statuses: {}, sentAt: null, sentBy: null,
+          receivedBy: null, receiverAssignedTo: null,
+        }
         set((s) => ({ storeTransfers: [full, ...s.storeTransfers] }))
-        api.postStoreTransfer(full).catch((err) => {
+        api.postStoreTransfer(full).then((saved) => {
+          set((s) => ({ storeTransfers: s.storeTransfers.map((t) => (t.id === id ? saved : t)) }))
+          get().syncOperationalData?.().catch(() => {})
+        }).catch((err) => {
           set((s) => ({
             storeTransfers: s.storeTransfers.filter((t) => t.id !== id),
             assignments: s.assignments.filter((a) => a.skuCode !== id),
@@ -261,9 +311,10 @@ export function createTransfersSlice(set, get) {
       const destination = type === 'outlet' ? 'Outlet' : (payload.toShop || '')
       const fromLabel = payload.fromShop || state.activeUser?.shop || '—'
 
-      for (const uid of assignmentTargets) {
-        get().addAssignment({
-          type: type === 'outlet' ? 'outlet_move' : 'store_transfer',
+      if (type === 'outlet') {
+        for (const uid of assignmentTargets) {
+          get().addAssignment({
+          type: 'outlet_move',
           skuCode: id,
           productName: `Transfer to ${destination}: ${summary}`,
           assignedTo: uid,
@@ -273,17 +324,18 @@ export function createTransfersSlice(set, get) {
           note: payload.note
             ? `${totalUnits} units — ${payload.note}`
             : `${totalUnits} units to ${destination}`,
+          })
+        }
+
+        const notifyMessage = `${state.activeUser?.name || 'Someone'} sent ${totalUnits} units (${summary}) from ${fromLabel} to ${destination}`
+        get().addNotification({
+          type: 'transfer_created',
+          title: 'New Transfer Created',
+          message: notifyMessage,
+          userId: 'all',
+          relatedId: id,
         })
       }
-
-      const notifyMessage = `${state.activeUser?.name || 'Someone'} sent ${totalUnits} units (${summary}) from ${fromLabel} to ${destination}`
-      get().addNotification({
-        type: 'transfer_created',
-        title: 'New Transfer Created',
-        message: notifyMessage,
-        userId: 'all',
-        relatedId: id,
-      })
 
       return id
     },

@@ -3,6 +3,7 @@ import cors from 'cors'
 import multer from 'multer'
 import path from 'path'
 import fs from 'fs'
+import crypto from 'node:crypto'
 import cookieParser from 'cookie-parser'
 import helmet from 'helmet'
 import rateLimit from 'express-rate-limit'
@@ -18,7 +19,8 @@ import {
   getUserRowByUserCode, verifyPin, getPublicUserById, toPublicUser,
   getAllAssignments, getAssignmentById, insertAssignment, insertAssignments, updateAssignment, updateSharedAssignment,
   getAllOutletTransfers, getOutletTransferById, insertOutletTransfer, updateOutletTransfer, deleteOutletTransfer,
-  getAllStoreTransfers, getStoreTransferById, insertStoreTransfer, updateStoreTransfer, deleteStoreTransfer,
+  getAllStoreTransfers, getStoreTransferById, insertStoreTransferWorkflow,
+  updateStoreTransfer, updateStoreTransferVerification, transitionStoreTransferPhase, deleteStoreTransfer,
   getAllMarkdownLists, getMarkdownListById, insertMarkdownList, updateMarkdownList, deleteMarkdownList,
   appendItemsToMarkdownList, applySaleToSkus, clearSaleForList,
   assignPendingUnassignedMarkdownListsForShift,
@@ -56,6 +58,13 @@ import {
   classifyReportingMovement,
 } from './src/utils/csvParser.js'
 import { detectImageExtension } from './src/utils/imageFormat.js'
+import {
+  STORE_TRANSFER_WORKFLOW_VERSION,
+  buildVerificationEntry,
+  getPhaseLines,
+  isPhaseComplete,
+  verificationTotals,
+} from './src/utils/storeTransferVerification.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -834,7 +843,8 @@ function storeTransferVisibleToUser(t, user) {
     t.fromShop === user.shop ||
     t.toShop === user.shop ||
     t.createdBy === user.id ||
-    splitIdList(t.assignedTo).includes(user.id)
+    splitIdList(t.assignedTo).includes(user.id) ||
+    splitIdList(t.receiverAssignedTo).includes(user.id)
   )
 }
 
@@ -844,8 +854,40 @@ function storeTransferUserRole(t, user) {
   return {
     executive: false,
     sender: (shop && t.fromShop === shop) || t.createdBy === user.id,
-    receiver: (shop && t.toShop === shop) || splitIdList(t.assignedTo).includes(user.id),
+    receiver: shop && t.toShop === shop,
   }
+}
+
+function isTwoPhaseStoreTransfer(row) {
+  return Number(row?.workflow_version) >= STORE_TRANSFER_WORKFLOW_VERSION
+}
+
+function assertStoreTransferPhaseAccess(row, user, phase) {
+  const roles = storeTransferUserRole(row, user)
+  const allowed = phase === 'send' ? roles.sender : roles.receiver
+  if (!allowed && !roles.executive) {
+    const err = new Error(`Only the ${phase === 'send' ? 'sending' : 'receiving'} shop can verify this transfer`)
+    err.statusCode = 403
+    throw err
+  }
+}
+
+function destinationTransferRecipients(row) {
+  const onShift = getActiveShifts()
+    .filter((shift) => strEq(shift.shop, row.toShop))
+    .map((shift) => shift.user_id)
+    .filter(Boolean)
+  if (onShift.length) return [...new Set(onShift)]
+  return getAllUsers()
+    .filter((user) => user.role === 'manager' && strEq(user.shop, row.toShop))
+    .map((user) => user.id)
+    .filter(Boolean)
+}
+
+function transferSummary(row) {
+  const products = Array.isArray(row.items) ? row.items.length : 0
+  const units = (row.items || []).reduce((sum, item) => sum + (Number(item.totalQty ?? item.quantity) || 0), 0)
+  return { products, units }
 }
 
 function flattenStoreTransferItems(items) {
@@ -1876,6 +1918,9 @@ app.put('/api/assignments/:id', (req, res) => {
     if (!assignmentVisibleToUser(row, req.authUser)) {
       return res.status(403).json({ error: 'Forbidden' })
     }
+    if ((row.type === 'store_transfer_send' || row.type === 'store_transfer_receive') && req.body?.status && req.body.status !== row.status) {
+      return res.status(409).json({ error: 'Complete this task from the transfer size checklist' })
+    }
     const patch = { ...req.body }
     if (patch.status === 'done') {
       patch.completedAt = new Date().toISOString()
@@ -2006,7 +2051,20 @@ app.get('/api/store-transfers', (req, res) => {
 app.post('/api/store-transfers', (req, res) => {
   try {
     const u = req.authUser
-    const body = { ...req.body, createdBy: u.id }
+    const body = {
+      ...req.body,
+      createdBy: u.id,
+      status: 'pending',
+      workflow_version: STORE_TRANSFER_WORKFLOW_VERSION,
+      send_item_statuses: {},
+      item_statuses: {},
+      sentAt: null,
+      sentBy: null,
+      receivedAt: null,
+      receivedBy: null,
+      receiverAssignedTo: null,
+    }
+    body.id = String(body.id || crypto.randomUUID())
     if (u.role !== 'executive') {
       const shop = u.shop ?? ''
       if (!shop) {
@@ -2024,7 +2082,25 @@ app.post('/api/store-transfers', (req, res) => {
         return res.status(400).json({ error: 'Assignee must be a manager from the sending shop' })
       }
     }
-    const t = insertStoreTransfer(body)
+    const { products, units } = transferSummary(body)
+    const assignments = assigneeIds.map((assignedTo) => ({
+      type: 'store_transfer_send',
+      skuCode: body.id,
+      productName: `Send transfer to ${body.toShop}: ${products} product${products === 1 ? '' : 's'}`,
+      assignedTo,
+      assignedBy: u.id,
+      shop: body.fromShop,
+      status: 'pending',
+      note: body.note ? `${units} units — ${body.note}` : `${units} units to ${body.toShop}`,
+    }))
+    const notifications = assigneeIds.map((userId) => ({
+      type: 'store_transfer_send_ready',
+      title: 'Transfer Ready to Send',
+      message: `${u.name || 'A colleague'} prepared ${units} units for ${body.toShop}. Confirm every size before sending.`,
+      userId,
+      relatedId: body.id,
+    }))
+    const t = insertStoreTransferWorkflow(body, assignments, notifications)
     const n = Array.isArray(t.items) ? t.items.length : 0
     act(u, {
       category: 'transfer_store',
@@ -2038,12 +2114,144 @@ app.post('/api/store-transfers', (req, res) => {
   } catch (e) { safeError(res, e) }
 })
 
+app.patch('/api/store-transfers/:id/verification', (req, res) => {
+  try {
+    const row = getStoreTransferById(req.params.id)
+    if (!row) return res.status(404).json({ error: 'Not found' })
+    if (!isTwoPhaseStoreTransfer(row)) return res.status(409).json({ error: 'Legacy transfers use the original verification workflow' })
+    if (!storeTransferVisibleToUser(row, req.authUser)) return res.status(403).json({ error: 'Forbidden' })
+
+    const phase = req.body?.phase === 'receive' ? 'receive' : req.body?.phase === 'send' ? 'send' : ''
+    if (!phase) return res.status(400).json({ error: 'phase must be send or receive' })
+    assertStoreTransferPhaseAccess(row, req.authUser, phase)
+    const requiredStatus = phase === 'send' ? 'pending' : 'sent'
+    if (row.status !== requiredStatus) {
+      return res.status(409).json({ error: `This transfer is no longer open for ${phase} verification` })
+    }
+
+    const key = String(req.body?.key || '').trim()
+    const line = getPhaseLines(row, phase).find((candidate) => candidate.key === key)
+    if (!line) return res.status(400).json({ error: 'That SKU and size are not in this transfer' })
+    if (phase === 'receive' && line.expected === 0) {
+      return res.status(400).json({ error: 'Nothing was sent for this size' })
+    }
+    const confirmed = Number(req.body?.confirmed)
+    if (!Number.isInteger(confirmed) || confirmed < 0 || confirmed > line.expected) {
+      return res.status(400).json({ error: `Confirmed quantity must be a whole number from 0 to ${line.expected}` })
+    }
+    const comment = String(req.body?.comment || '').trim()
+    if (confirmed < line.expected && !comment) {
+      return res.status(400).json({ error: 'Explain the missing quantity for this size' })
+    }
+    if (comment.length > 1000) return res.status(400).json({ error: 'Reason must be 1000 characters or fewer' })
+
+    const entry = buildVerificationEntry({
+      expected: line.expected,
+      confirmed,
+      comment,
+      updatedBy: req.authUser.id,
+      updatedAt: new Date().toISOString(),
+      phase,
+    })
+    const updated = updateStoreTransferVerification(row.id, phase, key, entry)
+    act(req.authUser, {
+      category: 'transfer_store', action: `${phase}_size_verified`, entityType: 'store_transfer', entityId: row.id,
+      summary: `${phase === 'send' ? 'Sending' : 'Receiving'} verified ${key}: ${confirmed}/${line.expected}`,
+      meta: { phase, key, expected: line.expected, confirmed, status: entry.status },
+    })
+    res.json(updated)
+  } catch (e) { safeError(res, e) }
+})
+
+app.post('/api/store-transfers/:id/mark-sent', (req, res) => {
+  try {
+    const row = getStoreTransferById(req.params.id)
+    if (!row) return res.status(404).json({ error: 'Not found' })
+    if (!isTwoPhaseStoreTransfer(row)) return res.status(409).json({ error: 'Legacy transfers use the original workflow' })
+    assertStoreTransferPhaseAccess(row, req.authUser, 'send')
+    if (row.status === 'sent' || row.status === 'received') return res.json(row)
+    if (row.status !== 'pending') return res.status(409).json({ error: 'Transfer cannot be marked sent from its current status' })
+    if (!isPhaseComplete(row, 'send', row.send_item_statuses || {})) {
+      return res.status(400).json({ error: 'Confirm every size and explain each shortage before sending' })
+    }
+
+    const recipientIds = destinationTransferRecipients(row)
+    const totals = verificationTotals(row, 'send', row.send_item_statuses || {})
+    const assignments = recipientIds.map((assignedTo) => ({
+      type: 'store_transfer_receive', skuCode: row.id,
+      productName: `Receive transfer from ${row.fromShop}: ${totals.confirmed} units`,
+      assignedTo, assignedBy: req.authUser.id, shop: row.toShop, status: 'pending',
+      note: `${totals.confirmed} units sent${totals.missing ? ` · ${totals.missing} not sent` : ''}`,
+    }))
+    const notifications = recipientIds.map((userId) => ({
+      type: 'store_transfer_receive_ready', title: 'Incoming Transfer Ready',
+      message: `${row.fromShop} sent ${totals.confirmed} units. Confirm every received size.`,
+      userId, relatedId: row.id,
+    }))
+    const updated = transitionStoreTransferPhase(row.id, {
+      phase: 'send', actorId: req.authUser.id, receiverAssignedTo: recipientIds.join(',') || null,
+      assignments, notifications,
+    })
+    act(req.authUser, {
+      category: 'transfer_store', action: 'sent', entityType: 'store_transfer', entityId: row.id,
+      summary: `Store transfer sent ${row.fromShop} → ${row.toShop} (${totals.confirmed} units)`,
+      meta: { ...totals, recipientIds },
+    })
+    res.json(updated)
+  } catch (e) { safeError(res, e) }
+})
+
+app.post('/api/store-transfers/:id/mark-received', (req, res) => {
+  try {
+    const row = getStoreTransferById(req.params.id)
+    if (!row) return res.status(404).json({ error: 'Not found' })
+    if (!isTwoPhaseStoreTransfer(row)) return res.status(409).json({ error: 'Legacy transfers use the original workflow' })
+    assertStoreTransferPhaseAccess(row, req.authUser, 'receive')
+    if (row.status === 'received') return res.json(row)
+    if (row.status !== 'sent') return res.status(409).json({ error: 'Transfer must be sent before it can be received' })
+    if (!isPhaseComplete(row, 'receive', row.item_statuses || {})) {
+      return res.status(400).json({ error: 'Confirm every shipped size and explain each shortage before receiving' })
+    }
+
+    const totals = verificationTotals(row, 'receive', row.item_statuses || {})
+    const senderIds = [...new Set([row.createdBy, row.sentBy, ...splitIdList(row.assignedTo)].filter(Boolean))]
+    const notifications = senderIds.map((userId) => ({
+      type: 'store_transfer_received', title: 'Transfer Received',
+      message: `${row.toShop} received ${totals.confirmed}/${totals.expected} units from ${row.fromShop}.`,
+      userId, relatedId: row.id,
+    }))
+    notifications.push({
+      type: totals.missing ? 'store_transfer_issue' : 'store_transfer_received',
+      title: totals.missing ? 'Transfer Discrepancy' : 'Transfer Received',
+      message: totals.missing
+        ? `${row.toShop} reported ${totals.missing} missing unit${totals.missing === 1 ? '' : 's'} from ${row.fromShop}.`
+        : `${row.toShop} received all ${totals.confirmed} shipped units from ${row.fromShop}.`,
+      userId: 'executives', relatedId: row.id,
+    })
+    const updated = transitionStoreTransferPhase(row.id, {
+      phase: 'receive', actorId: req.authUser.id, notifications,
+    })
+    act(req.authUser, {
+      category: 'transfer_store', action: 'received', entityType: 'store_transfer', entityId: row.id,
+      summary: `Store transfer received at ${row.toShop} (${totals.confirmed}/${totals.expected} units)`,
+      meta: totals,
+    })
+    res.json(updated)
+  } catch (e) { safeError(res, e) }
+})
+
 app.put('/api/store-transfers/:id', (req, res) => {
   try {
     const row = getStoreTransferById(req.params.id)
     if (!row) return res.status(404).json({ error: 'Not found' })
     if (!storeTransferVisibleToUser(row, req.authUser)) {
       return res.status(403).json({ error: 'Forbidden' })
+    }
+    if (isTwoPhaseStoreTransfer(row)) {
+      const reserved = ['status', 'item_statuses', 'send_item_statuses', 'sentAt', 'sentBy', 'receivedAt', 'receivedBy', 'receiverAssignedTo']
+      if (reserved.some((key) => Object.prototype.hasOwnProperty.call(req.body || {}, key))) {
+        return res.status(409).json({ error: 'Use the transfer verification workflow to update this transfer' })
+      }
     }
     validateStoreTransferUpdate(row, req.authUser, req.body || {})
     const updated = updateStoreTransfer(req.params.id, req.body)
@@ -2066,6 +2274,9 @@ app.delete('/api/store-transfers/:id', (req, res) => {
     if (!row) return res.status(404).json({ error: 'Not found' })
     if (!storeTransferVisibleToUser(row, req.authUser)) {
       return res.status(403).json({ error: 'Forbidden' })
+    }
+    if (isTwoPhaseStoreTransfer(row) && req.authUser.role !== 'executive') {
+      return res.status(403).json({ error: 'Only an executive can discard or delete a two-phase transfer' })
     }
     const n = Array.isArray(row.items) ? row.items.length : 0
     const status = row.status || 'pending'

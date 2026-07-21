@@ -8,7 +8,7 @@
     "server": "node server.js",
     "dev:full": "concurrently \"npm run server\" \"npm run dev\"",
     "build": "vite build",
-    "test": "node --test src/utils/csvParser.test.js src/utils/bestsellerMetrics.test.js src/utils/imageFormat.test.js src/utils/dashboardProductSort.test.js",
+    "test": "node --test src/utils/csvParser.test.js src/utils/bestsellerMetrics.test.js src/utils/imageFormat.test.js src/utils/dashboardProductSort.test.js src/utils/storeTransferVerification.test.js",
     "lint": "eslint .",
     "smoke:sales-events": "node scripts/smoke-sales-events-routes.mjs",
     "preview": "vite preview"

@@ -24,6 +24,8 @@ const TABS = [
 ]
 
 function formatTaskType(type) {
+  if (type === 'store_transfer_send') return 'Send Transfer'
+  if (type === 'store_transfer_receive') return 'Receive Transfer'
   return String(type || '')
     .replace(/_/g, ' ')
     .replace(/\b\w/g, (c) => c.toUpperCase())
@@ -81,7 +83,7 @@ export function MyTasks() {
   }
 
   const handleViewDetails = (task) => {
-    if (task.type === 'store_transfer') {
+    if (task.type === 'store_transfer' || task.type === 'store_transfer_send' || task.type === 'store_transfer_receive') {
       navigate(`/transfers?transfer=${encodeURIComponent(task.skuCode)}`)
     } else if (task.type === 'outlet_move') {
       navigate(`/outlet?transfer=${encodeURIComponent(task.skuCode)}`)
@@ -127,7 +129,8 @@ export function MyTasks() {
           <div className="mt-task-list">
             {myTasks.map((t) => {
               const status = t.status || 'pending'
-              const ns = nextStatus(status)
+              const phaseTransferTask = t.type === 'store_transfer_send' || t.type === 'store_transfer_receive'
+              const ns = phaseTransferTask ? null : nextStatus(status)
               const isDone = status === 'done'
               return (
                 <article
@@ -188,9 +191,9 @@ export function MyTasks() {
                       type="button"
                       className="mt-task-card__details"
                       onClick={() => handleViewDetails(t)}
-                      disabled={t.type !== 'store_transfer' && t.type !== 'outlet_move'}
+                      disabled={!['store_transfer', 'store_transfer_send', 'store_transfer_receive', 'outlet_move'].includes(t.type)}
                     >
-                      View details
+                      {phaseTransferTask ? 'Open checklist' : 'View details'}
                     </button>
                   </div>
                 </article>

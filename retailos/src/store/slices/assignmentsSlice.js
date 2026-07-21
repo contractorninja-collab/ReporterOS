@@ -5,7 +5,7 @@ import {
   resyncAfterWriteFailure,
 } from '../storeHelpers.js'
 
-const SHARED_ASSIGNMENT_TYPES = new Set(['store_transfer', 'outlet_move', 'sale'])
+const SHARED_ASSIGNMENT_TYPES = new Set(['store_transfer', 'store_transfer_send', 'store_transfer_receive', 'outlet_move', 'sale'])
 
 function isLinkedAssignment(source, candidate) {
   return SHARED_ASSIGNMENT_TYPES.has(source?.type)
@@ -100,7 +100,7 @@ export function createAssignmentsSlice(set, get) {
     completeAssignmentsForTransfer: (transferId) => {
       const now = new Date().toISOString()
       for (const a of get().assignments) {
-        if ((a.type === 'store_transfer' || a.type === 'outlet_move') && a.skuCode === transferId && a.status !== 'done') {
+        if ((a.type === 'store_transfer' || a.type === 'store_transfer_send' || a.type === 'store_transfer_receive' || a.type === 'outlet_move') && a.skuCode === transferId && a.status !== 'done') {
           get().updateAssignment(a.id, { status: 'done', completedAt: now })
         }
       }

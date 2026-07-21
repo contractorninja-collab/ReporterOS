@@ -7,6 +7,12 @@ import { aggregateSkus } from '../utils/aggregateSkus.js'
 import { getProductLifecycleStatus, STATUS_COLORS } from '../utils/lifecycle.js'
 import { toTitleCase } from '../utils/textFormat.js'
 import { IconPlus, IconDownload, IconPrint } from '../utils/icons.js'
+import {
+  getPhaseLines,
+  isPhaseComplete,
+  verificationEntryError,
+  verificationTotals,
+} from '../utils/storeTransferVerification.js'
 
 const THUMB_SIZE = 36
 
@@ -102,6 +108,9 @@ function batchStatusBadge(status, hasIssues) {
   }
   if (status === 'in_progress') {
     return { label: 'Active', className: 'st-status-badge st-status-badge--active' }
+  }
+  if (status === 'sent') {
+    return { label: 'In transit', className: 'st-status-badge st-status-badge--active' }
   }
   return { label: 'Pending', className: 'st-status-badge st-status-badge--pending' }
 }
@@ -358,6 +367,248 @@ function ReceivingPanel({ batch, onUpdate, onCompleted, onSkuClick }) {
   )
 }
 
+function TwoPhaseChecklist({ batch, phase, onCompleted, onSkuClick }) {
+  const verifyLine = useStore((s) => s.verifyStoreTransferLine)
+  const markSent = useStore((s) => s.markStoreTransferSent)
+  const markReceived = useStore((s) => s.markStoreTransferReceived)
+  const photoMap = useStore((s) => s.photoMap)
+  const lines = useMemo(() => getPhaseLines(batch, phase), [batch, phase])
+  const statuses = useMemo(
+    () => (phase === 'send' ? (batch.send_item_statuses || {}) : (batch.item_statuses || {})),
+    [batch.item_statuses, batch.send_item_statuses, phase],
+  )
+  const [drafts, setDrafts] = useState({})
+  const [errors, setErrors] = useState({})
+  const [savingKey, setSavingKey] = useState('')
+  const [finishing, setFinishing] = useState(false)
+
+  useEffect(() => {
+    const next = {}
+    for (const line of lines) {
+      const saved = statuses[line.key]
+      next[line.key] = {
+        confirmed: saved?.confirmed ?? saved?.received ?? '',
+        comment: saved?.comment || '',
+      }
+    }
+    setDrafts(next)
+  }, [batch.id, batch.status, lines, statuses])
+
+  const groups = useMemo(() => {
+    const grouped = new Map()
+    for (const line of lines) {
+      if (!grouped.has(line.skuCode)) grouped.set(line.skuCode, { skuCode: line.skuCode, productName: line.productName, sizes: [] })
+      grouped.get(line.skuCode).sizes.push(line)
+    }
+    return [...grouped.values()]
+  }, [lines])
+
+  const saveLine = async (line, override) => {
+    const draft = override || drafts[line.key] || {}
+    const confirmed = Number(draft.confirmed)
+    let error = ''
+    if (!Number.isInteger(confirmed) || confirmed < 0 || confirmed > line.expected) {
+      error = `Enter a whole number from 0 to ${line.expected}.`
+    } else if (confirmed < line.expected && !String(draft.comment || '').trim()) {
+      error = `Explain why size ${line.size} is short.`
+    }
+    if (error) {
+      setErrors((current) => ({ ...current, [line.key]: error }))
+      return false
+    }
+    setSavingKey(line.key)
+    setErrors((current) => ({ ...current, [line.key]: '' }))
+    try {
+      await verifyLine(batch.id, { phase, key: line.key, confirmed, comment: draft.comment || '' })
+      return true
+    } catch (err) {
+      setErrors((current) => ({ ...current, [line.key]: err?.message || 'Could not save this size.' }))
+      return false
+    } finally {
+      setSavingKey('')
+    }
+  }
+
+  const toggleFull = (line, checked) => {
+    if (checked) {
+      const next = { confirmed: line.expected, comment: '' }
+      setDrafts((current) => ({ ...current, [line.key]: next }))
+      saveLine(line, next)
+    } else {
+      setDrafts((current) => ({ ...current, [line.key]: { confirmed: 0, comment: current[line.key]?.comment || '' } }))
+      setErrors((current) => ({ ...current, [line.key]: `Explain why size ${line.size} was not fully ${phase === 'send' ? 'sent' : 'received'}.` }))
+    }
+  }
+
+  const promptMissingSizes = (group) => {
+    const nextErrors = {}
+    setDrafts((current) => {
+      const next = { ...current }
+      for (const line of group.sizes) {
+        if (phase === 'receive' && line.expected === 0) continue
+        if (!statuses[line.key]) {
+          next[line.key] = { confirmed: 0, comment: next[line.key]?.comment || '' }
+          nextErrors[line.key] = `Explain why size ${line.size} was not ${phase === 'send' ? 'sent' : 'received'}.`
+        }
+      }
+      return next
+    })
+    setErrors((current) => ({ ...current, ...nextErrors }))
+    requestAnimationFrame(() => document.querySelector(`[data-transfer-reason="${group.skuCode}"]`)?.focus())
+  }
+
+  const totals = verificationTotals(batch, phase, statuses)
+  const complete = isPhaseComplete(batch, phase, statuses)
+
+  const finish = async () => {
+    if (!complete || finishing) return
+    const label = phase === 'send' ? 'sent' : 'received'
+    if (!window.confirm(`Mark this transfer as ${label}? The ${phase === 'send' ? 'sending' : 'receiving'} checklist will be locked.`)) return
+    setFinishing(true)
+    try {
+      if (phase === 'send') await markSent(batch.id)
+      else await markReceived(batch.id)
+      onCompleted?.(totals.confirmed, totals.missing, phase)
+    } catch {
+      // The store action already surfaces the server error and refreshes shared state.
+    } finally {
+      setFinishing(false)
+    }
+  }
+
+  return (
+    <section className="st-phase-checklist" aria-label={`${phase === 'send' ? 'Sending' : 'Receiving'} checklist`}>
+      <div className="st-phase-progress" aria-live="polite">
+        <strong>{phase === 'send' ? 'Sending checklist' : 'Receiving checklist'}</strong>
+        <span>{totals.resolved}/{totals.lines} sizes resolved</span>
+        <span>{totals.confirmed}/{totals.expected} units confirmed</span>
+        {totals.issues > 0 && <span className="st-phase-progress__issue">{totals.issues} issue{totals.issues === 1 ? '' : 's'}</span>}
+      </div>
+
+      {groups.map((group) => {
+        const applicable = group.sizes.filter((line) => phase !== 'receive' || line.expected > 0)
+        const groupDone = applicable.length > 0 && applicable.every((line) => !verificationEntryError(statuses[line.key], line.expected))
+        return (
+          <article key={group.skuCode} className="st-check-sku">
+            <header className="st-check-sku__head">
+              <div className="st-check-sku__identity">
+                <Thumb src={photoMap?.[group.skuCode] || null} onClick={onSkuClick ? () => onSkuClick(group.skuCode) : undefined} />
+                <div>
+                  <strong>{toTitleCase(group.productName)}</strong>
+                  <span>{group.skuCode}</span>
+                </div>
+              </div>
+              <button type="button" className={`st-sku-done${groupDone ? ' is-done' : ''}`} disabled={groupDone} onClick={() => promptMissingSizes(group)}>
+                <Check size={13} /> {groupDone ? 'SKU done' : 'Mark SKU done'}
+              </button>
+            </header>
+
+            <div className="st-check-size-list">
+              {group.sizes.map((line) => {
+                const saved = statuses[line.key]
+                const draft = drafts[line.key] || { confirmed: '', comment: '' }
+                const zeroSent = phase === 'receive' && line.expected === 0
+                const full = draft.confirmed !== '' && Number(draft.confirmed) === line.expected
+                const shortDraft = draft.confirmed !== '' && Number(draft.confirmed) < line.expected
+                return (
+                  <div key={line.key} className={`st-check-size${saved ? ` is-${saved.status}` : ''}${zeroSent ? ' is-skipped' : ''}`}>
+                    <label className="st-check-size__select">
+                      <input
+                        type="checkbox"
+                        checked={full}
+                        disabled={zeroSent || savingKey === line.key}
+                        onChange={(event) => toggleFull(line, event.target.checked)}
+                      />
+                      <span className="st-check-size__name">Size {line.size}</span>
+                      <span className="st-check-size__expected">Expected ×{line.expected}</span>
+                    </label>
+                    {zeroSent ? (
+                      <div className="st-check-size__sender-note">
+                        Not sent by origin{batch.send_item_statuses?.[line.key]?.comment ? ` — ${batch.send_item_statuses[line.key].comment}` : ''}
+                      </div>
+                    ) : (
+                      <div className="st-check-size__fields">
+                        <label>
+                          <span>Confirmed qty</span>
+                          <input
+                            type="number" min="0" max={line.expected} step="1" inputMode="numeric"
+                            value={draft.confirmed}
+                            onChange={(event) => setDrafts((current) => ({ ...current, [line.key]: { ...current[line.key], confirmed: event.target.value } }))}
+                          />
+                        </label>
+                        {(shortDraft || saved?.status === 'partial' || saved?.status === 'missing' || errors[line.key]) && (
+                          <label className="st-check-size__reason">
+                            <span>Reason for missing quantity</span>
+                            <textarea
+                              data-transfer-reason={group.skuCode}
+                              rows="2" maxLength="1000"
+                              value={draft.comment || ''}
+                              onChange={(event) => setDrafts((current) => ({ ...current, [line.key]: { ...current[line.key], comment: event.target.value } }))}
+                            />
+                          </label>
+                        )}
+                        <button type="button" className="st-check-size__save" disabled={savingKey === line.key} onClick={() => saveLine(line)}>
+                          {savingKey === line.key ? 'Saving…' : saved ? 'Update' : 'Confirm'}
+                        </button>
+                      </div>
+                    )}
+                    {errors[line.key] && <p className="st-check-size__error" role="alert">{errors[line.key]}</p>}
+                    {saved?.updatedBy && <p className="st-check-size__saved">Saved · {saved.confirmed ?? saved.received}/{line.expected}</p>}
+                  </div>
+                )
+              })}
+            </div>
+          </article>
+        )
+      })}
+
+      <div className="st-phase-finish">
+        <button type="button" className="st-phase-finish__button" disabled={!complete || finishing} onClick={finish}>
+          <PackageCheck size={15} /> {finishing ? 'Finishing…' : phase === 'send' ? 'Mark transfer as sent' : 'Mark transfer as received'}
+        </button>
+        {!complete && <span>Resolve every applicable size and explain each shortage.</span>}
+      </div>
+    </section>
+  )
+}
+
+function TwoPhaseSummary({ batch, getUserName }) {
+  const lines = getPhaseLines(batch, 'send')
+  const sender = batch.send_item_statuses || {}
+  const receiver = batch.item_statuses || {}
+  return (
+    <div className="st-v2-summary">
+      <div className="st-v2-summary__meta">
+        <span>Sent {formatDate(batch.sentAt)}{batch.sentBy ? ` · ${getUserName(batch.sentBy)}` : ''}</span>
+        <span>Received {formatDate(batch.receivedAt)}{batch.receivedBy ? ` · ${getUserName(batch.receivedBy)}` : ''}</span>
+      </div>
+      <div className="transfer-batch-table-wrap">
+        <table className="st-v2-summary__table">
+          <thead><tr><th>SKU</th><th>Size</th><th>Planned</th><th>Sent</th><th>Received</th><th>Exceptions</th></tr></thead>
+          <tbody>
+            {lines.map((line) => {
+              const sent = sender[line.key]
+              const received = receiver[line.key]
+              const sentQty = Number(sent?.confirmed) || 0
+              const receivedQty = sentQty === 0 ? 0 : Number(received?.confirmed ?? received?.received) || 0
+              const notes = [
+                sentQty < line.expected ? `Send: ${sent?.comment || 'No reason recorded'}` : '',
+                sentQty > 0 && receivedQty < sentQty ? `Receive: ${received?.comment || 'No reason recorded'}` : '',
+              ].filter(Boolean)
+              return (
+                <tr key={line.key}>
+                  <td>{line.skuCode}</td><td>{line.size}</td><td>{line.expected}</td><td>{sentQty}</td><td>{receivedQty}</td>
+                  <td className={notes.length ? 'has-issue' : ''}>{notes.join(' · ') || '—'}</td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
 function renderItemRow(it, idx, onSkuClick, fromShop, toShop) {
   const clickable = !!onSkuClick
   const handleClick = clickable ? (e) => { e.stopPropagation(); onSkuClick(it.skuCode) } : undefined
@@ -572,25 +823,26 @@ function CompletedSummary({ batch, expanded: forceExpanded, onSkuClick }) {
 
 function ExecIssueSummary({ issues, getUserName }) {
   const totalMissingUnits = issues.reduce((sum, t) => {
-    const vals = Object.values(t.item_statuses || {})
+    const vals = [...Object.values(t.send_item_statuses || {}), ...Object.values(t.item_statuses || {})]
     return sum + vals.reduce((s, v) => s + (v.missing ?? 0), 0)
   }, 0)
 
   const allMissingItems = []
   for (const t of issues) {
-    const st = t.item_statuses || {}
-    for (const [key, val] of Object.entries(st)) {
-      if ((val.missing ?? 0) > 0) {
-        const [sku, size] = key.split('|')
-        allMissingItems.push({
-          sku, size,
-          missing: val.missing,
-          comment: val.comment || '',
-          fromShop: t.fromShop,
-          toShop: t.toShop,
-          date: t.createdAt,
-          createdBy: t.createdBy,
-        })
+    for (const [phase, statuses] of [['Sending', t.send_item_statuses || {}], ['Receiving', t.item_statuses || {}]]) {
+      for (const [key, val] of Object.entries(statuses)) {
+        if ((val.missing ?? 0) > 0) {
+          const [sku, size] = key.split('|')
+          allMissingItems.push({
+            sku, size, phase,
+            missing: val.missing,
+            comment: val.comment || '',
+            fromShop: t.fromShop,
+            toShop: t.toShop,
+            date: t.createdAt,
+            createdBy: t.createdBy,
+          })
+        }
       }
     }
   }
@@ -620,7 +872,7 @@ function ExecIssueSummary({ issues, getUserName }) {
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr>
-                {['SKU', 'Size', 'Missing', 'Route', 'Date', 'Created by', 'Comment'].map((h) => (
+                {['Phase', 'SKU', 'Size', 'Missing', 'Route', 'Date', 'Created by', 'Comment'].map((h) => (
                   <th key={h} style={{
                     textAlign: 'left', padding: '6px 8px', fontSize: 9, fontWeight: 700,
                     color: 'var(--ro-text-muted)', textTransform: 'uppercase', letterSpacing: '0.6px',
@@ -632,6 +884,7 @@ function ExecIssueSummary({ issues, getUserName }) {
             <tbody>
               {allMissingItems.map((item, idx) => (
                 <tr key={idx}>
+                  <td style={{ padding: '5px 8px', fontSize: 10, color: '#fbbf24', fontWeight: 700 }}>{item.phase}</td>
                   <td style={{ padding: '5px 8px', fontSize: 11, color: 'var(--ro-text)', fontWeight: 600 }}>{item.sku}</td>
                   <td style={{ padding: '5px 8px', fontSize: 11, color: 'var(--ro-text)' }}>{item.size}</td>
                   <td style={{ padding: '5px 8px', fontSize: 11, fontWeight: 700, color: '#ff5555' }}>×{item.missing}</td>
@@ -716,9 +969,12 @@ export function StoreTransfers() {
   }, [skuMap])
 
   const myTransfers = useMemo(() => isExec ? transfers : transfers.filter((t) => t.toShop === myShop || t.fromShop === myShop), [transfers, myShop, isExec])
-  const incoming = useMemo(() => myTransfers.filter((t) => (
-    isExec || t.toShop === myShop || isAssignedToActiveUser(t)
-  ) && t.status !== 'completed' && t.status !== 'received'), [myTransfers, myShop, isExec, isAssignedToActiveUser])
+  const incoming = useMemo(() => myTransfers.filter((t) => {
+    const isV2 = Number(t.workflow_version) >= 2
+    const destinationCanAct = isExec || t.toShop === myShop
+    if (isV2) return isExec ? (t.status === 'pending' || t.status === 'sent') : destinationCanAct && t.status === 'sent'
+    return (destinationCanAct || isAssignedToActiveUser(t)) && t.status !== 'completed' && t.status !== 'received'
+  }), [myTransfers, myShop, isExec, isAssignedToActiveUser])
   const outgoing = useMemo(() => myTransfers.filter((t) => (isExec || t.fromShop === myShop) && t.status !== 'completed' && t.status !== 'received'), [myTransfers, myShop, isExec])
   const history = useMemo(() => myTransfers.filter((t) => t.status === 'completed' || t.status === 'received').sort((a, b) => (b.receivedAt || b.createdAt || '').localeCompare(a.receivedAt || a.createdAt || '')), [myTransfers])
 
@@ -726,9 +982,11 @@ export function StoreTransfers() {
     if (!requestedTransferId) return
     const requested = myTransfers.find((transfer) => transfer.id === requestedTransferId)
     if (!requested) return
-    setTab(requested.status === 'completed' || requested.status === 'received' ? 'history' : 'incoming')
+    if (requested.status === 'completed' || requested.status === 'received') setTab('history')
+    else if (Number(requested.workflow_version) >= 2 && requested.status === 'pending' && requested.fromShop === myShop && !isExec) setTab('outgoing')
+    else setTab('incoming')
     setExpanded(requested.id)
-  }, [myTransfers, requestedTransferId])
+  }, [isExec, myShop, myTransfers, requestedTransferId])
 
   const getUserName = (id) => users.find((u) => u.id === id)?.name || id
   const getAssigneeNames = (value) => String(value || '')
@@ -742,8 +1000,8 @@ export function StoreTransfers() {
     updateStoreTransfer(transferId, changes)
   }
 
-  const handleTransferCompleted = useCallback((received, missing) => {
-    setToast(`${received} units verified${missing > 0 ? `, ${missing} units reported missing` : '. All items accounted for.'}`)
+  const handleTransferCompleted = useCallback((received, missing, phase = 'receive') => {
+    setToast(`${phase === 'send' ? 'Transfer sent' : 'Transfer received'}: ${received} units verified${missing > 0 ? `, ${missing} units reported missing` : '. All items accounted for.'}`)
   }, [])
 
   const handleDeleteTransfer = useCallback((batch) => {
@@ -758,8 +1016,7 @@ export function StoreTransfers() {
   }, [deleteStoreTransfer])
 
   const issues = useMemo(() => history.filter((t) => {
-    const st = t.item_statuses || {}
-    const vals = Object.values(st)
+    const vals = [...Object.values(t.send_item_statuses || {}), ...Object.values(t.item_statuses || {})]
     return vals.length > 0 && vals.some((v) => (v.missing ?? 0) > 0 || v.status === 'missing' || v.status === 'partial')
   }), [history])
 
@@ -828,14 +1085,16 @@ export function StoreTransfers() {
             {visible.map((batch) => {
               const isExpanded = expanded === batch.id || (tab === 'issues' && expanded === null)
               const status = batch.status || 'pending'
+              const isV2 = Number(batch.workflow_version) >= 2
               const totalUnits = batch.items.reduce((s, i) => s + (i.totalQty ?? i.quantity ?? 0), 0)
-              const isIncoming = isExec || batch.toShop === myShop || isAssignedToActiveUser(batch)
+              const isIncoming = isExec || batch.toShop === myShop || (!isV2 && isAssignedToActiveUser(batch))
               const isInProgress = status === 'in_progress'
               const isCompleted = status === 'completed' || status === 'received'
               const isPending = status === 'pending'
+              const isSender = isExec || batch.fromShop === myShop
+              const isReceiver = isExec || batch.toShop === myShop
 
-              const statuses = batch.item_statuses || {}
-              const statusEntries = Object.values(statuses)
+              const statusEntries = [...Object.values(batch.send_item_statuses || {}), ...Object.values(batch.item_statuses || {})]
               const hasVerification = isCompleted && statusEntries.length > 0 && statusEntries.some((v) => v.status)
               const completedReceived = hasVerification
                 ? statusEntries.reduce((s, v) => s + (v.received ?? 0), 0)
@@ -897,11 +1156,35 @@ export function StoreTransfers() {
 
                   {isExpanded && (
                     <div className="ot-batch-card__body">
-                      {(isPending || (!isInProgress && !isCompleted)) && !isIncoming && (
+                      {isV2 && isPending && isSender && (
+                        <TwoPhaseChecklist
+                          batch={batch}
+                          phase="send"
+                          onCompleted={handleTransferCompleted}
+                          onSkuClick={handleSkuClick}
+                        />
+                      )}
+
+                      {isV2 && status === 'sent' && isReceiver && tab !== 'outgoing' && (
+                        <TwoPhaseChecklist
+                          batch={batch}
+                          phase="receive"
+                          onCompleted={handleTransferCompleted}
+                          onSkuClick={handleSkuClick}
+                        />
+                      )}
+
+                      {isV2 && status === 'sent' && (!isReceiver || tab === 'outgoing') && (
+                        <div className="st-awaiting-receipt">
+                          <Clock size={16} /> Sent {formatDate(batch.sentAt)} · awaiting confirmation from {batch.toShop}
+                        </div>
+                      )}
+
+                      {!isV2 && (isPending || (!isInProgress && !isCompleted)) && !isIncoming && (
                         <StoreTransferTable batch={batch} onSkuClick={handleSkuClick} />
                       )}
 
-                      {(isPending || isInProgress) && isIncoming && tab !== 'history' && (
+                      {!isV2 && (isPending || isInProgress) && isIncoming && tab !== 'history' && (
                         <ReceivingPanel
                           batch={batch}
                           onUpdate={handleTransferUpdate}
@@ -910,22 +1193,26 @@ export function StoreTransfers() {
                         />
                       )}
 
-                      {isInProgress && !isIncoming && (
+                      {!isV2 && isInProgress && !isIncoming && (
                         <StoreTransferTable batch={batch} onSkuClick={handleSkuClick} />
                       )}
 
-                      {isCompleted && (
+                      {isCompleted && isV2 && <TwoPhaseSummary batch={batch} getUserName={getUserName} />}
+
+                      {isCompleted && !isV2 && (
                         <CompletedSummary batch={batch} expanded={tab === 'history'} onSkuClick={handleSkuClick} />
                       )}
 
                       <div className="ot-batch-card__footer transfer-batch-actions">
-                        <button
-                          type="button"
-                          className="ot-delete-transfer-btn"
-                          onClick={() => handleDeleteTransfer(batch)}
-                        >
-                          {isCompleted ? 'Delete' : 'Discard'}
-                        </button>
+                        {(!isV2 || isExec) && (
+                          <button
+                            type="button"
+                            className="ot-delete-transfer-btn"
+                            onClick={() => handleDeleteTransfer(batch)}
+                          >
+                            {isCompleted ? 'Delete' : 'Discard'}
+                          </button>
+                        )}
                         <button type="button" className="ot-export-btn" onClick={() => downloadCSV(batch)}>
                           <IconDownload size={12} strokeWidth={1.75} className="ot-export-btn__icon" />
                           CSV

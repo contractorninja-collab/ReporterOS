@@ -237,6 +237,10 @@ export const deleteOutletTransfer = (id) => request(`/outlet-transfers/${id}`, {
 export const fetchStoreTransfers = () => request('/store-transfers')
 export const postStoreTransfer = (t) => request('/store-transfers', { method: 'POST', body: JSON.stringify(t) })
 export const putStoreTransfer = (id, changes) => request(`/store-transfers/${id}`, { method: 'PUT', body: JSON.stringify(changes) })
+export const patchStoreTransferVerification = (id, payload) =>
+  request(`/store-transfers/${id}/verification`, { method: 'PATCH', body: JSON.stringify(payload) })
+export const markStoreTransferSent = (id) => request(`/store-transfers/${id}/mark-sent`, { method: 'POST' })
+export const markStoreTransferReceived = (id) => request(`/store-transfers/${id}/mark-received`, { method: 'POST' })
 export const deleteStoreTransfer = (id) => request(`/store-transfers/${id}`, { method: 'DELETE' })
 
 // ── Markdown / sale lists ───────────────────────────────────────────────────
