@@ -29,6 +29,7 @@ import { IconClose, IconSearchEmpty } from '../utils/icons.js'
 import { normalizeGenderCodeForFilter, genderShortLabel } from '../utils/gender.js'
 import { fetchSalesByDay } from '../api/client.js'
 import { productMatchesActiveSeason } from '../utils/seasons.js'
+import { DASHBOARD_PRODUCT_SORT_OPTIONS, sortDashboardProducts } from '../utils/dashboardProductSort.js'
 
 const DM_SANS = '"DM Sans", sans-serif'
 const DASH_PRIVACY_KEY = 'retailos_dashboard_privacy'
@@ -266,6 +267,7 @@ export function Dashboard() {
   const [genderFilter, setGenderFilter] = useState('All')
   const [activeInventoryGender, setActiveInventoryGender] = useState(null)
   const [categoryFilter, setCategoryFilter] = useState('All')
+  const [panelSort, setPanelSort] = useState('newest')
   const [selectedSkuForModal, setSelectedSku] = useState(null)
   const [activitySku, setActivitySku] = useState(null)
   const [salesMasked, setSalesMasked] = useState(() => {
@@ -376,13 +378,14 @@ export function Dashboard() {
 
   const panelSkus = useMemo(() => {
     if (!selectedStatus) return []
-    return (statusGroups[selectedStatus] || []).filter((s) => {
+    const filtered = (statusGroups[selectedStatus] || []).filter((s) => {
       const gOk = genderFilter === 'All' || normalizeGenderCodeForFilter(s.gender) === genderFilter
       const cOk =
         categoryFilter === 'All' || (s.category || '').trim() === categoryFilter.trim()
       return gOk && cOk
     })
-  }, [selectedStatus, statusGroups, genderFilter, categoryFilter])
+    return sortDashboardProducts(filtered, panelSort)
+  }, [selectedStatus, statusGroups, genderFilter, categoryFilter, panelSort])
 
   const selectedTileData = TILES.find((t) => t.status === selectedStatus)
 
@@ -844,6 +847,22 @@ export function Dashboard() {
                   margin: '0 4px',
                 }}
               />
+              <label className="dash-product-sort">
+                <span className="dash-product-sort__label">Sort by</span>
+                <select
+                  className="dash-product-sort__select"
+                  value={panelSort}
+                  onChange={(event) => setPanelSort(event.target.value)}
+                  aria-label="Sort dashboard products"
+                >
+                  {DASHBOARD_PRODUCT_SORT_OPTIONS.map((option) => (
+                    <option key={option.key} value={option.key}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <div className="dash-product-filter-divider" aria-hidden />
               <span
                 style={{
                   fontSize: 10,
