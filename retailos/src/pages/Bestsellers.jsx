@@ -573,17 +573,34 @@ export function Bestsellers() {
   }
 
   // ── Brand breakdown ─────────────────────────────────────────────────────────
+  const brandColors = useMemo(() => {
+    const colors = ['#38bdf8', '#00e676', '#ff8800', '#ff3333', '#a78bfa', '#f472b6', '#fbbf24', '#06b6d4']
+    const brands = [...new Set(rankedSkus.map((s) => s.brand || 'Unknown'))]
+      .sort((a, b) => a.localeCompare(b))
+    return Object.fromEntries(brands.map((brand, i) => [brand, colors[i % colors.length]]))
+  }, [rankedSkus])
+
   const brandBreakdown = useMemo(() => {
     const counts = {}
     for (const s of rankedSkus) {
       const b = s.brand || 'Unknown'
       counts[b] = (counts[b] || 0) + 1
     }
-    const colors = ['#38bdf8', '#00e676', '#ff8800', '#ff3333', '#a78bfa', '#f472b6', '#fbbf24', '#06b6d4']
     return Object.entries(counts)
       .sort((a, b) => b[1] - a[1])
-      .map(([label, value], i) => ({ label, value, color: colors[i % colors.length] }))
-  }, [rankedSkus])
+      .map(([label, value]) => ({ label, value, color: brandColors[label] }))
+  }, [rankedSkus, brandColors])
+
+  const brandQtySold = useMemo(() => {
+    const totals = {}
+    for (const s of rankedSkus) {
+      const b = s.brand || 'Unknown'
+      totals[b] = (totals[b] || 0) + (Number(s._periodSold) || 0)
+    }
+    return Object.entries(totals)
+      .sort((a, b) => b[1] - a[1])
+      .map(([label, value]) => ({ label, value, color: brandColors[label] }))
+  }, [rankedSkus, brandColors])
 
   // ── Gender / Season drill-down ──────────────────────────────────────────────
   const genderSegments = useMemo(() => {
@@ -878,15 +895,24 @@ export function Bestsellers() {
         )}
       </div>
 
-      {/* Analytics Row — Brand Breakdown + Gender + Season */}
+      {/* Analytics Row — Brand SKU count + brand quantity sold + gender + season */}
       <div className="fade-up delay-2 bestsellers-analytics-row">
-        {/* Brand breakdown */}
+        {/* Brand SKU count */}
         <div style={{ background: 'var(--ro-surface)', border: '1px solid var(--ro-border)', borderRadius: 13, padding: 16 }}>
           <div style={{ fontFamily: '"DM Sans"', fontSize: 11, letterSpacing: '1.5px', color: 'var(--ro-text-muted)', textTransform: 'uppercase', marginBottom: 10 }}>
-            Brand Distribution ({rankedScopeLabel})
+            Brand Distribution — SKUs Counted ({rankedScopeLabel})
           </div>
           <HorizontalBarChart items={brandBreakdown} maxValue={Math.max(...brandBreakdown.map((b) => b.value), 1)} />
           {brandBreakdown.length === 0 && <div style={{ fontSize: 11, color: 'var(--ro-text-muted)' }}>No brand data</div>}
+        </div>
+
+        {/* Brand quantity sold */}
+        <div style={{ background: 'var(--ro-surface)', border: '1px solid var(--ro-border)', borderRadius: 13, padding: 16 }}>
+          <div style={{ fontFamily: '"DM Sans"', fontSize: 11, letterSpacing: '1.5px', color: 'var(--ro-text-muted)', textTransform: 'uppercase', marginBottom: 10 }}>
+            Brand Distribution — Qty Sold ({rankedScopeLabel})
+          </div>
+          <HorizontalBarChart items={brandQtySold} maxValue={Math.max(...brandQtySold.map((b) => b.value), 1)} />
+          {brandQtySold.length === 0 && <div style={{ fontSize: 11, color: 'var(--ro-text-muted)' }}>No quantity sold data</div>}
         </div>
 
         {/* Gender drill-down */}
