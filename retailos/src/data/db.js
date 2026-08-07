@@ -13,6 +13,11 @@ import { getDaysInStore, getSellThrough } from '../utils/lifecycle.js'
 import { normalizeCategory } from '../utils/category.js'
 import { salePriceOf } from '../utils/saleList.js'
 import { normalizeSeasonInput, isEarlierSeason, compareSeasons } from '../utils/seasons.js'
+import {
+  brandKey,
+  buildCanonicalBrandMap,
+  canonicalizeBrand,
+} from '../utils/brand.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const DATA_DIR = process.env.DATA_DIR || path.resolve(__dirname, '../..')
@@ -350,6 +355,44 @@ function setSetting(key, value) {
     VALUES (?, ?)
     ON CONFLICT(key) DO UPDATE SET value = excluded.value
   `).run(key, value)
+}
+
+function storedBrandValues() {
+  return db.prepare(`
+    SELECT brand FROM skus WHERE TRIM(COALESCE(brand, '')) != ''
+    UNION ALL
+    SELECT brand FROM import_lines WHERE TRIM(COALESCE(brand, '')) != ''
+  `).all().map((row) => row.brand)
+}
+
+function canonicalBrandMap() {
+  return buildCanonicalBrandMap(storedBrandValues())
+}
+
+function canonicalizeStoredBrandNames() {
+  const canonicalBrands = canonicalBrandMap()
+  const tables = ['skus', 'import_lines']
+  let updated = 0
+
+  const tx = db.transaction(() => {
+    for (const table of tables) {
+      const variants = db.prepare(`
+        SELECT DISTINCT brand
+        FROM ${table}
+        WHERE TRIM(COALESCE(brand, '')) != ''
+      `).all()
+      const update = db.prepare(`UPDATE ${table} SET brand = ? WHERE brand = ?`)
+      for (const row of variants) {
+        const canonical = canonicalBrands.get(brandKey(row.brand))
+        if (!canonical || canonical === row.brand) continue
+        updated += update.run(canonical, row.brand).changes
+      }
+    }
+  })
+
+  tx()
+  if (updated > 0) console.log(`[db] Canonicalized ${updated} brand value(s)`)
+  return updated
 }
 
 function randomPin() {
@@ -892,6 +935,7 @@ if (userCount === 0) {
 migratePlaintextPinsToBcrypt()
 clearStoredPlaintextPins()
 migrateSequentialUserCredentials()
+canonicalizeStoredBrandNames()
 
 // ── SKUs ────────────────────────────────────────────────────────────────────
 
@@ -1171,6 +1215,7 @@ export function getShipmentMetaBySku() {
 }
 
 export function insertSkus(skusArray) {
+  const canonicalBrands = canonicalBrandMap()
   const insert = db.prepare(`
     INSERT INTO skus (id, barcode, sku, product_name, size, price_sold, price_tag, cost_price, quantity, sold_quantity, import_date, gender, season, category, brand, _importId)
     VALUES (@id, @barcode, @sku, @product_name, @size, @price_sold, @price_tag, @cost_price, @quantity, @sold_quantity, @import_date, @gender, @season, @category, @brand, @_importId)
@@ -1219,12 +1264,13 @@ export function insertSkus(skusArray) {
       const p = s.price_sold
       const priceSoldParam = p == null || p === '' ? null : (() => { const n = Number(p); return Number.isNaN(n) ? null : n })()
       const categoryNorm = normalizeCategory(s.category ?? '')
+      const brandNorm = canonicalizeBrand(s.brand, canonicalBrands)
       insert.run({
         id: rowId, barcode: normalizeBarcodeValue(s.barcode ?? '') || '', sku: s.sku ?? '', product_name: s.product_name ?? '',
         size: s.size ?? '', price_sold: priceSoldParam, price_tag: s.price_tag ?? 0,
         cost_price: s.cost_price ?? 0,
         quantity: quantitySaved, sold_quantity: soldN, import_date: importDate,
-        gender: s.gender ?? '', season: s.season ?? '', category: categoryNorm, brand: s.brand ?? '',
+        gender: s.gender ?? '', season: s.season ?? '', category: categoryNorm, brand: brandNorm,
         _importId: s._importId ?? null,
       })
       if (s._importId) {
@@ -1242,7 +1288,7 @@ export function insertSkus(skusArray) {
           line_investment: roundMoney(qty * unitCost),
           price_tag: s.price_tag ?? 0,
           category: categoryNorm,
-          brand: s.brand ?? '',
+          brand: brandNorm,
           season: s.season ?? '',
           quantity_added: qty,
           imported_at: importDate || new Date().toISOString(),
@@ -1943,7 +1989,8 @@ export function getDistinctSkuBrands() {
   `,
     )
     .all()
-  return rows.map((r) => r.b).filter(Boolean)
+  const canonicalBrands = buildCanonicalBrandMap(rows.map((r) => r.b))
+  return [...canonicalBrands.values()].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
 }
 
 /**
