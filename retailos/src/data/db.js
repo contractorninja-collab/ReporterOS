@@ -859,6 +859,7 @@ db.exec(`
     shift_date TEXT NOT NULL,
     start_time TEXT NOT NULL,
     end_time TEXT NOT NULL,
+    plan_type TEXT NOT NULL DEFAULT 'shift',
     status TEXT NOT NULL DEFAULT 'draft',
     created_by TEXT,
     updated_by TEXT,
@@ -901,6 +902,8 @@ db.exec(`
     reviewed_at TEXT
   );
 `)
+
+safeAddColumn('shift_plans', 'plan_type', "TEXT NOT NULL DEFAULT 'shift'")
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS activity_log (
@@ -5003,9 +5006,21 @@ function validateShiftPlanInput(input, ignoreId = '') {
   if (!user || user.role === 'executive') throw shiftError('A valid shop user is required')
   const shop = String(input.shop || '').trim()
   const date = String(input.shift_date || '')
+  const planType = input.plan_type === 'day_off' ? 'day_off' : 'shift'
   const start = String(input.start_time || '')
   const end = String(input.end_time || '')
   if (!shop || !/^\d{4}-\d{2}-\d{2}$/.test(date)) throw shiftError('Shop and shift date are required')
+  const existing = db.prepare(`
+    SELECT id, plan_type FROM shift_plans
+    WHERE user_id = ? AND shift_date = ? AND status != 'cancelled' AND id != ?
+  `).all(user.id, date, ignoreId || '')
+  if (planType === 'day_off') {
+    if (existing.length) throw shiftError('Remove the employee\'s planned shifts before marking this day off')
+    return { user, shop, date, start: '00:00', end: '00:00', planType }
+  }
+  if (existing.some((plan) => plan.plan_type === 'day_off')) {
+    throw shiftError('Remove the day-off entry before adding a shift')
+  }
   if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(start) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(end)) {
     throw shiftError('Start and end times must use HH:mm')
   }
@@ -5017,7 +5032,7 @@ function validateShiftPlanInput(input, ignoreId = '') {
     LIMIT 1
   `).get(user.id, date, ignoreId || '', end, start)
   if (overlap) throw shiftError('This shift overlaps another period for the same user')
-  return { user, shop, date, start, end }
+  return { user, shop, date, start, end, planType }
 }
 
 export function getShiftPlanById(id) {
@@ -5048,6 +5063,7 @@ export function createShiftPlan(input, actorId) {
     shift_date: valid.date,
     start_time: valid.start,
     end_time: valid.end,
+    plan_type: valid.planType,
     status: input.status === 'published' ? 'published' : 'draft',
     created_by: actorId || '',
     updated_by: actorId || '',
@@ -5057,10 +5073,10 @@ export function createShiftPlan(input, actorId) {
   }
   db.prepare(`
     INSERT INTO shift_plans (
-      id, user_id, user_name, shop, shift_date, start_time, end_time, status,
+      id, user_id, user_name, shop, shift_date, start_time, end_time, plan_type, status,
       created_by, updated_by, created_at, updated_at, published_at
     ) VALUES (
-      @id, @user_id, @user_name, @shop, @shift_date, @start_time, @end_time, @status,
+      @id, @user_id, @user_name, @shop, @shift_date, @start_time, @end_time, @plan_type, @status,
       @created_by, @updated_by, @created_at, @updated_at, @published_at
     )
   `).run(row)
@@ -5078,10 +5094,10 @@ export function updateShiftPlan(id, patch, actorId) {
   const now = new Date().toISOString()
   db.prepare(`
     UPDATE shift_plans SET user_id = ?, user_name = ?, shop = ?, shift_date = ?,
-      start_time = ?, end_time = ?, updated_by = ?, updated_at = ?,
+      start_time = ?, end_time = ?, plan_type = ?, updated_by = ?, updated_at = ?,
       late_notified_at = NULL, no_show_notified_at = NULL, overrun_notified_at = NULL
     WHERE id = ?
-  `).run(valid.user.id, valid.user.name, valid.shop, valid.date, valid.start, valid.end, actorId || '', now, id)
+  `).run(valid.user.id, valid.user.name, valid.shop, valid.date, valid.start, valid.end, valid.planType, actorId || '', now, id)
   return getShiftPlanById(id)
 }
 
@@ -5153,7 +5169,7 @@ function eligiblePlanForClockIn(userId, dateKey, nowIso) {
   `).all(userId).map((row) => row.planned_shift_id))
   return db.prepare(`
     SELECT * FROM shift_plans
-    WHERE user_id = ? AND shift_date = ? AND status = 'published'
+    WHERE user_id = ? AND shift_date = ? AND status = 'published' AND plan_type = 'shift'
     ORDER BY start_time ASC
   `).all(userId, dateKey)
     .filter((plan) => !linked.has(plan.id))
@@ -5258,7 +5274,7 @@ export function evaluateShiftAttendance(nowIso = new Date().toISOString()) {
   const dateKey = shiftDateKey(nowIso)
   const nowMs = new Date(nowIso).getTime()
   const plans = db.prepare(`
-    SELECT * FROM shift_plans WHERE shift_date = ? AND status = 'published'
+    SELECT * FROM shift_plans WHERE shift_date = ? AND status = 'published' AND plan_type = 'shift'
   `).all(dateKey)
   let notifications = 0
   for (const plan of plans) {
@@ -5309,6 +5325,9 @@ export function getShiftAttendanceOverview(dateKey = shiftDateKey(), shop = '') 
   const actuals = db.prepare(`SELECT * FROM shifts WHERE ${actualWhere.join(' AND ')} ORDER BY clock_in`).all(...actualParams).map(toShift)
   const nowMs = Date.now()
   const enrichedPlans = plans.map((plan) => {
+    if (plan.plan_type === 'day_off') {
+      return { ...plan, actual: null, exception: '', start_iso: null, end_iso: null }
+    }
     const actual = actuals.find((shift) => shift.planned_shift_id === plan.id) || null
     const settings = getShiftSettingByShop(plan.shop)
     const window = planWindow(plan)

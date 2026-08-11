@@ -99,6 +99,33 @@ test('deduplicates no-show evaluation and copies a published week as drafts', ()
   assert.equal(copied[0].status, 'draft')
 })
 
+test('stores day off as a publishable schedule entry without attendance alerts', () => {
+  const outletUser = db.getAllUsers().find((user) => user.shop === 'Outlet')
+  const executive = db.getAllUsers().find((user) => user.role === 'executive')
+  db.saveShiftSetting('Outlet', { tracking_start_date: '2026-08-01' }, executive.id)
+
+  const dayOff = db.createShiftPlan({
+    id: 'outlet-day-off', user_id: outletUser.id, shop: 'Outlet',
+    shift_date: '2026-08-13', plan_type: 'day_off',
+  }, executive.id)
+  assert.equal(dayOff.plan_type, 'day_off')
+  assert.equal(dayOff.start_time, '00:00')
+  assert.throws(() => db.createShiftPlan({
+    user_id: outletUser.id, shop: 'Outlet', shift_date: '2026-08-13',
+    start_time: '09:00', end_time: '17:00',
+  }, executive.id), /day-off entry/)
+
+  db.publishShiftPlanWeek('Outlet', '2026-08-10', executive.id)
+  const evaluation = db.evaluateShiftAttendance(shiftLocalToIso('2026-08-13', '18:00'))
+  assert.equal(evaluation.evaluated, 0)
+  assert.equal(db.getShiftPlanById(dayOff.id).no_show_notified_at, null)
+
+  const unscheduled = db.clockIn('day-off-clock-in', outletUser, shiftLocalToIso('2026-08-13', '10:00'))
+  assert.deepEqual(unscheduled.attendance_flags, ['unscheduled'])
+  assert.equal(unscheduled.planned_shift_id, null)
+  db.clockOut(unscheduled.id, 'manual', shiftLocalToIso('2026-08-13', '11:00'))
+})
+
 test.after(() => {
   db.closeDatabaseForTests()
   fs.rmSync(dataDir, { recursive: true, force: true })

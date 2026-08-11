@@ -2854,7 +2854,9 @@ app.post('/api/shift-plans', (req, res) => {
     const plan = createShiftPlan(req.body, req.authUser.id)
     act(req.authUser, {
       category: 'shift', action: 'plan_created', entityType: 'shift_plan', entityId: plan.id,
-      summary: `Planned ${plan.user_name} at ${plan.shop} on ${plan.shift_date}, ${plan.start_time}–${plan.end_time}`,
+      summary: plan.plan_type === 'day_off'
+        ? `Marked ${plan.user_name} as day off at ${plan.shop} on ${plan.shift_date}`
+        : `Planned ${plan.user_name} at ${plan.shop} on ${plan.shift_date}, ${plan.start_time}–${plan.end_time}`,
       meta: plan,
     })
     res.json(plan)
@@ -2876,7 +2878,9 @@ app.put('/api/shift-plans/:id', (req, res) => {
     if (current.status === 'published') {
       insertNotification({
         type: 'shift_schedule', title: 'Published shift updated',
-        message: `${plan.shift_date}: ${plan.start_time}–${plan.end_time} at ${plan.shop}`,
+        message: plan.plan_type === 'day_off'
+          ? `${plan.shift_date}: Day off at ${plan.shop}`
+          : `${plan.shift_date}: ${plan.start_time}–${plan.end_time} at ${plan.shop}`,
         userId: plan.user_id, relatedId: plan.id,
       })
     }
@@ -2897,8 +2901,10 @@ app.delete('/api/shift-plans/:id', (req, res) => {
     const removed = removeShiftPlan(req.params.id, req.authUser.id)
     if (current.status === 'published') {
       insertNotification({
-        type: 'shift_schedule', title: 'Published shift cancelled',
-        message: `${current.shift_date}: ${current.start_time}–${current.end_time} at ${current.shop}`,
+        type: 'shift_schedule', title: current.plan_type === 'day_off' ? 'Published day off removed' : 'Published shift cancelled',
+        message: current.plan_type === 'day_off'
+          ? `${current.shift_date}: Day off removed at ${current.shop}`
+          : `${current.shift_date}: ${current.start_time}–${current.end_time} at ${current.shop}`,
         userId: current.user_id, relatedId: current.id,
       })
     }
@@ -2933,7 +2939,9 @@ app.post('/api/shift-plans/publish', (req, res) => {
     for (const plan of plans) {
       insertNotification({
         type: 'shift_schedule', title: 'Shift schedule published',
-        message: `${plan.shift_date}: ${plan.start_time}–${plan.end_time} at ${plan.shop}`,
+        message: plan.plan_type === 'day_off'
+          ? `${plan.shift_date}: Day off at ${plan.shop}`
+          : `${plan.shift_date}: ${plan.start_time}–${plan.end_time} at ${plan.shop}`,
         userId: plan.user_id, relatedId: plan.id,
       })
     }
