@@ -20,6 +20,9 @@ const NOTIF_ICONS = {
   transfer_missing_items: AlertTriangle,
   shift_clock_in: LogIn,
   shift_clock_out: LogOut,
+  shift_exception: AlertTriangle,
+  shift_schedule: Clock,
+  shift_correction: UserCheck,
   alert_assigned: UserCheck,
   sale_pct_changed: Tag,
 }
@@ -30,6 +33,9 @@ const NOTIF_COLORS = {
   transfer_missing_items: '#fbbf24',
   shift_clock_in: '#00e676',
   shift_clock_out: 'var(--ro-text-dim)',
+  shift_exception: '#f59e0b',
+  shift_schedule: '#7c3aed',
+  shift_correction: '#38bdf8',
   alert_assigned: '#ff3333',
   sale_pct_changed: '#c084fc',
 }

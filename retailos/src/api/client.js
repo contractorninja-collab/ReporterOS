@@ -382,6 +382,27 @@ export const fetchActiveShifts = () => request('/shifts/active')
 export const fetchShiftHistory = (days = 7) => request(`/shifts/history?days=${days}`)
 export const postClockIn = (data) => request('/shifts/clock-in', { method: 'POST', body: JSON.stringify(data) })
 export const putClockOut = (shiftId) => request(`/shifts/${shiftId}/clock-out`, { method: 'PUT' })
+export const fetchShiftOverview = (date = '', shop = '') => {
+  const q = new URLSearchParams()
+  if (date) q.set('date', date)
+  if (shop) q.set('shop', shop)
+  return request(`/shifts/overview${q.toString() ? `?${q}` : ''}`)
+}
+export const fetchShiftPlans = (weekStart, shop = '') => {
+  const q = new URLSearchParams({ weekStart })
+  if (shop) q.set('shop', shop)
+  return request(`/shift-plans?${q}`)
+}
+export const postShiftPlan = (data) => request('/shift-plans', { method: 'POST', body: JSON.stringify(data) })
+export const putShiftPlan = (id, data) => request(`/shift-plans/${id}`, { method: 'PUT', body: JSON.stringify(data) })
+export const deleteShiftPlan = (id) => request(`/shift-plans/${id}`, { method: 'DELETE' })
+export const postCopyShiftWeek = (data) => request('/shift-plans/copy-week', { method: 'POST', body: JSON.stringify(data) })
+export const postPublishShiftWeek = (data) => request('/shift-plans/publish', { method: 'POST', body: JSON.stringify(data) })
+export const fetchShiftSettings = () => request('/shift-settings')
+export const putShiftSetting = (shop, data) => request(`/shift-settings/${encodeURIComponent(shop)}`, { method: 'PUT', body: JSON.stringify(data) })
+export const fetchShiftCorrections = () => request('/shift-corrections')
+export const postShiftCorrection = (data) => request('/shift-corrections', { method: 'POST', body: JSON.stringify(data) })
+export const putShiftCorrectionReview = (id, data) => request(`/shift-corrections/${id}/review`, { method: 'PUT', body: JSON.stringify(data) })
 
 // ── Notifications ──────────────────────────────────────────────────────────
 

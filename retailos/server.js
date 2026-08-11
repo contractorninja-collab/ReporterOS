@@ -38,6 +38,10 @@ import {
   getNotifications, getNotificationById, insertNotification, markNotificationRead,
   markNotificationsReadForViewer, notificationVisibleTo,
   clockIn, clockOut, getActiveShifts, getShiftHistory, getShiftById,
+  getShiftSettings, saveShiftSetting, isShiftPlanner,
+  listShiftPlans, getShiftPlanById, createShiftPlan, updateShiftPlan, removeShiftPlan,
+  copyShiftPlanWeek, publishShiftPlanWeek, getShiftAttendanceOverview, evaluateShiftAttendance,
+  createShiftCorrectionRequest, listShiftCorrectionRequests, reviewShiftCorrectionRequest,
   appendActivityLog, getActivityLog, backfillActivityLogFromLegacyIfEmpty,
   getProductTypeLabels, getProductTypeLabel, upsertProductTypeLabel, normalizeProductType,
 } from './src/data/db.js'
@@ -667,9 +671,30 @@ function filterShiftHistory(rows, user) {
   return rows.filter((s) => s.user_id === user.id || s.shop === user.shop)
 }
 
+function canManageShiftShop(user, shop) {
+  return user.role === 'executive' || (user.shop === shop && isShiftPlanner(user.id, shop))
+}
+
+function assertCanManageShiftShop(user, shop) {
+  if (!canManageShiftShop(user, shop)) {
+    const error = new Error('You are not assigned to manage this shop schedule')
+    error.statusCode = 403
+    throw error
+  }
+}
+
 function filterNotifications(rows, user) {
   const isExec = user.role === 'executive'
-  return rows.filter((n) => notificationVisibleTo(n, user.id, isExec))
+  const visible = rows.filter((n) => notificationVisibleTo(n, user.id, isExec))
+  if (!isExec) return visible
+  const seenShiftEvents = new Set()
+  return visible.filter((notification) => {
+    if (!String(notification.type || '').startsWith('shift_') || !notification.relatedId) return true
+    const key = `${notification.type}:${notification.relatedId}`
+    if (seenShiftEvents.has(key)) return false
+    seenShiftEvents.add(key)
+    return true
+  })
 }
 
 function filterOutletTransfers(rows, user) {
@@ -2796,25 +2821,198 @@ app.get('/api/shifts/history', (req, res) => {
   } catch (e) { safeError(res, e) }
 })
 
+app.get('/api/shifts/overview', (req, res) => {
+  try {
+    const requestedShop = String(req.query.shop || '')
+    const shop = req.authUser.role === 'executive' ? requestedShop : (req.authUser.shop || '')
+    res.json(getShiftAttendanceOverview(req.query.date ? String(req.query.date) : undefined, shop))
+  } catch (e) { safeError(res, e) }
+})
+
+app.get('/api/shift-plans', (req, res) => {
+  try {
+    const requestedShop = String(req.query.shop || '')
+    const weekStart = String(req.query.weekStart || '')
+    if (req.authUser.role === 'executive') {
+      return res.json(listShiftPlans({ weekStart, shop: requestedShop }))
+    }
+    const shop = req.authUser.shop || ''
+    const canManage = isShiftPlanner(req.authUser.id, shop)
+    res.json(listShiftPlans({ weekStart, shop, userId: canManage ? '' : req.authUser.id }))
+  } catch (e) { safeError(res, e) }
+})
+
+app.post('/api/shift-plans', (req, res) => {
+  try {
+    const shop = String(req.body.shop || '')
+    assertCanManageShiftShop(req.authUser, shop)
+    const target = getPublicUserById(req.body.user_id)
+    if (!target) return res.status(400).json({ error: 'Scheduled user not found' })
+    if (req.authUser.role !== 'executive' && (target.shop !== shop || shop !== req.authUser.shop)) {
+      return res.status(403).json({ error: 'Only executives can schedule users across shops' })
+    }
+    const plan = createShiftPlan(req.body, req.authUser.id)
+    act(req.authUser, {
+      category: 'shift', action: 'plan_created', entityType: 'shift_plan', entityId: plan.id,
+      summary: `Planned ${plan.user_name} at ${plan.shop} on ${plan.shift_date}, ${plan.start_time}–${plan.end_time}`,
+      meta: plan,
+    })
+    res.json(plan)
+  } catch (e) { safeError(res, e, e.statusCode || 500) }
+})
+
+app.put('/api/shift-plans/:id', (req, res) => {
+  try {
+    const current = getShiftPlanById(req.params.id)
+    if (!current) return res.status(404).json({ error: 'Planned shift not found' })
+    assertCanManageShiftShop(req.authUser, current.shop)
+    const targetShop = String(req.body.shop || current.shop)
+    const target = getPublicUserById(req.body.user_id || current.user_id)
+    if (!target) return res.status(400).json({ error: 'Scheduled user not found' })
+    if (req.authUser.role !== 'executive' && (targetShop !== current.shop || target.shop !== current.shop)) {
+      return res.status(403).json({ error: 'Only executives can move shifts across shops' })
+    }
+    const plan = updateShiftPlan(req.params.id, req.body, req.authUser.id)
+    if (current.status === 'published') {
+      insertNotification({
+        type: 'shift_schedule', title: 'Published shift updated',
+        message: `${plan.shift_date}: ${plan.start_time}–${plan.end_time} at ${plan.shop}`,
+        userId: plan.user_id, relatedId: plan.id,
+      })
+    }
+    act(req.authUser, {
+      category: 'shift', action: 'plan_updated', entityType: 'shift_plan', entityId: plan.id,
+      summary: `Updated ${plan.user_name}'s planned shift on ${plan.shift_date}`,
+      meta: { before: current, after: plan },
+    })
+    res.json(plan)
+  } catch (e) { safeError(res, e, e.statusCode || 500) }
+})
+
+app.delete('/api/shift-plans/:id', (req, res) => {
+  try {
+    const current = getShiftPlanById(req.params.id)
+    if (!current) return res.status(404).json({ error: 'Planned shift not found' })
+    assertCanManageShiftShop(req.authUser, current.shop)
+    const removed = removeShiftPlan(req.params.id, req.authUser.id)
+    if (current.status === 'published') {
+      insertNotification({
+        type: 'shift_schedule', title: 'Published shift cancelled',
+        message: `${current.shift_date}: ${current.start_time}–${current.end_time} at ${current.shop}`,
+        userId: current.user_id, relatedId: current.id,
+      })
+    }
+    act(req.authUser, {
+      category: 'shift', action: 'plan_cancelled', entityType: 'shift_plan', entityId: current.id,
+      summary: `Cancelled ${current.user_name}'s planned shift on ${current.shift_date}`,
+      meta: current,
+    })
+    res.json(removed)
+  } catch (e) { safeError(res, e, e.statusCode || 500) }
+})
+
+app.post('/api/shift-plans/copy-week', (req, res) => {
+  try {
+    const shop = String(req.body.shop || '')
+    assertCanManageShiftShop(req.authUser, shop)
+    const plans = copyShiftPlanWeek(shop, req.body.sourceWeekStart, req.body.targetWeekStart, req.authUser.id)
+    act(req.authUser, {
+      category: 'shift', action: 'week_copied', entityType: 'shift_schedule', entityId: `${shop}:${req.body.targetWeekStart}`,
+      summary: `Copied ${plans.length} planned shift(s) into ${shop}'s week of ${req.body.targetWeekStart}`,
+      meta: { shop, sourceWeekStart: req.body.sourceWeekStart, targetWeekStart: req.body.targetWeekStart },
+    })
+    res.json(plans)
+  } catch (e) { safeError(res, e, e.statusCode || 500) }
+})
+
+app.post('/api/shift-plans/publish', (req, res) => {
+  try {
+    const shop = String(req.body.shop || '')
+    assertCanManageShiftShop(req.authUser, shop)
+    const plans = publishShiftPlanWeek(shop, req.body.weekStart, req.authUser.id)
+    for (const plan of plans) {
+      insertNotification({
+        type: 'shift_schedule', title: 'Shift schedule published',
+        message: `${plan.shift_date}: ${plan.start_time}–${plan.end_time} at ${plan.shop}`,
+        userId: plan.user_id, relatedId: plan.id,
+      })
+    }
+    act(req.authUser, {
+      category: 'shift', action: 'week_published', entityType: 'shift_schedule', entityId: `${shop}:${req.body.weekStart}`,
+      summary: `Published ${plans.length} planned shift(s) for ${shop}`,
+      meta: { shop, weekStart: req.body.weekStart, count: plans.length },
+    })
+    res.json(plans)
+  } catch (e) { safeError(res, e, e.statusCode || 500) }
+})
+
+app.get('/api/shift-settings', (req, res) => {
+  try {
+    if (req.authUser.role === 'executive') return res.json(getShiftSettings())
+    res.json(getShiftSettings(req.authUser.shop || ''))
+  } catch (e) { safeError(res, e) }
+})
+
+app.put('/api/shift-settings/:shop', requireExecutive, (req, res) => {
+  try {
+    const settings = saveShiftSetting(decodeURIComponent(req.params.shop), req.body, req.authUser.id)
+    act(req.authUser, {
+      category: 'shift', action: 'settings_updated', entityType: 'shift_settings', entityId: settings.shop,
+      summary: `Updated Shift Board settings for ${settings.shop}`,
+      meta: settings,
+    })
+    res.json(settings)
+  } catch (e) { safeError(res, e, e.statusCode || 500) }
+})
+
+app.get('/api/shift-corrections', (req, res) => {
+  try {
+    res.json(listShiftCorrectionRequests(req.authUser.role === 'executive' ? '' : req.authUser.id))
+  } catch (e) { safeError(res, e) }
+})
+
+app.post('/api/shift-corrections', (req, res) => {
+  try {
+    if (req.authUser.role === 'executive') return res.status(403).json({ error: 'Executives review correction requests' })
+    const correction = createShiftCorrectionRequest(req.body, req.authUser)
+    act(req.authUser, {
+      category: 'shift', action: 'correction_requested', entityType: 'shift_correction', entityId: correction.id,
+      summary: `Requested a correction for shift ${correction.shift_id}`,
+      meta: correction,
+    })
+    res.json(correction)
+  } catch (e) { safeError(res, e, e.statusCode || 500) }
+})
+
+app.put('/api/shift-corrections/:id/review', requireExecutive, (req, res) => {
+  try {
+    const correction = reviewShiftCorrectionRequest(req.params.id, req.body.decision, req.authUser, req.body.reviewNote)
+    act(req.authUser, {
+      category: 'shift', action: `correction_${correction.status}`, entityType: 'shift_correction', entityId: correction.id,
+      summary: `${correction.status === 'approved' ? 'Approved' : 'Rejected'} ${correction.requested_by_name}'s shift correction`,
+      meta: correction,
+    })
+    res.json(correction)
+  } catch (e) { safeError(res, e, e.statusCode || 500) }
+})
+
 app.post('/api/shifts/clock-in', (req, res) => {
   try {
-    const { id, userId, userName, shop } = req.body
-    if (userId !== req.authUser.id) {
-      return res.status(403).json({ error: 'Can only clock in as yourself' })
-    }
-    const result = clockIn(id, userId, userName, shop)
+    if (req.authUser.role === 'executive') return res.status(403).json({ error: 'Executives do not clock in' })
+    const id = String(req.body.id || crypto.randomUUID())
+    const result = clockIn(id, req.authUser)
     const claimedMarkdownLists = assignPendingUnassignedMarkdownListsForShift({
       id: req.authUser.id,
-      name: req.authUser.name || userName,
-      shop: req.authUser.shop || shop,
+      name: req.authUser.name,
+      shop: result.shop || req.authUser.shop,
     })
     act(req.authUser, {
       category: 'shift',
       action: 'clock_in',
       entityType: 'shift',
       entityId: result.id,
-      summary: `Clock in${shop ? ` @ ${shop}` : ''}`,
-      meta: { shop, claimedMarkdownLists: claimedMarkdownLists.length },
+      summary: `Clock in${result.shop ? ` @ ${result.shop}` : ''}`,
+      meta: { shop: result.shop, plannedShiftId: result.planned_shift_id, attendanceFlags: result.attendance_flags, claimedMarkdownLists: claimedMarkdownLists.length },
     })
     res.json({ ...result, claimedMarkdownLists })
   } catch (e) { safeError(res, e) }
@@ -2827,7 +3025,7 @@ app.put('/api/shifts/:id/clock-out', (req, res) => {
     if (row.user_id !== req.authUser.id && req.authUser.role !== 'executive') {
       return res.status(403).json({ error: 'Forbidden' })
     }
-    const result = clockOut(req.params.id)
+    const result = clockOut(req.params.id, 'manual')
     if (!result) return res.status(404).json({ error: 'Shift not found' })
     act(req.authUser, {
       category: 'shift',
@@ -2835,7 +3033,7 @@ app.put('/api/shifts/:id/clock-out', (req, res) => {
       entityType: 'shift',
       entityId: req.params.id,
       summary: `Clock out${result.duration_min != null ? ` (${result.duration_min} min)` : ''}`,
-      meta: { durationMin: result.duration_min, forUserId: row.user_id },
+      meta: { durationMin: result.duration_min, forUserId: row.user_id, attendanceFlags: result.attendance_flags, reason: result.clock_out_reason },
     })
     res.json(result)
   } catch (e) { safeError(res, e) }
@@ -2942,6 +3140,18 @@ const server = app.listen(PORT, LISTEN_HOST, () => {
       console.error('[recycle-bin] Auto-purge failed:', e.message)
     }
   }, 24 * 60 * 60 * 1000)
+  try {
+    evaluateShiftAttendance()
+  } catch (e) {
+    console.error('[shift-board] Attendance evaluation failed:', e.message)
+  }
+  setInterval(() => {
+    try {
+      evaluateShiftAttendance()
+    } catch (e) {
+      console.error('[shift-board] Attendance evaluation failed:', e.message)
+    }
+  }, 60 * 1000)
   if (IS_PROD && corsAllowedOrigins.length === 0) {
     console.warn('[security] CORS_ORIGINS is empty — browser clients with an Origin header will be blocked. Set CORS_ORIGINS to your HTTPS site(s), comma-separated.')
   }

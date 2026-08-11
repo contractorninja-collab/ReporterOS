@@ -19,7 +19,15 @@ export function createShiftsSlice(set, get) {
         myShift: shift,
       }))
       try {
-        await api.postClockIn({ id, userId: user.id, userName: user.name, shop: user.shop })
+        const saved = await api.postClockIn({ id })
+        if (saved?.id) {
+          const canonical = { ...saved }
+          delete canonical.claimedMarkdownLists
+          set((s) => ({
+            activeShifts: [...s.activeShifts.filter((sh) => sh.id !== id && sh.id !== canonical.id), canonical],
+            myShift: canonical,
+          }))
+        }
         get().syncOperationalData?.().catch(() => {})
       } catch (err) {
         set((s) => ({

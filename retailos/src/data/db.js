@@ -18,6 +18,14 @@ import {
   buildCanonicalBrandMap,
   canonicalizeBrand,
 } from '../utils/brand.js'
+import {
+  SHIFT_TIME_ZONE,
+  addShiftDays,
+  shiftDateKey,
+  shiftLocalToIso,
+  shiftMinutesBetween,
+  shiftWeekStart,
+} from '../utils/shiftTime.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const DATA_DIR = process.env.DATA_DIR || path.resolve(__dirname, '../..')
@@ -793,6 +801,8 @@ function migrateRetailShopNames() {
       db.prepare('UPDATE store_transfers SET fromShop = ? WHERE fromShop = ?').run(newS, oldS)
       db.prepare('UPDATE store_transfers SET toShop = ? WHERE toShop = ?').run(newS, oldS)
       db.prepare('UPDATE shifts SET shop = ? WHERE shop = ?').run(newS, oldS)
+      db.prepare('UPDATE shift_plans SET shop = ? WHERE shop = ?').run(newS, oldS)
+      db.prepare('UPDATE shift_settings SET shop = ? WHERE shop = ?').run(newS, oldS)
       db.prepare('UPDATE users SET name = REPLACE(name, ?, ?) WHERE name LIKE ?').run(oldS, newS, `%${oldS}%`)
     } catch { /* ignore */ }
   }
@@ -832,6 +842,63 @@ db.exec(`
     clock_in TEXT NOT NULL,
     clock_out TEXT,
     duration_min INTEGER
+  );
+`)
+
+safeAddColumn('shifts', 'planned_shift_id', 'TEXT')
+safeAddColumn('shifts', 'attendance_flags', "TEXT DEFAULT '[]'")
+safeAddColumn('shifts', 'clock_out_reason', 'TEXT')
+safeAddColumn('shifts', 'corrected_at', 'TEXT')
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS shift_plans (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    user_name TEXT,
+    shop TEXT NOT NULL,
+    shift_date TEXT NOT NULL,
+    start_time TEXT NOT NULL,
+    end_time TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'draft',
+    created_by TEXT,
+    updated_by TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    published_at TEXT,
+    late_notified_at TEXT,
+    no_show_notified_at TEXT,
+    overrun_notified_at TEXT
+  );
+
+  CREATE TABLE IF NOT EXISTS shift_settings (
+    shop TEXT PRIMARY KEY,
+    primary_planner_id TEXT,
+    backup_planner_id TEXT,
+    late_grace_min INTEGER NOT NULL DEFAULT 10,
+    no_show_after_min INTEGER NOT NULL DEFAULT 30,
+    early_departure_grace_min INTEGER NOT NULL DEFAULT 15,
+    overrun_grace_min INTEGER NOT NULL DEFAULT 15,
+    tracking_start_date TEXT NOT NULL,
+    updated_by TEXT,
+    updated_at TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS shift_correction_requests (
+    id TEXT PRIMARY KEY,
+    shift_id TEXT NOT NULL,
+    requested_by TEXT NOT NULL,
+    requested_by_name TEXT,
+    original_clock_in TEXT NOT NULL,
+    original_clock_out TEXT,
+    proposed_clock_in TEXT NOT NULL,
+    proposed_clock_out TEXT,
+    reason TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    reviewed_by TEXT,
+    reviewed_by_name TEXT,
+    review_note TEXT,
+    created_at TEXT NOT NULL,
+    reviewed_at TEXT
   );
 `)
 
@@ -915,6 +982,11 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_shifts_clock_out_in ON shifts (clock_out, clock_in);
   CREATE INDEX IF NOT EXISTS idx_shifts_clock_in ON shifts (clock_in DESC);
   CREATE INDEX IF NOT EXISTS idx_shifts_shop_clock_in ON shifts (shop, clock_in DESC);
+  CREATE INDEX IF NOT EXISTS idx_shifts_planned_shift ON shifts (planned_shift_id);
+  CREATE INDEX IF NOT EXISTS idx_shift_plans_week_shop ON shift_plans (shift_date, shop, status);
+  CREATE INDEX IF NOT EXISTS idx_shift_plans_user_date ON shift_plans (user_id, shift_date, start_time);
+  CREATE INDEX IF NOT EXISTS idx_shift_corrections_status_created ON shift_correction_requests (status, created_at DESC);
+  CREATE INDEX IF NOT EXISTS idx_shift_corrections_requester ON shift_correction_requests (requested_by, created_at DESC);
 `)
 
 // Seed default users if the table is empty
@@ -4805,51 +4877,567 @@ export function notificationVisibleTo(n, userId, isExecutive) {
 // ── Shifts ──────────────────────────────────────────────────────────────────
 
 const MAX_SHIFT_HOURS = 14
+const DEFAULT_SHIFT_RULES = Object.freeze({
+  late_grace_min: 10,
+  no_show_after_min: 30,
+  early_departure_grace_min: 15,
+  overrun_grace_min: 15,
+})
 
-function autoClockOutStale() {
-  const cutoff = new Date(Date.now() - MAX_SHIFT_HOURS * 3600000).toISOString()
-  const stale = db.prepare('SELECT id, clock_in FROM shifts WHERE clock_out IS NULL AND clock_in < ?').all(cutoff)
-  const upd = db.prepare('UPDATE shifts SET clock_out = ?, duration_min = ? WHERE id = ?')
-  for (const s of stale) {
-    const start = new Date(s.clock_in)
-    const end = new Date(start.getTime() + MAX_SHIFT_HOURS * 3600000)
-    upd.run(end.toISOString(), MAX_SHIFT_HOURS * 60, s.id)
+function shiftError(message, statusCode = 400) {
+  const error = new Error(message)
+  error.statusCode = statusCode
+  return error
+}
+
+function parseShiftFlags(value) {
+  return safeJsonArray(value, { table: 'shifts', column: 'attendance_flags' })
+}
+
+function serializeShiftFlags(flags) {
+  return JSON.stringify([...new Set((flags || []).filter(Boolean))])
+}
+
+function toShift(row) {
+  if (!row) return null
+  return { ...row, attendance_flags: parseShiftFlags(row.attendance_flags) }
+}
+
+function shiftShops() {
+  return db.prepare(`
+    SELECT DISTINCT shop FROM users
+    WHERE TRIM(COALESCE(shop, '')) != '' AND role != 'executive'
+    ORDER BY shop COLLATE NOCASE
+  `).all().map((row) => row.shop)
+}
+
+function defaultShiftSetting(shop) {
+  return {
+    shop,
+    primary_planner_id: '',
+    backup_planner_id: '',
+    ...DEFAULT_SHIFT_RULES,
+    tracking_start_date: shiftDateKey(),
+    updated_by: '',
+    updated_at: null,
+  }
+}
+
+export function getShiftSettings(shop = '') {
+  const rows = shop
+    ? db.prepare('SELECT * FROM shift_settings WHERE shop = ?').all(shop)
+    : db.prepare('SELECT * FROM shift_settings ORDER BY shop COLLATE NOCASE').all()
+  const byShop = new Map(rows.map((row) => [row.shop, row]))
+  const shops = shop ? [shop] : [...new Set([...shiftShops(), ...byShop.keys()])]
+  return shops.filter(Boolean).sort().map((name) => ({
+    ...defaultShiftSetting(name),
+    ...(byShop.get(name) || {}),
+    timezone: SHIFT_TIME_ZONE,
+  }))
+}
+
+export function getShiftSettingByShop(shop) {
+  return getShiftSettings(shop)[0] || defaultShiftSetting(shop)
+}
+
+export function saveShiftSetting(shop, values, actorId) {
+  const name = String(shop || '').trim()
+  if (!name) throw shiftError('Shop is required')
+  const current = getShiftSettingByShop(name)
+  const primary = String(values.primary_planner_id ?? current.primary_planner_id ?? '')
+  const backup = String(values.backup_planner_id ?? current.backup_planner_id ?? '')
+  if (primary && backup && primary === backup) throw shiftError('Primary and backup planners must be different')
+  for (const userId of [primary, backup].filter(Boolean)) {
+    const user = getPublicUserById(userId)
+    if (!user || user.role === 'executive' || user.shop !== name) {
+      throw shiftError('Planners must be non-executive users assigned to this shop')
+    }
+  }
+  const intRule = (key, min, max) => {
+    const n = Number(values[key] ?? current[key])
+    if (!Number.isInteger(n) || n < min || n > max) throw shiftError(`Invalid ${key}`)
+    return n
+  }
+  const next = {
+    shop: name,
+    primary_planner_id: primary || null,
+    backup_planner_id: backup || null,
+    late_grace_min: intRule('late_grace_min', 0, 120),
+    no_show_after_min: intRule('no_show_after_min', 1, 240),
+    early_departure_grace_min: intRule('early_departure_grace_min', 0, 120),
+    overrun_grace_min: intRule('overrun_grace_min', 0, 240),
+    tracking_start_date: /^\d{4}-\d{2}-\d{2}$/.test(String(values.tracking_start_date || current.tracking_start_date))
+      ? String(values.tracking_start_date || current.tracking_start_date)
+      : shiftDateKey(),
+    updated_by: actorId || '',
+    updated_at: new Date().toISOString(),
+  }
+  db.prepare(`
+    INSERT INTO shift_settings (
+      shop, primary_planner_id, backup_planner_id, late_grace_min, no_show_after_min,
+      early_departure_grace_min, overrun_grace_min, tracking_start_date, updated_by, updated_at
+    ) VALUES (
+      @shop, @primary_planner_id, @backup_planner_id, @late_grace_min, @no_show_after_min,
+      @early_departure_grace_min, @overrun_grace_min, @tracking_start_date, @updated_by, @updated_at
+    ) ON CONFLICT(shop) DO UPDATE SET
+      primary_planner_id = excluded.primary_planner_id,
+      backup_planner_id = excluded.backup_planner_id,
+      late_grace_min = excluded.late_grace_min,
+      no_show_after_min = excluded.no_show_after_min,
+      early_departure_grace_min = excluded.early_departure_grace_min,
+      overrun_grace_min = excluded.overrun_grace_min,
+      tracking_start_date = excluded.tracking_start_date,
+      updated_by = excluded.updated_by,
+      updated_at = excluded.updated_at
+  `).run(next)
+  return { ...next, timezone: SHIFT_TIME_ZONE }
+}
+
+export function isShiftPlanner(userId, shop) {
+  const settings = getShiftSettingByShop(shop)
+  return Boolean(userId) && [settings.primary_planner_id, settings.backup_planner_id].includes(userId)
+}
+
+function validateShiftPlanInput(input, ignoreId = '') {
+  const user = getPublicUserById(input.user_id)
+  if (!user || user.role === 'executive') throw shiftError('A valid shop user is required')
+  const shop = String(input.shop || '').trim()
+  const date = String(input.shift_date || '')
+  const start = String(input.start_time || '')
+  const end = String(input.end_time || '')
+  if (!shop || !/^\d{4}-\d{2}-\d{2}$/.test(date)) throw shiftError('Shop and shift date are required')
+  if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(start) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(end)) {
+    throw shiftError('Start and end times must use HH:mm')
+  }
+  if (end <= start) throw shiftError('Shift must end later on the same day')
+  const overlap = db.prepare(`
+    SELECT id FROM shift_plans
+    WHERE user_id = ? AND shift_date = ? AND status != 'cancelled' AND id != ?
+      AND start_time < ? AND end_time > ?
+    LIMIT 1
+  `).get(user.id, date, ignoreId || '', end, start)
+  if (overlap) throw shiftError('This shift overlaps another period for the same user')
+  return { user, shop, date, start, end }
+}
+
+export function getShiftPlanById(id) {
+  return db.prepare('SELECT * FROM shift_plans WHERE id = ?').get(id)
+}
+
+export function listShiftPlans({ weekStart, shop = '', userId = '' } = {}) {
+  const start = shiftWeekStart(weekStart || shiftDateKey())
+  const end = addShiftDays(start, 7)
+  const where = ['shift_date >= ?', 'shift_date < ?', "status != 'cancelled'"]
+  const params = [start, end]
+  if (shop) { where.push('shop = ?'); params.push(shop) }
+  if (userId) { where.push('user_id = ?'); params.push(userId) }
+  return db.prepare(`
+    SELECT * FROM shift_plans WHERE ${where.join(' AND ')}
+    ORDER BY shift_date ASC, start_time ASC, user_name COLLATE NOCASE
+  `).all(...params)
+}
+
+export function createShiftPlan(input, actorId) {
+  const valid = validateShiftPlanInput(input)
+  const now = new Date().toISOString()
+  const row = {
+    id: input.id || uid(),
+    user_id: valid.user.id,
+    user_name: valid.user.name,
+    shop: valid.shop,
+    shift_date: valid.date,
+    start_time: valid.start,
+    end_time: valid.end,
+    status: input.status === 'published' ? 'published' : 'draft',
+    created_by: actorId || '',
+    updated_by: actorId || '',
+    created_at: now,
+    updated_at: now,
+    published_at: input.status === 'published' ? now : null,
+  }
+  db.prepare(`
+    INSERT INTO shift_plans (
+      id, user_id, user_name, shop, shift_date, start_time, end_time, status,
+      created_by, updated_by, created_at, updated_at, published_at
+    ) VALUES (
+      @id, @user_id, @user_name, @shop, @shift_date, @start_time, @end_time, @status,
+      @created_by, @updated_by, @created_at, @updated_at, @published_at
+    )
+  `).run(row)
+  return getShiftPlanById(row.id)
+}
+
+export function updateShiftPlan(id, patch, actorId) {
+  const current = getShiftPlanById(id)
+  if (!current) throw shiftError('Planned shift not found', 404)
+  if (db.prepare('SELECT id FROM shifts WHERE planned_shift_id = ? LIMIT 1').get(id)) {
+    throw shiftError('A planned shift cannot be edited after its user has clocked in', 409)
+  }
+  const merged = { ...current, ...patch, id }
+  const valid = validateShiftPlanInput(merged, id)
+  const now = new Date().toISOString()
+  db.prepare(`
+    UPDATE shift_plans SET user_id = ?, user_name = ?, shop = ?, shift_date = ?,
+      start_time = ?, end_time = ?, updated_by = ?, updated_at = ?,
+      late_notified_at = NULL, no_show_notified_at = NULL, overrun_notified_at = NULL
+    WHERE id = ?
+  `).run(valid.user.id, valid.user.name, valid.shop, valid.date, valid.start, valid.end, actorId || '', now, id)
+  return getShiftPlanById(id)
+}
+
+export function removeShiftPlan(id, actorId) {
+  const current = getShiftPlanById(id)
+  if (!current) throw shiftError('Planned shift not found', 404)
+  if (db.prepare('SELECT id FROM shifts WHERE planned_shift_id = ? LIMIT 1').get(id)) {
+    throw shiftError('A planned shift cannot be cancelled after its user has clocked in', 409)
+  }
+  if (current.status === 'published') {
+    db.prepare("UPDATE shift_plans SET status = 'cancelled', updated_by = ?, updated_at = ? WHERE id = ?")
+      .run(actorId || '', new Date().toISOString(), id)
+    return { ...current, status: 'cancelled' }
+  }
+  db.prepare('DELETE FROM shift_plans WHERE id = ?').run(id)
+  return current
+}
+
+export function copyShiftPlanWeek(shop, sourceWeekStart, targetWeekStart, actorId) {
+  const source = shiftWeekStart(sourceWeekStart)
+  const target = shiftWeekStart(targetWeekStart)
+  if (source === target) throw shiftError('Choose a different target week')
+  const existing = listShiftPlans({ shop, weekStart: target })
+  if (existing.length) throw shiftError('Target week already contains planned shifts')
+  const plans = listShiftPlans({ shop, weekStart: source })
+  const dayDelta = Math.round((Date.parse(`${target}T00:00:00Z`) - Date.parse(`${source}T00:00:00Z`)) / 86400000)
+  const tx = db.transaction(() => plans.map((plan) => createShiftPlan({
+    ...plan,
+    id: uid(),
+    shift_date: addShiftDays(plan.shift_date, dayDelta),
+    status: 'draft',
+  }, actorId)))
+  return tx()
+}
+
+export function publishShiftPlanWeek(shop, weekStart, actorId) {
+  const start = shiftWeekStart(weekStart)
+  const end = addShiftDays(start, 7)
+  const now = new Date().toISOString()
+  db.prepare(`
+    UPDATE shift_plans SET status = 'published', published_at = ?, updated_at = ?, updated_by = ?
+    WHERE shop = ? AND shift_date >= ? AND shift_date < ? AND status = 'draft'
+  `).run(now, now, actorId || '', shop, start, end)
+  return listShiftPlans({ shop, weekStart: start })
+}
+
+function shiftAudience(shop) {
+  const settings = getShiftSettingByShop(shop)
+  return [...new Set(['executives', settings.primary_planner_id, settings.backup_planner_id].filter(Boolean))]
+}
+
+function notifyShiftAudience(shop, type, title, message, relatedId) {
+  for (const userId of shiftAudience(shop)) {
+    insertNotification({ id: uid(), type, title, message, userId, relatedId, read: 0 })
+  }
+}
+
+function planWindow(plan) {
+  return {
+    startIso: shiftLocalToIso(plan.shift_date, plan.start_time),
+    endIso: shiftLocalToIso(plan.shift_date, plan.end_time),
+  }
+}
+
+function eligiblePlanForClockIn(userId, dateKey, nowIso) {
+  const linked = new Set(db.prepare(`
+    SELECT planned_shift_id FROM shifts
+    WHERE user_id = ? AND planned_shift_id IS NOT NULL
+  `).all(userId).map((row) => row.planned_shift_id))
+  return db.prepare(`
+    SELECT * FROM shift_plans
+    WHERE user_id = ? AND shift_date = ? AND status = 'published'
+    ORDER BY start_time ASC
+  `).all(userId, dateKey)
+    .filter((plan) => !linked.has(plan.id))
+    .map((plan) => ({ plan, distance: Math.abs(new Date(nowIso).getTime() - new Date(planWindow(plan).startIso).getTime()) }))
+    .sort((a, b) => a.distance - b.distance)[0]?.plan || null
+}
+
+function autoClockOutStale(nowIso = new Date().toISOString()) {
+  const cutoff = new Date(new Date(nowIso).getTime() - MAX_SHIFT_HOURS * 3600000).toISOString()
+  const stale = db.prepare('SELECT * FROM shifts WHERE clock_out IS NULL AND clock_in < ?').all(cutoff)
+  const upd = db.prepare(`
+    UPDATE shifts SET clock_out = ?, duration_min = ?, clock_out_reason = 'auto_stale', attendance_flags = ?
+    WHERE id = ?
+  `)
+  for (const row of stale) {
+    const end = new Date(new Date(row.clock_in).getTime() + MAX_SHIFT_HOURS * 3600000).toISOString()
+    const flags = [...parseShiftFlags(row.attendance_flags), 'auto_stale']
+    upd.run(end, MAX_SHIFT_HOURS * 60, serializeShiftFlags(flags), row.id)
+    notifyShiftAudience(row.shop, 'shift_exception', 'Shift auto-closed', `${row.user_name}'s shift was automatically closed after 14 hours.`, row.id)
+    appendActivityLog({
+      actorUserId: null, actorName: 'System', category: 'shift', action: 'auto_closed',
+      entityType: 'shift', entityId: row.id,
+      summary: `Auto-closed ${row.user_name}'s shift after 14 hours`,
+      meta: { shop: row.shop, clockIn: row.clock_in, clockOut: end },
+    })
   }
   return stale.length
 }
 
-export function clockIn(id, userId, userName, shop) {
-  autoClockOutStale()
-  const existing = db.prepare('SELECT id FROM shifts WHERE user_id = ? AND clock_out IS NULL').get(userId)
-  if (existing) return existing
-  const clockInTime = new Date().toISOString()
-  db.prepare('INSERT INTO shifts (id, user_id, user_name, shop, clock_in) VALUES (?, ?, ?, ?, ?)')
-    .run(id, userId, userName ?? '', shop ?? '', clockInTime)
-  return { id, user_id: userId, user_name: userName, shop, clock_in: clockInTime, clock_out: null, duration_min: null }
+export function clockIn(id, user, nowIso = new Date().toISOString()) {
+  autoClockOutStale(nowIso)
+  const existing = db.prepare('SELECT * FROM shifts WHERE user_id = ? AND clock_out IS NULL').get(user.id)
+  if (existing) return toShift(existing)
+  const dateKey = shiftDateKey(nowIso)
+  const plan = eligiblePlanForClockIn(user.id, dateKey, nowIso)
+  const settings = getShiftSettingByShop(plan?.shop || user.shop || '')
+  const flags = []
+  if (!plan) flags.push('unscheduled')
+  if (plan) {
+    const startMs = new Date(planWindow(plan).startIso).getTime()
+    if (new Date(nowIso).getTime() > startMs + settings.late_grace_min * 60000) flags.push('late')
+  }
+  const shop = plan?.shop || user.shop || ''
+  db.prepare(`
+    INSERT INTO shifts (
+      id, user_id, user_name, shop, clock_in, clock_out, duration_min,
+      planned_shift_id, attendance_flags, clock_out_reason
+    ) VALUES (?, ?, ?, ?, ?, NULL, NULL, ?, ?, NULL)
+  `).run(id, user.id, user.name || '', shop, nowIso, plan?.id || null, serializeShiftFlags(flags))
+  if (flags.includes('unscheduled')) {
+    notifyShiftAudience(shop, 'shift_exception', 'Unscheduled clock-in', `${user.name} clocked in at ${shop} without a published shift.`, id)
+  } else if (flags.includes('late')) {
+    notifyShiftAudience(shop, 'shift_exception', 'Late clock-in', `${user.name} clocked in late for the ${plan.start_time} shift.`, id)
+  }
+  return getShiftById(id)
 }
 
 export function getShiftById(shiftId) {
-  return db.prepare('SELECT * FROM shifts WHERE id = ?').get(shiftId)
+  return toShift(db.prepare('SELECT * FROM shifts WHERE id = ?').get(shiftId))
 }
 
-export function clockOut(shiftId) {
-  const row = db.prepare('SELECT * FROM shifts WHERE id = ?').get(shiftId)
-  if (!row || row.clock_out) return row
-  const now = new Date()
-  const durationMin = Math.round((now.getTime() - new Date(row.clock_in).getTime()) / 60000)
-  db.prepare('UPDATE shifts SET clock_out = ?, duration_min = ? WHERE id = ?')
-    .run(now.toISOString(), durationMin, shiftId)
-  return { ...row, clock_out: now.toISOString(), duration_min: durationMin }
+export function clockOut(shiftId, reason = 'manual', nowIso = new Date().toISOString()) {
+  const raw = db.prepare('SELECT * FROM shifts WHERE id = ?').get(shiftId)
+  if (!raw || raw.clock_out) return toShift(raw)
+  const flags = parseShiftFlags(raw.attendance_flags)
+  const plan = raw.planned_shift_id ? getShiftPlanById(raw.planned_shift_id) : null
+  if (plan) {
+    const settings = getShiftSettingByShop(plan.shop)
+    const endMs = new Date(planWindow(plan).endIso).getTime()
+    const nowMs = new Date(nowIso).getTime()
+    if (nowMs < endMs - settings.early_departure_grace_min * 60000) flags.push('early_departure')
+    if (nowMs > endMs + settings.overrun_grace_min * 60000) flags.push('overrun')
+  }
+  const durationMin = shiftMinutesBetween(raw.clock_in, nowIso)
+  db.prepare(`
+    UPDATE shifts SET clock_out = ?, duration_min = ?, clock_out_reason = ?, attendance_flags = ? WHERE id = ?
+  `).run(nowIso, durationMin, reason, serializeShiftFlags(flags), shiftId)
+  if (flags.includes('early_departure')) {
+    notifyShiftAudience(raw.shop, 'shift_exception', 'Early departure', `${raw.user_name} ended a shift earlier than planned.`, shiftId)
+  }
+  return getShiftById(shiftId)
 }
 
 export function getActiveShifts() {
   autoClockOutStale()
-  return db.prepare('SELECT * FROM shifts WHERE clock_out IS NULL ORDER BY clock_in ASC').all()
+  return db.prepare('SELECT * FROM shifts WHERE clock_out IS NULL ORDER BY clock_in ASC').all().map(toShift)
 }
 
 export function getShiftHistory(days = 7) {
-  const since = new Date(Date.now() - days * 86400000).toISOString()
-  return db.prepare('SELECT * FROM shifts WHERE clock_in >= ? ORDER BY clock_in DESC LIMIT 500').all(since)
+  const boundedDays = Math.min(366, Math.max(1, Number(days) || 7))
+  const since = new Date(Date.now() - boundedDays * 86400000).toISOString()
+  return db.prepare(`
+    SELECT s.*, p.shift_date AS planned_date, p.start_time AS planned_start_time,
+      p.end_time AS planned_end_time
+    FROM shifts s LEFT JOIN shift_plans p ON p.id = s.planned_shift_id
+    WHERE s.clock_in >= ? ORDER BY s.clock_in DESC LIMIT 1000
+  `).all(since).map(toShift)
+}
+
+export function evaluateShiftAttendance(nowIso = new Date().toISOString()) {
+  autoClockOutStale(nowIso)
+  const dateKey = shiftDateKey(nowIso)
+  const nowMs = new Date(nowIso).getTime()
+  const plans = db.prepare(`
+    SELECT * FROM shift_plans WHERE shift_date = ? AND status = 'published'
+  `).all(dateKey)
+  let notifications = 0
+  for (const plan of plans) {
+    const settings = getShiftSettingByShop(plan.shop)
+    if (dateKey < settings.tracking_start_date) continue
+    const actual = db.prepare('SELECT * FROM shifts WHERE planned_shift_id = ? ORDER BY clock_in ASC LIMIT 1').get(plan.id)
+    const window = planWindow(plan)
+    if (!actual && !plan.no_show_notified_at && nowMs > new Date(window.startIso).getTime() + settings.no_show_after_min * 60000) {
+      const at = new Date(nowIso).toISOString()
+      db.prepare('UPDATE shift_plans SET no_show_notified_at = ? WHERE id = ? AND no_show_notified_at IS NULL').run(at, plan.id)
+      notifyShiftAudience(plan.shop, 'shift_exception', 'Missing shift', `${plan.user_name} has not clocked in for the ${plan.start_time} shift.`, plan.id)
+      appendActivityLog({
+        actorUserId: null, actorName: 'System', category: 'shift', action: 'no_show',
+        entityType: 'shift_plan', entityId: plan.id,
+        summary: `${plan.user_name} missed the ${plan.start_time} shift at ${plan.shop}`,
+        meta: { shop: plan.shop, date: plan.shift_date, startTime: plan.start_time },
+      })
+      notifications++
+    }
+    if (actual && !actual.clock_out && !plan.overrun_notified_at && nowMs > new Date(window.endIso).getTime() + settings.overrun_grace_min * 60000) {
+      const flags = [...parseShiftFlags(actual.attendance_flags), 'overrun']
+      db.prepare('UPDATE shifts SET attendance_flags = ? WHERE id = ?').run(serializeShiftFlags(flags), actual.id)
+      db.prepare('UPDATE shift_plans SET overrun_notified_at = ? WHERE id = ? AND overrun_notified_at IS NULL').run(nowIso, plan.id)
+      notifyShiftAudience(plan.shop, 'shift_exception', 'Shift overrun', `${plan.user_name} is still clocked in after the planned end time.`, actual.id)
+      appendActivityLog({
+        actorUserId: null, actorName: 'System', category: 'shift', action: 'overrun',
+        entityType: 'shift', entityId: actual.id,
+        summary: `${plan.user_name}'s shift exceeded the planned ${plan.end_time} end at ${plan.shop}`,
+        meta: { shop: plan.shop, plannedShiftId: plan.id, plannedEnd: plan.end_time },
+      })
+      notifications++
+    }
+  }
+  return { evaluated: plans.length, notifications }
+}
+
+export function getShiftAttendanceOverview(dateKey = shiftDateKey(), shop = '') {
+  evaluateShiftAttendance()
+  const dayStart = shiftLocalToIso(dateKey, '00:00')
+  const nextDay = shiftLocalToIso(addShiftDays(dateKey, 1), '00:00')
+  const planWhere = ['shift_date = ?', "status = 'published'"]
+  const planParams = [dateKey]
+  if (shop) { planWhere.push('shop = ?'); planParams.push(shop) }
+  const plans = db.prepare(`SELECT * FROM shift_plans WHERE ${planWhere.join(' AND ')} ORDER BY start_time, user_name`).all(...planParams)
+  const actualWhere = ['clock_in >= ?', 'clock_in < ?']
+  const actualParams = [dayStart, nextDay]
+  if (shop) { actualWhere.push('shop = ?'); actualParams.push(shop) }
+  const actuals = db.prepare(`SELECT * FROM shifts WHERE ${actualWhere.join(' AND ')} ORDER BY clock_in`).all(...actualParams).map(toShift)
+  const nowMs = Date.now()
+  const enrichedPlans = plans.map((plan) => {
+    const actual = actuals.find((shift) => shift.planned_shift_id === plan.id) || null
+    const settings = getShiftSettingByShop(plan.shop)
+    const window = planWindow(plan)
+    const noShow = !actual && dateKey >= settings.tracking_start_date && nowMs > new Date(window.startIso).getTime() + settings.no_show_after_min * 60000
+    return { ...plan, actual, exception: noShow ? 'no_show' : '', start_iso: window.startIso, end_iso: window.endIso }
+  })
+  const flags = actuals.flatMap((shift) => shift.attendance_flags)
+  const weekStart = shiftWeekStart(dateKey)
+  const weekStartIso = shiftLocalToIso(weekStart, '00:00')
+  const weekEndIso = shiftLocalToIso(addShiftDays(weekStart, 7), '00:00')
+  const hoursWhere = ['clock_in >= ?', 'clock_in < ?']
+  const hoursParams = [weekStartIso, weekEndIso]
+  if (shop) { hoursWhere.push('shop = ?'); hoursParams.push(shop) }
+  const weeklyMap = new Map()
+  for (const shift of db.prepare(`SELECT * FROM shifts WHERE ${hoursWhere.join(' AND ')}`).all(...hoursParams)) {
+    const minutes = shift.clock_out ? Number(shift.duration_min || 0) : shiftMinutesBetween(shift.clock_in, new Date().toISOString())
+    const current = weeklyMap.get(shift.user_id) || { user_id: shift.user_id, user_name: shift.user_name, shop: shift.shop, minutes: 0 }
+    current.minutes += minutes
+    weeklyMap.set(shift.user_id, current)
+  }
+  return {
+    date: dateKey,
+    timezone: SHIFT_TIME_ZONE,
+    plans: enrichedPlans,
+    actuals,
+    active: actuals.filter((shift) => !shift.clock_out),
+    weekly_hours: [...weeklyMap.values()].sort((a, b) => b.minutes - a.minutes),
+    counts: {
+      active: actuals.filter((shift) => !shift.clock_out).length,
+      late: flags.filter((flag) => flag === 'late').length,
+      missing: enrichedPlans.filter((plan) => plan.exception === 'no_show').length,
+      unscheduled: flags.filter((flag) => flag === 'unscheduled').length,
+      overrun: flags.filter((flag) => flag === 'overrun').length,
+      pending: db.prepare("SELECT COUNT(*) AS c FROM shift_correction_requests WHERE status = 'pending'").get().c,
+    },
+  }
+}
+
+export function createShiftCorrectionRequest(input, requester) {
+  const shift = getShiftById(input.shift_id)
+  if (!shift) throw shiftError('Shift not found', 404)
+  if (shift.user_id !== requester.id) throw shiftError('You can only correct your own shifts', 403)
+  const proposedIn = new Date(input.proposed_clock_in)
+  const proposedOut = input.proposed_clock_out ? new Date(input.proposed_clock_out) : null
+  const reason = String(input.reason || '').trim()
+  if (!reason) throw shiftError('A correction reason is required')
+  if (Number.isNaN(proposedIn.getTime()) || (proposedOut && Number.isNaN(proposedOut.getTime()))) throw shiftError('Valid proposed times are required')
+  if (proposedOut && proposedOut <= proposedIn) throw shiftError('Clock-out must be later than clock-in')
+  const pending = db.prepare("SELECT id FROM shift_correction_requests WHERE shift_id = ? AND status = 'pending'").get(shift.id)
+  if (pending) throw shiftError('A correction request is already pending for this shift', 409)
+  const row = {
+    id: input.id || uid(), shift_id: shift.id, requested_by: requester.id,
+    requested_by_name: requester.name || '', original_clock_in: shift.clock_in,
+    original_clock_out: shift.clock_out || null, proposed_clock_in: proposedIn.toISOString(),
+    proposed_clock_out: proposedOut?.toISOString() || null, reason, status: 'pending',
+    reviewed_by: null, reviewed_by_name: null, review_note: null,
+    created_at: new Date().toISOString(), reviewed_at: null,
+  }
+  db.prepare(`
+    INSERT INTO shift_correction_requests (
+      id, shift_id, requested_by, requested_by_name, original_clock_in, original_clock_out,
+      proposed_clock_in, proposed_clock_out, reason, status, reviewed_by, reviewed_by_name,
+      review_note, created_at, reviewed_at
+    ) VALUES (
+      @id, @shift_id, @requested_by, @requested_by_name, @original_clock_in, @original_clock_out,
+      @proposed_clock_in, @proposed_clock_out, @reason, @status, @reviewed_by, @reviewed_by_name,
+      @review_note, @created_at, @reviewed_at
+    )
+  `).run(row)
+  insertNotification({ type: 'shift_correction', title: 'Shift correction requested', message: `${requester.name} requested a shift-time correction.`, userId: 'executives', relatedId: row.id })
+  return row
+}
+
+export function listShiftCorrectionRequests(requesterId = '') {
+  return requesterId
+    ? db.prepare('SELECT * FROM shift_correction_requests WHERE requested_by = ? ORDER BY created_at DESC').all(requesterId)
+    : db.prepare('SELECT * FROM shift_correction_requests ORDER BY created_at DESC LIMIT 500').all()
+}
+
+export function reviewShiftCorrectionRequest(id, decision, reviewer, reviewNote = '') {
+  const request = db.prepare('SELECT * FROM shift_correction_requests WHERE id = ?').get(id)
+  if (!request) throw shiftError('Correction request not found', 404)
+  if (request.status !== 'pending') throw shiftError('Correction request has already been reviewed', 409)
+  if (!['approved', 'rejected'].includes(decision)) throw shiftError('Decision must be approved or rejected')
+  const targetShift = db.prepare('SELECT * FROM shifts WHERE id = ?').get(request.shift_id)
+  if (!targetShift) throw shiftError('Shift not found', 404)
+  if (decision === 'approved' && request.proposed_clock_out) {
+    const overlap = db.prepare(`
+      SELECT id FROM shifts
+      WHERE user_id = ? AND id != ? AND clock_in < ?
+        AND COALESCE(clock_out, '9999-12-31T23:59:59.999Z') > ?
+      LIMIT 1
+    `).get(targetShift.user_id, targetShift.id, request.proposed_clock_out, request.proposed_clock_in)
+    if (overlap) throw shiftError('The corrected period overlaps another recorded shift', 409)
+  }
+  const reviewedAt = new Date().toISOString()
+  const tx = db.transaction(() => {
+    if (decision === 'approved') {
+      const duration = request.proposed_clock_out ? shiftMinutesBetween(request.proposed_clock_in, request.proposed_clock_out) : null
+      const flags = []
+      const plan = targetShift.planned_shift_id ? getShiftPlanById(targetShift.planned_shift_id) : null
+      if (!plan) flags.push('unscheduled')
+      if (plan) {
+        const settings = getShiftSettingByShop(plan.shop)
+        const window = planWindow(plan)
+        const inMs = new Date(request.proposed_clock_in).getTime()
+        const outMs = request.proposed_clock_out ? new Date(request.proposed_clock_out).getTime() : null
+        if (inMs > new Date(window.startIso).getTime() + settings.late_grace_min * 60000) flags.push('late')
+        if (outMs != null && outMs < new Date(window.endIso).getTime() - settings.early_departure_grace_min * 60000) flags.push('early_departure')
+        if (outMs != null && outMs > new Date(window.endIso).getTime() + settings.overrun_grace_min * 60000) flags.push('overrun')
+      }
+      db.prepare(`
+        UPDATE shifts SET clock_in = ?, clock_out = ?, duration_min = ?, corrected_at = ?,
+          clock_out_reason = CASE WHEN ? IS NULL THEN clock_out_reason ELSE 'approved_correction' END,
+          attendance_flags = ?
+        WHERE id = ?
+      `).run(request.proposed_clock_in, request.proposed_clock_out, duration, reviewedAt, request.proposed_clock_out, serializeShiftFlags(flags), request.shift_id)
+    }
+    db.prepare(`
+      UPDATE shift_correction_requests SET status = ?, reviewed_by = ?, reviewed_by_name = ?,
+        review_note = ?, reviewed_at = ? WHERE id = ?
+    `).run(decision, reviewer.id, reviewer.name || '', String(reviewNote || '').trim(), reviewedAt, id)
+  })
+  tx()
+  insertNotification({
+    type: 'shift_correction', title: `Shift correction ${decision}`,
+    message: `Your shift correction request was ${decision}.`, userId: request.requested_by, relatedId: id,
+  })
+  return db.prepare('SELECT * FROM shift_correction_requests WHERE id = ?').get(id)
 }
 
 /**
