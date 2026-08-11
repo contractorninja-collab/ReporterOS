@@ -220,7 +220,7 @@ function HistoryPanel({ activeUser, shopFilter = '', allowCorrection = false }) 
   )
 }
 
-function ScheduleEditor({ shop, users, canCrossShop = false }) {
+function ScheduleEditor({ shop, users }) {
   const [weekStart, setWeekStart] = useState(() => shiftWeekStart())
   const [plans, setPlans] = useState([])
   const [loading, setLoading] = useState(false)
@@ -229,7 +229,19 @@ function ScheduleEditor({ shop, users, canCrossShop = false }) {
   const [editingId, setEditingId] = useState('')
   const [form, setForm] = useState({ user_id: '', shift_date: shiftWeekStart(), start_time: '09:00', end_time: '17:00' })
   const days = useMemo(() => Array.from({ length: 7 }, (_, index) => addShiftDays(weekStart, index)), [weekStart])
-  const eligibleUsers = useMemo(() => users.filter((user) => user.role !== 'executive' && (canCrossShop || user.shop === shop)), [users, shop, canCrossShop])
+  const eligibleUsers = useMemo(
+    () => users.filter((user) => user.role !== 'executive' && user.shop === shop),
+    [users, shop],
+  )
+  const usersByAvailability = useMemo(() => {
+    const dayPlans = plans.filter((plan) => plan.shift_date === form.shift_date && plan.id !== editingId)
+    const plannedCount = new Map()
+    for (const plan of dayPlans) plannedCount.set(plan.user_id, (plannedCount.get(plan.user_id) || 0) + 1)
+    return {
+      dayOff: eligibleUsers.filter((user) => !plannedCount.has(user.id)),
+      scheduled: eligibleUsers.filter((user) => plannedCount.has(user.id)).map((user) => ({ ...user, plannedCount: plannedCount.get(user.id) })),
+    }
+  }, [eligibleUsers, plans, form.shift_date, editingId])
   const load = useCallback(() => {
     if (!shop) return
     setLoading(true); setError('')
@@ -273,17 +285,18 @@ function ScheduleEditor({ shop, users, canCrossShop = false }) {
       <Notice>{error}</Notice><Notice type="success">{message}</Notice>
       <form className="sb2-card sb2-plan-form" onSubmit={save}>
         <div className="sb2-plan-form__title">{editingId ? <Edit3 size={16} /> : <Plus size={16} />} {editingId ? 'Edit planned shift' : 'Add planned shift'}</div>
-        <label>User<select required value={form.user_id} onChange={(event) => setForm({ ...form, user_id: event.target.value })}><option value="">Choose user</option>{eligibleUsers.map((user) => <option key={user.id} value={user.id}>{user.name}{canCrossShop ? ` · ${user.shop}` : ''}</option>)}</select></label>
+        <label>User<select required value={form.user_id} onChange={(event) => setForm({ ...form, user_id: event.target.value })}><option value="">Choose user</option>{usersByAvailability.dayOff.length > 0 && <optgroup label="Day off — no shift planned">{usersByAvailability.dayOff.map((user) => <option key={user.id} value={user.id}>{user.name} · Day off</option>)}</optgroup>}{usersByAvailability.scheduled.length > 0 && <optgroup label="Already scheduled — split shift allowed">{usersByAvailability.scheduled.map((user) => <option key={user.id} value={user.id}>{user.name} · {user.plannedCount} planned shift{user.plannedCount === 1 ? '' : 's'}</option>)}</optgroup>}</select></label>
         <label>Date<input required type="date" min={weekStart} max={addShiftDays(weekStart, 6)} value={form.shift_date} onChange={(event) => setForm({ ...form, shift_date: event.target.value })} /></label>
         <label>Start<input required type="time" value={form.start_time} onChange={(event) => setForm({ ...form, start_time: event.target.value })} /></label>
         <label>End<input required type="time" value={form.end_time} onChange={(event) => setForm({ ...form, end_time: event.target.value })} /></label>
         <button type="submit" className="sb2-button--primary"><Save size={14} /> {editingId ? 'Save' : 'Add draft'}</button>
         {editingId && <button type="button" onClick={reset}><X size={14} /> Cancel</button>}
       </form>
+      <p className="sb2-schedule-hint">Employee options are limited to {shop}. “Day off” means no shift is currently planned for the selected date.</p>
       <div className="sb2-week-grid" aria-busy={loading}>
         {days.map((day) => {
           const dayPlans = plans.filter((plan) => plan.shift_date === day)
-          return <article className={`sb2-day${day === shiftDateKey() ? ' sb2-day--today' : ''}`} key={day}><header><strong>{formatDate(day, { weekday: true, year: false })}</strong><span>{dayPlans.length} shift{dayPlans.length === 1 ? '' : 's'}</span></header><div className="sb2-day__body">{dayPlans.length ? dayPlans.map((plan) => <div className={`sb2-plan sb2-plan--${plan.status}`} key={plan.id}><div><strong>{plan.user_name}</strong><span>{plan.start_time}–{plan.end_time}</span>{canCrossShop && <small>{plan.shop}</small>}</div><span className="sb2-plan__status">{plan.status}</span><div className="sb2-plan__actions"><button type="button" aria-label="Edit planned shift" onClick={() => edit(plan)}><Edit3 size={12} /></button><button type="button" aria-label="Delete planned shift" onClick={() => remove(plan)}><Trash2 size={12} /></button></div></div>) : <div className="sb2-day__empty">No shifts</div>}</div></article>
+          return <article className={`sb2-day${day === shiftDateKey() ? ' sb2-day--today' : ''}`} key={day}><header><strong>{formatDate(day, { weekday: true, year: false })}</strong><span>{dayPlans.length} shift{dayPlans.length === 1 ? '' : 's'}</span></header><div className="sb2-day__body">{dayPlans.length ? dayPlans.map((plan) => <div className={`sb2-plan sb2-plan--${plan.status}`} key={plan.id}><div><strong>{plan.user_name}</strong><span>{plan.start_time}–{plan.end_time}</span></div><span className="sb2-plan__status">{plan.status}</span><div className="sb2-plan__actions"><button type="button" aria-label="Edit planned shift" onClick={() => edit(plan)}><Edit3 size={12} /></button><button type="button" aria-label="Delete planned shift" onClick={() => remove(plan)}><Trash2 size={12} /></button></div></div>) : <div className="sb2-day__empty">No shifts</div>}</div></article>
         })}
       </div>
     </section>
@@ -349,7 +362,7 @@ function ExecutiveView() {
   useEffect(() => { loadOverview(); const timer = setInterval(loadOverview, 30000); return () => clearInterval(timer) }, [loadOverview])
   const shops = settings.map((setting) => setting.shop)
   const exceptions = [...(overview.plans || []).filter((plan) => plan.exception), ...(overview.actuals || []).filter((shift) => shift.attendance_flags?.length)]
-  return <div className="sb2-page"><div className="sb2-hero"><div><p>Planned versus actual staffing in Kosovo time.</p><h1>Today’s operations</h1></div>{['schedule', 'history'].includes(tab) && <label className="sb2-shop-filter">Shop<select value={shop} onChange={(event) => setShop(event.target.value)}>{shops.map((name) => <option key={name}>{name}</option>)}</select></label>}</div><Tabs tabs={EXEC_TABS} active={tab} onChange={setTab} /><Notice>{error}</Notice>{tab === 'live' && <><KpiGrid counts={overview.counts} /><section className="sb2-section"><div className="sb2-section-header"><div><h2>Live coverage</h2><p>Who is available across every shop right now.</p></div><span className="sb2-timezone">{SHIFT_TIME_ZONE}</span></div><CoverageGrid shifts={activeShifts} shops={shops} /></section><WeeklyHours rows={overview.weekly_hours} /><section className="sb2-card sb2-exceptions"><header className="sb2-section-header"><div><h2>Attendance exceptions</h2><p>Late, missing, unscheduled, early, and overrun activity requiring attention.</p></div></header>{exceptions.length ? exceptions.map((item) => { const shift = item.actual || item; const flags = item.exception ? [item.exception] : shift.attendance_flags; return <div className="sb2-exception-row" key={item.id}><div><strong>{item.user_name || shift.user_name}</strong><span>{item.shop || shift.shop} · {item.start_time ? `${item.start_time}–${item.end_time}` : formatTime(shift.clock_in)}</span></div><div className="sb2-flags">{flags.map((flag) => <FlagPill key={flag} flag={flag} />)}</div></div> }) : <div className="sb2-empty-cell"><UserCheck size={24} /> No attendance exceptions today.</div>}</section></>}{tab === 'schedule' && <ScheduleEditor shop={shop} users={users} canCrossShop />}{tab === 'requests' && <RequestsPanel executive />}{tab === 'history' && <HistoryPanel activeUser={activeUser} shopFilter={shop} />}{tab === 'settings' && <SettingsPanel settings={settings} users={users} onSaved={loadSettings} />}</div>
+  return <div className="sb2-page"><div className="sb2-hero"><div><p>Planned versus actual staffing in Kosovo time.</p><h1>Today’s operations</h1></div>{['schedule', 'history'].includes(tab) && <label className="sb2-shop-filter">Shop<select value={shop} onChange={(event) => setShop(event.target.value)}>{shops.map((name) => <option key={name}>{name}</option>)}</select></label>}</div><Tabs tabs={EXEC_TABS} active={tab} onChange={setTab} /><Notice>{error}</Notice>{tab === 'live' && <><KpiGrid counts={overview.counts} /><section className="sb2-section"><div className="sb2-section-header"><div><h2>Live coverage</h2><p>Who is available across every shop right now.</p></div><span className="sb2-timezone">{SHIFT_TIME_ZONE}</span></div><CoverageGrid shifts={activeShifts} shops={shops} /></section><WeeklyHours rows={overview.weekly_hours} /><section className="sb2-card sb2-exceptions"><header className="sb2-section-header"><div><h2>Attendance exceptions</h2><p>Late, missing, unscheduled, early, and overrun activity requiring attention.</p></div></header>{exceptions.length ? exceptions.map((item) => { const shift = item.actual || item; const flags = item.exception ? [item.exception] : shift.attendance_flags; return <div className="sb2-exception-row" key={item.id}><div><strong>{item.user_name || shift.user_name}</strong><span>{item.shop || shift.shop} · {item.start_time ? `${item.start_time}–${item.end_time}` : formatTime(shift.clock_in)}</span></div><div className="sb2-flags">{flags.map((flag) => <FlagPill key={flag} flag={flag} />)}</div></div> }) : <div className="sb2-empty-cell"><UserCheck size={24} /> No attendance exceptions today.</div>}</section></>}{tab === 'schedule' && <ScheduleEditor shop={shop} users={users} />}{tab === 'requests' && <RequestsPanel executive />}{tab === 'history' && <HistoryPanel activeUser={activeUser} shopFilter={shop} />}{tab === 'settings' && <SettingsPanel settings={settings} users={users} onSaved={loadSettings} />}</div>
 }
 
 function ManagerToday({ activeUser, myShift, activeShifts, overview, onClock, shops }) {
