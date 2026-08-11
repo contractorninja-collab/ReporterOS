@@ -24,6 +24,11 @@ const DATA_DIR = process.env.DATA_DIR || path.resolve(__dirname, '../..')
 const dbPath = path.resolve(DATA_DIR, 'retailos.db')
 const db = new Database(dbPath)
 
+/** Close the module-owned database connection in isolated integration tests. */
+export function closeDatabaseForTests() {
+  db.close()
+}
+
 db.pragma('journal_mode = WAL')
 // WAL + NORMAL is the recommended durable-but-fast combo: writers don't fsync on
 // every commit, which keeps large import transactions from stalling the single
@@ -3091,6 +3096,36 @@ export function discardSaleChangeReport(reportId) {
   const restored = []
   for (const change of report.changes || []) {
     const index = items.findIndex((item) => item.skuCode === change.skuCode)
+    if (change.changeType === 'removed') {
+      if (index >= 0) throw new Error('Cannot discard ' + change.skuCode + ': the product was added back to the sale list')
+      const activeSale = db.prepare(`
+        SELECT sale_list_id
+        FROM skus
+        WHERE sku = ? AND sale_active = 1 AND sale_list_id IS NOT NULL
+        LIMIT 1
+      `).get(change.skuCode)
+      if (activeSale?.sale_list_id && activeSale.sale_list_id !== report.listId) {
+        throw new Error('Cannot discard ' + change.skuCode + ': the product is now on another sale list')
+      }
+      const oldPct = Math.max(0, Math.min(90, Math.round(Number(change.oldSalePct) || 0)))
+      const oldExtra = Number(change.oldExtraSalePct) === 20 ? 20 : 0
+      const previousItem = change.previousItem && typeof change.previousItem === 'object'
+        ? change.previousItem
+        : {}
+      items.push({
+        ...previousItem,
+        skuCode: change.skuCode,
+        productName: change.productName || previousItem.productName || '',
+        brand: change.brand || previousItem.brand || '',
+        sizes: change.sizes || previousItem.sizes || '',
+        priceTag: Number(change.priceTag ?? previousItem.priceTag) || 0,
+        salePct: oldPct,
+        extraSalePct: oldExtra,
+        salePrice: Number(change.oldSalePrice) || salePriceOf(change.priceTag ?? previousItem.priceTag, oldPct, oldExtra),
+      })
+      restored.push({ skuCode: change.skuCode, salePct: oldPct, extraSalePct: oldExtra })
+      continue
+    }
     if (index < 0) throw new Error('Cannot discard ' + change.skuCode + ': product is no longer on the sale list')
     const current = items[index]
     const currentPct = Number(current.salePct) || 0
@@ -3131,22 +3166,49 @@ export function discardSaleChangeReportProduct(reportId, skuCode) {
   if (!list) throw new Error('Sale list no longer exists')
   const items = [...(list.items || [])]
   const index = items.findIndex((item) => item.skuCode === skuCode)
-  if (index < 0) throw new Error('Product is no longer on the sale list')
-  const current = items[index]
-  const currentPct = Number(current.salePct) || 0
-  const currentExtra = Number(current.extraSalePct) === 20 ? 20 : 0
-  const reportPct = Number(change.newSalePct) || 0
-  const reportExtra = Number(change.newExtraSalePct) === 20 ? 20 : 0
-  if (currentPct !== reportPct || currentExtra !== reportExtra) {
-    throw new Error('The sale was changed again after this report')
-  }
   const oldPct = Math.max(0, Math.min(90, Math.round(Number(change.oldSalePct) || 0)))
   const oldExtra = Number(change.oldExtraSalePct) === 20 ? 20 : 0
-  items[index] = {
-    ...current,
-    salePct: oldPct,
-    extraSalePct: oldExtra,
-    salePrice: oldPct > 0 ? salePriceOf(current.priceTag, oldPct, oldExtra) : 0,
+  if (change.changeType === 'removed') {
+    if (index >= 0) throw new Error('The product was added back to the sale list after this report')
+    const activeSale = db.prepare(`
+      SELECT sale_list_id
+      FROM skus
+      WHERE sku = ? AND sale_active = 1 AND sale_list_id IS NOT NULL
+      LIMIT 1
+    `).get(skuCode)
+    if (activeSale?.sale_list_id && activeSale.sale_list_id !== report.listId) {
+      throw new Error('The product is now on another sale list')
+    }
+    const previousItem = change.previousItem && typeof change.previousItem === 'object'
+      ? change.previousItem
+      : {}
+    items.push({
+      ...previousItem,
+      skuCode: change.skuCode,
+      productName: change.productName || previousItem.productName || '',
+      brand: change.brand || previousItem.brand || '',
+      sizes: change.sizes || previousItem.sizes || '',
+      priceTag: Number(change.priceTag ?? previousItem.priceTag) || 0,
+      salePct: oldPct,
+      extraSalePct: oldExtra,
+      salePrice: Number(change.oldSalePrice) || salePriceOf(change.priceTag ?? previousItem.priceTag, oldPct, oldExtra),
+    })
+  } else {
+    if (index < 0) throw new Error('Product is no longer on the sale list')
+    const current = items[index]
+    const currentPct = Number(current.salePct) || 0
+    const currentExtra = Number(current.extraSalePct) === 20 ? 20 : 0
+    const reportPct = Number(change.newSalePct) || 0
+    const reportExtra = Number(change.newExtraSalePct) === 20 ? 20 : 0
+    if (currentPct !== reportPct || currentExtra !== reportExtra) {
+      throw new Error('The sale was changed again after this report')
+    }
+    items[index] = {
+      ...current,
+      salePct: oldPct,
+      extraSalePct: oldExtra,
+      salePrice: oldPct > 0 ? salePriceOf(current.priceTag, oldPct, oldExtra) : 0,
+    }
   }
   const remainingChanges = report.changes.filter((item) => item.skuCode !== skuCode)
   const statuses = { ...(report.item_statuses || {}) }
@@ -3356,8 +3418,8 @@ export function createEcommerceSaleListForOutletTransfer(transferId, actorUserId
   return { list, created: true, items }
 }
 
-/** Remove one product from an active sale list and clear its SALE flag. */
-export function removeMarkdownListItemFromSale(listId, skuCode) {
+/** Remove one product from an active sale list, clear its SALE flag, and record the change. */
+export function removeMarkdownListItemFromSale(listId, skuCode, actorUserId = '') {
   const list = getMarkdownListById(listId)
   if (!list) throw new Error('Sale list not found')
   if (!markdownSaleChangeable(list)) throw new Error('Sale list is not open for edits')
@@ -3369,10 +3431,43 @@ export function removeMarkdownListItemFromSale(listId, skuCode) {
   const nextItems = items.filter((i) => i.skuCode !== skuCode)
   const nextStatuses = { ...(list.item_statuses || {}) }
   delete nextStatuses[skuCode]
-  updateMarkdownList(listId, { items: nextItems, item_statuses: nextStatuses })
-  db.prepare('UPDATE skus SET sale_active = 0, sale_percent = NULL, sale_extra_percent = NULL, sale_list_id = NULL WHERE sale_list_id = ? AND sku = ?')
-    .run(listId, skuCode)
-  return { list: getMarkdownListById(listId), item }
+  const oldPct = Math.max(0, Math.min(90, Math.round(Number(item.salePct) || 0)))
+  const oldExtraPct = Number(item.extraSalePct) === 20 ? 20 : 0
+  const oldSalePrice = Number(item.salePrice) || salePriceOf(item.priceTag, oldPct, oldExtraPct)
+  let report
+
+  const tx = db.transaction(() => {
+    updateMarkdownList(listId, { items: nextItems, item_statuses: nextStatuses })
+    db.prepare('UPDATE skus SET sale_active = 0, sale_percent = NULL, sale_extra_percent = NULL, sale_list_id = NULL WHERE sale_list_id = ? AND sku = ?')
+      .run(listId, skuCode)
+    report = insertSaleChangeReport({
+      listId,
+      listTitle: list.title || 'Sale list',
+      shop: list.shop || '',
+      createdBy: actorUserId || '',
+      assignedTo: list.assignedTo || null,
+      changes: [{
+        changeType: 'removed',
+        skuCode: item.skuCode,
+        productName: item.productName || '',
+        brand: item.brand || '',
+        sizes: item.sizes || '',
+        priceTag: Number(item.priceTag) || 0,
+        oldSalePct: oldPct,
+        newSalePct: 0,
+        oldExtraSalePct: oldExtraPct,
+        newExtraSalePct: 0,
+        oldSalePrice,
+        newSalePrice: 0,
+        changedBy: actorUserId || '',
+        removedFromListId: listId,
+        removedFromListTitle: list.title || 'Sale list',
+        previousItem: item,
+      }],
+    })
+  })
+  tx()
+  return { list: getMarkdownListById(listId), item, report }
 }
 
 export function deleteMarkdownList(id) {

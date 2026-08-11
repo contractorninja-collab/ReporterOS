@@ -2524,14 +2524,15 @@ app.delete('/api/markdown-lists/:id/items/:skuCode', (req, res) => {
       return res.status(403).json({ error: 'Forbidden' })
     }
     const skuCode = decodeURIComponent(req.params.skuCode || '')
-    const result = removeMarkdownListItemFromSale(req.params.id, skuCode)
+    const result = removeMarkdownListItemFromSale(req.params.id, skuCode, u.id)
+    const change = result.report?.changes?.[0]
     act(u, {
       category: 'markdown',
       action: 'sale_item_removed',
-      entityType: 'markdown_list',
-      entityId: req.params.id,
-      summary: `Removed ${result.item?.productName || skuCode} from sale list "${row.title || 'Sale list'}"`,
-      meta: { listId: req.params.id, skuCode },
+      entityType: 'sale_change_report',
+      entityId: result.report?.id,
+      summary: `Removed ${result.item?.productName || skuCode} from sale list "${row.title || 'Sale list'}" (was -${change?.oldSalePct || 0}%${change?.oldExtraSalePct === 20 ? ' + Extra 20%' : ''})`,
+      meta: { listId: req.params.id, skuCode, reportId: result.report?.id },
     })
     res.json(result)
   } catch (e) { safeError(res, e) }
@@ -2567,14 +2568,20 @@ app.patch('/api/sale-change-reports/:id/items/:skuCode/marked', (req, res) => {
     if (!shop) return res.status(403).json({ error: 'No sale change lane available for this user' })
     const updated = toggleSaleChangeItemMarked(req.params.id, skuCode, u.id, shop)
     const marked = updated.item_statuses?.[skuCode]?.[shop]?.status === 'marked'
+    const change = (row.changes || []).find((item) => item.skuCode === skuCode)
+    const isRemoval = change?.changeType === 'removed'
     act(u, {
       category: 'markdown',
       action: marked ? 'sale_change_marked' : 'sale_change_unmarked',
       entityType: 'sale_change_report',
       entityId: req.params.id,
-      summary: marked
-        ? `Sale tag marked down at ${shop} on change report — ${skuCode}`
-        : `Sale tag mark-down cleared at ${shop} on change report — ${skuCode}`,
+      summary: isRemoval
+        ? (marked
+            ? `Sale tag removal completed at ${shop} on change report — ${skuCode}`
+            : `Sale tag removal reopened at ${shop} on change report — ${skuCode}`)
+        : (marked
+            ? `Sale tag marked down at ${shop} on change report — ${skuCode}`
+            : `Sale tag mark-down cleared at ${shop} on change report — ${skuCode}`),
       meta: { listId: row.listId, skuCode, reportId: req.params.id, shop },
     })
     res.json(updated)

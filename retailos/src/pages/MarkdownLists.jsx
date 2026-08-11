@@ -202,6 +202,7 @@ function ChangeReportTiles({
     <div className="md-change-report-grid">
       {changes.map((ch) => {
         const photoUrl = photoMap[ch.skuCode] || null
+        const isRemoval = ch.changeType === 'removed'
         const salePct = Math.round(Number(ch.newSalePct) || 0)
         const extraSalePct = Number(ch.newExtraSalePct) === 20 ? 20 : 0
         const allTagged = MARKDOWN_LANES.every((shop) => ch.shopStatuses?.[shop]?.status === 'marked')
@@ -209,7 +210,10 @@ function ChangeReportTiles({
         const rawSeason = String(ch.listTitle || '').match(/\b(?:SS|FW|S)\d{2}\b/i)?.[0]?.toUpperCase() || ''
         const season = /^S\d{2}$/.test(rawSeason) ? `SS${rawSeason.slice(1)}` : rawSeason
         const meta = [ch.skuCode, ch.brand, season].filter(Boolean).join(' · ')
-        const discountHistory = `-${Number(ch.oldSalePct) || 0}%${Number(ch.oldExtraSalePct) === 20 ? ' + Extra 20%' : ''} → -${salePct}%${extraSalePct ? ' + Extra 20%' : ''}`
+        const oldDiscount = `-${Number(ch.oldSalePct) || 0}%${Number(ch.oldExtraSalePct) === 20 ? ' + Extra 20%' : ''}`
+        const discountHistory = isRemoval
+          ? `${oldDiscount} → Sale removed`
+          : `${oldDiscount} → -${salePct}%${extraSalePct ? ' + Extra 20%' : ''}`
         return (
           <article key={ch.reportId + '-' + ch.skuCode} className={`md-change-card${allTagged ? ' md-change-card--complete' : ''}`}>
             {onDiscardProduct && (
@@ -248,9 +252,11 @@ function ChangeReportTiles({
                   <IconTag size={28} strokeWidth={1} />
                 </div>
               )}
-              {salePct > 0 && (
+              {isRemoval ? (
+                <span className="md-change-card__sale-pill md-change-card__sale-pill--removed">Sale removed</span>
+              ) : salePct > 0 ? (
                 <span className="md-change-card__sale-pill">-{salePct}%{extraSalePct ? ' + Extra 20%' : ''}</span>
-              )}
+              ) : null}
             </div>
             <div className="md-change-card__body">
               <div className="md-change-card__info">
@@ -260,16 +266,25 @@ function ChangeReportTiles({
                 <p className="md-change-card__meta">
                   {meta}
                 </p>
+                {isRemoval && (
+                  <p className="md-change-card__removal-source" title={discountHistory}>
+                    Removed from {ch.removedFromListTitle || ch.listTitle || 'Sale list'} · {oldDiscount}
+                  </p>
+                )}
                 <div className="md-change-card__price" title={`Discount changed ${discountHistory}`}>
-                  {ch.priceTag > 0 && (
+                  {isRemoval ? (
+                    <span className="md-change-card__price-new md-change-card__price-new--removed">
+                      {oldDiscount} → No sale
+                    </span>
+                  ) : ch.priceTag > 0 ? (
                     <span className="md-change-card__price-old">
                       {Number(ch.priceTag).toFixed(2)}€
                     </span>
-                  )}
-                  {ch.priceTag > 0 && ch.newSalePrice > 0 && (
+                  ) : null}
+                  {!isRemoval && ch.priceTag > 0 && ch.newSalePrice > 0 && (
                     <span className="md-change-card__price-arrow">→</span>
                   )}
-                  {ch.newSalePrice > 0 && (
+                  {!isRemoval && ch.newSalePrice > 0 && (
                     <span className="md-change-card__price-new">
                       {Number(ch.newSalePrice).toFixed(2)}€
                     </span>
@@ -291,6 +306,7 @@ function ChangeReportTiles({
                     const toggle = () => (isMarked
                       ? onUndoTagged(ch.reportId, ch.skuCode, shop)
                       : onMarkTagged(ch.reportId, ch.skuCode, shop))
+                    const statusAction = isRemoval ? 'sale removal' : 'tagged status'
                     return (
                       <div key={shop} className="md-change-card__channel-row" title={detail}>
                         <span className="md-change-card__channel-name">{shop}</span>
@@ -300,14 +316,14 @@ function ChangeReportTiles({
                             className={`md-change-card__status-dot${isMarked ? ' md-change-card__status-dot--done' : ''}`}
                             disabled={isMarking}
                             onClick={toggle}
-                            aria-label={isMarked ? `Undo ${shop} tagged status` : `Mark ${shop} as tagged`}
+                            aria-label={isMarked ? `Undo ${shop} ${statusAction}` : `Mark ${shop} ${statusAction} complete`}
                           >
                             {isMarked ? '✓' : ''}
                           </button>
                         ) : (
                           <span
                             className={`md-change-card__status-dot md-change-card__status-dot--readonly${isMarked ? ' md-change-card__status-dot--done' : ''}`}
-                            aria-label={isMarked ? `${shop} tagged` : `${shop} pending`}
+                            aria-label={isMarked ? `${shop} ${statusAction} complete` : `${shop} ${statusAction} pending`}
                           >
                             {isMarked ? '✓' : ''}
                           </span>
@@ -569,9 +585,10 @@ export default function MarkdownLists() {
   async function handleDiscardChangeProduct(change) {
     if (!change || discardingKey) return
     const key = change.reportId + '-' + change.skuCode
-    const ok = window.confirm(
-      'Discard this sale change? This reverts the discount for all locations.',
-    )
+    const oldDiscount = `-${Number(change.oldSalePct) || 0}%${Number(change.oldExtraSalePct) === 20 ? ' + Extra 20%' : ''}`
+    const ok = window.confirm(change.changeType === 'removed'
+      ? `Discard this removal? This restores ${change.productName || change.skuCode} to "${change.removedFromListTitle || change.listTitle || 'Sale list'}" at ${oldDiscount}.`
+      : 'Discard this sale change? This reverts the discount for all locations.')
     if (!ok) return
     setDiscardingKey(key)
     try {
@@ -593,7 +610,7 @@ export default function MarkdownLists() {
             SALE CHANGE REPORTS
           </h2>
           <p style={{ fontSize: 12, color: S.muted, margin: '4px 0 0' }}>
-            Sale % updates grouped by day. Mark down the new sale tag on each product when done.
+            Sale discount changes and removals grouped by day. Complete the required tag change for each location.
           </p>
         </div>
         {changeDateGroups.length === 0 ? (

@@ -13808,6 +13808,10 @@ button.pl-kpi-tile {
   letter-spacing: 0.01em;
 }
 
+.md-change-card__sale-pill.md-change-card__sale-pill--removed {
+  background: #111827;
+}
+
 .md-change-card__body {
   display: flex;
   flex-direction: column;
@@ -13842,6 +13846,20 @@ button.pl-kpi-tile {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.md-change-card__removal-source {
+  display: -webkit-box;
+  margin: 6px 0 0;
+  overflow: hidden;
+  color: #dc2626;
+  font-family: "DM Sans", sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.35;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  white-space: normal;
 }
 
 .md-change-card__sizes {
@@ -13884,6 +13902,11 @@ button.pl-kpi-tile {
   font-weight: 700;
   color: #16a34a;
   line-height: 1.2;
+}
+
+.md-change-card__price-new--removed {
+  color: #374151;
+  font-size: 13px;
 }
 
 .md-change-card__changed {

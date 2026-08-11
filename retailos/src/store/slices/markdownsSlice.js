@@ -332,10 +332,36 @@ export function createMarkdownsSlice(set, get) {
       try {
         const result = await api.deleteMarkdownListItem(listId, skuCode)
         const updatedList = result?.list
-        if (!updatedList) throw new Error('Server did not remove the sale item')
+        const report = result?.report
+        if (!updatedList || !report) throw new Error('Server did not record the sale removal')
         set((s) => ({
           markdownLists: s.markdownLists.map((l) => (l.id === listId ? updatedList : l)),
+          saleChangeReports: [report, ...s.saleChangeReports.filter((r) => r.id !== report.id)],
         }))
+
+        const oldPct = Math.round(Number(item.salePct) || 0)
+        const oldExtraPct = Number(item.extraSalePct) === 20 ? 20 : 0
+        const removalSummary = `${item.productName || item.skuCode} from ${list.title || 'Sale list'} (was -${oldPct}%${oldExtraPct === 20 ? ' + Extra 20%' : ''})`
+        const notificationTargets = splitAssignedTo(list.assignedTo)
+        if (notificationTargets.length) {
+          for (const uid of notificationTargets) {
+            get().addNotification({
+              type: 'sale_removed',
+              title: `Sale removed — ${list.title || 'Sale list'}`,
+              message: `${state.activeUser?.name || 'Someone'} removed ${removalSummary}`,
+              userId: uid,
+              relatedId: report.id,
+            })
+          }
+        } else {
+          get().addNotification({
+            type: 'sale_removed',
+            title: `Sale removed — ${list.title || 'Sale list'}`,
+            message: `${state.activeUser?.name || 'Someone'} removed ${removalSummary}`,
+            userId: 'all',
+            relatedId: report.id,
+          })
+        }
         return result
       } catch (err) {
         set({ markdownLists: prevLists, skus: prevSkus })
