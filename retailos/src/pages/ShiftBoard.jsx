@@ -50,6 +50,17 @@ function formatDuration(mins) {
   return h ? `${h}h ${m}m` : `${m}m`
 }
 
+function formatPlannedDuration(startTime, endTime) {
+  const [startHour, startMinute] = String(startTime || '').split(':').map(Number)
+  const [endHour, endMinute] = String(endTime || '').split(':').map(Number)
+  if ([startHour, startMinute, endHour, endMinute].some(Number.isNaN)) return '—'
+  return formatDuration((endHour * 60 + endMinute) - (startHour * 60 + startMinute))
+}
+
+function initials(name) {
+  return String(name || '').trim().split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase() || '—'
+}
+
 function isoToLocalInput(iso) {
   if (!iso) return ''
   const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', {
@@ -227,6 +238,7 @@ function ScheduleEditor({ shop, users }) {
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
   const [editingId, setEditingId] = useState('')
+  const [selectedPlanId, setSelectedPlanId] = useState('')
   const [composerMode, setComposerMode] = useState('')
   const [form, setForm] = useState({ user_id: '', shift_date: shiftWeekStart(), start_time: '09:00', end_time: '17:00', plan_type: 'shift' })
   const days = useMemo(() => Array.from({ length: 7 }, (_, index) => addShiftDays(weekStart, index)), [weekStart])
@@ -249,6 +261,9 @@ function ScheduleEditor({ shop, users }) {
   const dayOffPlans = plans.filter((plan) => plan.plan_type === 'day_off')
   const draftCount = plans.filter((plan) => plan.status === 'draft').length
   const staffedDays = new Set(shiftPlans.map((plan) => plan.shift_date)).size
+  const selectedPlan = plans.find((plan) => plan.id === selectedPlanId) || null
+  const selectedUserPeriods = selectedPlan ? shiftPlans.filter((plan) => plan.user_id === selectedPlan.user_id && plan.shift_date === selectedPlan.shift_date) : []
+  const selectedPeriodIndex = selectedPlan ? selectedUserPeriods.findIndex((plan) => plan.id === selectedPlan.id) : -1
   const load = useCallback(() => {
     if (!shop) return
     setLoading(true); setError('')
@@ -257,7 +272,7 @@ function ScheduleEditor({ shop, users }) {
   }, [weekStart, shop])
   useEffect(() => { load() }, [load])
   useEffect(() => {
-    setEditingId(''); setComposerMode('')
+    setEditingId(''); setSelectedPlanId(''); setComposerMode('')
     setForm({ user_id: '', shift_date: weekStart, start_time: '09:00', end_time: '17:00', plan_type: 'shift' })
   }, [weekStart, shop])
   useEffect(() => {
@@ -288,20 +303,20 @@ function ScheduleEditor({ shop, users }) {
     event.preventDefault(); setError(''); setMessage('')
     try {
       const payload = { ...form, shop }
-      if (editingId) await api.putShiftPlan(editingId, payload)
-      else await api.postShiftPlan(payload)
+      const saved = editingId ? await api.putShiftPlan(editingId, payload) : await api.postShiftPlan(payload)
+      setSelectedPlanId(saved.id)
       setMessage(editingId ? 'Schedule entry updated.' : form.plan_type === 'day_off' ? 'Day off added to the draft.' : composerMode === 'split' ? 'Split shift added to the draft.' : 'Shift added to the draft.')
       reset(); load()
     } catch (err) { setError(err.message) }
   }
   const edit = (plan) => {
-    setError(''); setMessage(''); setEditingId(plan.id); setComposerMode(plan.plan_type === 'day_off' ? 'day_off' : 'shift')
+    setError(''); setMessage(''); setSelectedPlanId(plan.id); setEditingId(plan.id); setComposerMode(plan.plan_type === 'day_off' ? 'day_off' : 'shift')
     setForm({ user_id: plan.user_id, shift_date: plan.shift_date, start_time: plan.start_time, end_time: plan.end_time, plan_type: plan.plan_type || 'shift' })
   }
   const remove = async (plan) => {
     const entryName = plan.plan_type === 'day_off' ? 'day-off entry' : 'planned shift'
     if (!window.confirm(`${plan.status === 'published' ? 'Cancel' : 'Delete'} this ${entryName}?`)) return
-    try { await api.deleteShiftPlan(plan.id); reset(); load() } catch (err) { setError(err.message) }
+    try { await api.deleteShiftPlan(plan.id); if (selectedPlanId === plan.id) setSelectedPlanId(''); reset(); load() } catch (err) { setError(err.message) }
   }
   const copyPrevious = async () => {
     if (!window.confirm('Copy the previous week into this week as drafts?')) return
@@ -346,11 +361,17 @@ function ScheduleEditor({ shop, users }) {
         </div>
         <div className="sb2-plan-composer__footer"><span>{form.plan_type === 'day_off' ? <><Coffee size={13} /> No attendance alerts will run for this entry.</> : <><ShieldCheck size={13} /> Overlapping periods are blocked automatically.</>}</span><div>{editingId && <button type="button" onClick={reset}>Cancel</button>}<button type="submit" className="sb2-button--primary" disabled={!form.user_id}><Save size={14} /> {editingId ? 'Save changes' : activeMode.submit}</button></div></div>
       </form>}
+      {selectedPlan && <aside className={`sb2-plan-inspector${selectedPlan.plan_type === 'day_off' ? ' is-day-off' : ''}`} aria-label="Schedule entry details">
+        <div className="sb2-plan-inspector__identity"><span className="sb2-plan-inspector__avatar">{initials(selectedPlan.user_name)}</span><div><span>Selected schedule entry</span><h3>{selectedPlan.user_name}</h3><p>{selectedPlan.shop} · {formatDate(selectedPlan.shift_date, { weekday: true })}</p></div><button type="button" aria-label="Close shift details" onClick={() => setSelectedPlanId('')}><X size={17} /></button></div>
+        <div className="sb2-plan-inspector__facts"><div><span>Date</span><strong>{formatDate(selectedPlan.shift_date, { weekday: true })}</strong></div><div><span>Schedule</span><strong>{selectedPlan.plan_type === 'day_off' ? 'Day off' : `${selectedPlan.start_time}–${selectedPlan.end_time}`}</strong><small>{selectedPlan.plan_type === 'day_off' ? 'Attendance alerts paused' : formatPlannedDuration(selectedPlan.start_time, selectedPlan.end_time)}</small></div><div><span>Entry type</span><strong>{selectedPlan.plan_type === 'day_off' ? 'Protected rest' : selectedUserPeriods.length > 1 ? `Split period ${selectedPeriodIndex + 1} of ${selectedUserPeriods.length}` : 'Standard shift'}</strong></div><div><span>Publication</span><strong className={`sb2-plan-inspector__status is-${selectedPlan.status}`}>{selectedPlan.status}</strong><small>{selectedPlan.status === 'draft' ? 'Not visible as final yet' : 'Visible to employee'}</small></div></div>
+        {selectedUserPeriods.length > 1 && <div className="sb2-plan-inspector__timeline"><span><GitBranch size={12} /> Daily split timeline</span><div>{selectedUserPeriods.map((period, index) => <button type="button" className={period.id === selectedPlan.id ? 'is-selected' : ''} key={period.id} onClick={() => setSelectedPlanId(period.id)}><small>Period {index + 1}</small><strong>{period.start_time}–{period.end_time}</strong><span>{formatPlannedDuration(period.start_time, period.end_time)}</span></button>)}</div></div>}
+        <div className="sb2-plan-inspector__actions"><span>Click any schedule card to inspect its full details.</span><div>{selectedPlan.plan_type !== 'day_off' && <button type="button" onClick={() => openComposer('split', selectedPlan.shift_date, selectedPlan.user_id)}><GitBranch size={13} /> Add split</button>}<button type="button" onClick={() => edit(selectedPlan)}><Edit3 size={13} /> Edit</button><button type="button" className="is-danger" onClick={() => remove(selectedPlan)}><Trash2 size={13} /> Delete</button></div></div>
+      </aside>}
       <div className="sb2-week-grid" aria-busy={loading}>
         {days.map((day) => {
           const dayPlans = plans.filter((plan) => plan.shift_date === day)
           const dayShifts = dayPlans.filter((plan) => plan.plan_type !== 'day_off')
-          return <article className={`sb2-day${day === shiftDateKey() ? ' sb2-day--today' : ''}`} key={day}><header><div><span>{formatDate(day, { weekday: true, year: false }).split(' ')[0]}</span><strong>{formatDate(day, { weekday: true, year: false }).replace(/^\w+\s/, '')}</strong></div><span className={dayShifts.length ? 'is-covered' : ''}>{dayShifts.length ? `${dayShifts.length} period${dayShifts.length === 1 ? '' : 's'}` : 'Open'}</span></header><div className="sb2-day__quick"><button type="button" aria-label={`Add shift on ${formatDate(day)}`} onClick={() => openComposer('shift', day)}><Plus size={11} /> Shift</button><button type="button" aria-label={`Add day off on ${formatDate(day)}`} onClick={() => openComposer('day_off', day)}><Coffee size={11} /> Off</button></div><div className="sb2-day__body">{dayPlans.length ? dayPlans.map((plan) => <div className={`sb2-plan sb2-plan--${plan.status}${plan.plan_type === 'day_off' ? ' sb2-plan--day-off' : ''}`} key={plan.id}><div><strong>{plan.user_name}</strong><span>{plan.plan_type === 'day_off' ? <><Coffee size={10} /> Day off</> : `${plan.start_time}–${plan.end_time}`}</span></div><span className="sb2-plan__status">{plan.status}</span><div className="sb2-plan__actions">{plan.plan_type !== 'day_off' && <button type="button" aria-label="Add split shift" title="Add split shift" onClick={() => openComposer('split', plan.shift_date, plan.user_id)}><GitBranch size={12} /></button>}<button type="button" aria-label="Edit schedule entry" onClick={() => edit(plan)}><Edit3 size={12} /></button><button type="button" aria-label="Delete schedule entry" onClick={() => remove(plan)}><Trash2 size={12} /></button></div></div>) : <div className="sb2-day__empty"><span><Plus size={14} /></span><strong>Build this day</strong><small>Add coverage or a day off</small></div>}</div></article>
+          return <article className={`sb2-day${day === shiftDateKey() ? ' sb2-day--today' : ''}`} key={day}><header><div><span>{formatDate(day, { weekday: true, year: false }).split(' ')[0]}</span><strong>{formatDate(day, { weekday: true, year: false }).replace(/^\w+\s/, '')}</strong></div><span className={dayShifts.length ? 'is-covered' : ''}>{dayShifts.length ? `${dayShifts.length} period${dayShifts.length === 1 ? '' : 's'}` : 'Open'}</span></header><div className="sb2-day__quick"><button type="button" aria-label={`Add shift on ${formatDate(day)}`} onClick={() => openComposer('shift', day)}><Plus size={11} /> Shift</button><button type="button" aria-label={`Add day off on ${formatDate(day)}`} onClick={() => openComposer('day_off', day)}><Coffee size={11} /> Off</button></div><div className="sb2-day__body">{dayPlans.length ? dayPlans.map((plan) => { const userPeriods = dayShifts.filter((period) => period.user_id === plan.user_id); const periodIndex = userPeriods.findIndex((period) => period.id === plan.id); return <div role="button" tabIndex="0" aria-label={`View details for ${plan.user_name}`} aria-pressed={selectedPlanId === plan.id} className={`sb2-plan sb2-plan--${plan.status}${plan.plan_type === 'day_off' ? ' sb2-plan--day-off' : ''}${selectedPlanId === plan.id ? ' is-selected' : ''}`} key={plan.id} onClick={() => setSelectedPlanId(plan.id)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setSelectedPlanId(plan.id) } }}><div className="sb2-plan__person"><span>{initials(plan.user_name)}</span><div><strong>{plan.user_name}</strong><small>{plan.plan_type === 'day_off' ? 'Protected rest day' : userPeriods.length > 1 ? `Split period ${periodIndex + 1} of ${userPeriods.length}` : 'Scheduled shift'}</small></div><ChevronRight size={13} /></div><div className="sb2-plan__time">{plan.plan_type === 'day_off' ? <><Coffee size={12} /><strong>Day off</strong></> : <><Clock size={12} /><strong>{plan.start_time}</strong><span>→</span><strong>{plan.end_time}</strong></>}</div><div className="sb2-plan__footer"><span className="sb2-plan__status">{plan.status}</span><small>{plan.plan_type === 'day_off' ? 'No alerts' : formatPlannedDuration(plan.start_time, plan.end_time)}</small></div></div> }) : <div className="sb2-day__empty"><span><Plus size={14} /></span><strong>Build this day</strong><small>Add coverage or a day off</small></div>}</div></article>
         })}
       </div>
     </section>
