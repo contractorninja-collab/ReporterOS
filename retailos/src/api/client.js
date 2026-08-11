@@ -388,6 +388,18 @@ export const fetchShiftOverview = (date = '', shop = '') => {
   if (shop) q.set('shop', shop)
   return request(`/shifts/overview${q.toString() ? `?${q}` : ''}`)
 }
+export const fetchMonthlyShiftReport = ({ month, shop = '', userId = '' }) => {
+  const q = new URLSearchParams({ month })
+  if (shop) q.set('shop', shop)
+  if (userId) q.set('userId', userId)
+  return request(`/shifts/monthly-report?${q}`)
+}
+export const monthlyShiftReportExportUrl = (format, { month, shop = '', userId = '' }) => {
+  const q = new URLSearchParams({ month })
+  if (shop) q.set('shop', shop)
+  if (userId) q.set('userId', userId)
+  return `${BASE}/shifts/monthly-report.${format}?${q}`
+}
 export const fetchShiftPlans = (weekStart, shop = '') => {
   const q = new URLSearchParams({ weekStart })
   if (shop) q.set('shop', shop)

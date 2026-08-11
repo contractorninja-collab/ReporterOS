@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
-  AlertTriangle, CalendarDays, Check, ChevronLeft, ChevronRight, Clock,
-  Coffee, Copy, Download, Edit3, GitBranch, LogIn, LogOut, Plus, Save, Send,
-  Settings, ShieldCheck, Sparkles, Trash2, UserCheck, Users, X,
+  AlertTriangle, BarChart3, CalendarDays, Check, ChevronLeft, ChevronRight, Clock,
+  Coffee, Copy, Download, Edit3, FileSpreadsheet, GitBranch, LogIn, LogOut, Plus,
+  Save, Send, Settings, ShieldCheck, Sparkles, Timer, Trash2, UserCheck, Users, X,
 } from 'lucide-react'
 import useStore from '../store/useStore.js'
 import * as api from '../api/client.js'
@@ -12,7 +12,7 @@ import {
 
 const EXEC_TABS = [
   ['live', 'Live'], ['schedule', 'Schedule'], ['requests', 'Requests'],
-  ['history', 'History'], ['settings', 'Settings'],
+  ['reports', 'Reports'], ['history', 'History'], ['settings', 'Settings'],
 ]
 
 function formatElapsed(clockInIso) {
@@ -231,6 +231,70 @@ function HistoryPanel({ activeUser, shopFilter = '', allowCorrection = false }) 
   )
 }
 
+const REPORT_STATUS_LABELS = {
+  completed: 'Completed', active: 'Active', scheduled: 'Scheduled', no_show: 'No-show',
+  day_off: 'Day off', unscheduled: 'Unscheduled', active_unscheduled: 'Active · unscheduled',
+}
+
+function MonthlyReportKpi({ icon, label, value, note, tone = 'violet' }) {
+  return <article className={`sb2-report-kpi is-${tone}`}><span>{icon}</span><div><small>{label}</small><strong>{value}</strong><p>{note}</p></div></article>
+}
+
+function MonthlyAttendanceReport({ users, shops }) {
+  const [month, setMonth] = useState(() => shiftDateKey().slice(0, 7))
+  const [shop, setShop] = useState('')
+  const [userId, setUserId] = useState('')
+  const [detailView, setDetailView] = useState('all')
+  const [report, setReport] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const employeeOptions = useMemo(
+    () => users.filter((user) => user.role !== 'executive' && (!shop || user.shop === shop)),
+    [users, shop],
+  )
+  useEffect(() => {
+    if (userId && !employeeOptions.some((user) => user.id === userId)) setUserId('')
+  }, [employeeOptions, userId])
+  const load = useCallback(() => {
+    setLoading(true); setError('')
+    api.fetchMonthlyShiftReport({ month, shop, userId }).then(setReport)
+      .catch((err) => setError(err.message)).finally(() => setLoading(false))
+  }, [month, shop, userId])
+  useEffect(() => { load() }, [load])
+  const download = (format) => {
+    const anchor = document.createElement('a')
+    anchor.href = api.monthlyShiftReportExportUrl(format, { month, shop, userId })
+    anchor.download = `RetailOS_Attendance_${month}.${format}`
+    document.body.appendChild(anchor); anchor.click(); anchor.remove()
+  }
+  const summary = report?.summary || {}
+  const rows = report?.rows || []
+  const visibleRows = detailView === 'exceptions' ? rows.filter((row) => row.flags?.length) : rows
+  return <section className="sb2-monthly-report">
+    <div className="sb2-report-hero">
+      <div className="sb2-report-hero__title"><span><BarChart3 size={20} /></span><div><small>Executive intelligence</small><h2>Monthly attendance report</h2><p>Calendar-month performance, punctuality, exceptions, and worked hours in Kosovo time.</p></div></div>
+      <div className="sb2-report-filters">
+        <label>Month<input type="month" value={month} onChange={(event) => setMonth(event.target.value)} /></label>
+        <label>Shop<select value={shop} onChange={(event) => setShop(event.target.value)}><option value="">All shops</option>{shops.map((name) => <option key={name}>{name}</option>)}</select></label>
+        <label>Employee<select value={userId} onChange={(event) => setUserId(event.target.value)}><option value="">All employees</option>{employeeOptions.map((user) => <option key={user.id} value={user.id}>{user.name} · {user.shop}</option>)}</select></label>
+      </div>
+      <div className="sb2-report-export"><div><small>Reporting period</small><strong>{report?.month_label || month}</strong><span>{shop || 'All shops'}{userId ? ` · ${employeeOptions.find((user) => user.id === userId)?.name || 'Employee'}` : ''}</span></div><button type="button" onClick={() => download('csv')} disabled={loading}><Download size={14} /> CSV</button><button type="button" className="is-excel" onClick={() => download('xlsx')} disabled={loading}><FileSpreadsheet size={14} /> Excel</button></div>
+    </div>
+    <Notice>{error}</Notice>
+    <div className="sb2-report-kpis" aria-busy={loading}>
+      <MonthlyReportKpi icon={<BarChart3 size={18} />} label="Attendance rate" value={summary.attendance_rate == null ? '—' : `${summary.attendance_rate}%`} note={`${summary.attended_periods || 0} of ${summary.attendance_due || 0} due periods attended`} />
+      <MonthlyReportKpi icon={<CalendarDays size={18} />} label="Scheduled" value={summary.scheduled_periods || 0} note={`${summary.day_off_count || 0} published days off`} tone="blue" />
+      <MonthlyReportKpi icon={<Timer size={18} />} label="Late arrivals" value={summary.late_count || 0} note={`${summary.late_minutes || 0} total late minutes`} tone="amber" />
+      <MonthlyReportKpi icon={<AlertTriangle size={18} />} label="No-shows" value={summary.no_show_count || 0} note="Published periods not attended" tone="red" />
+      <MonthlyReportKpi icon={<Clock size={18} />} label="Worked hours" value={`${((summary.worked_minutes || 0) / 60).toFixed(1)}h`} note={`${summary.early_departure_count || 0} early departures`} tone="mint" />
+      <MonthlyReportKpi icon={<Users size={18} />} label="Unscheduled" value={summary.unscheduled_count || 0} note={`${summary.overrun_count || 0} shift overruns`} tone="slate" />
+    </div>
+    <div className="sb2-report-exception-strip"><div><span>Early departure</span><strong>{summary.early_departure_count || 0}</strong><small>{summary.early_departure_minutes || 0} min early</small></div><div><span>Overrun</span><strong>{summary.overrun_count || 0}</strong><small>{summary.overrun_minutes || 0} min over</small></div><div><span>Attendance due</span><strong>{summary.attendance_due || 0}</strong><small>Periods elapsed this month</small></div><div><span>Protected rest</span><strong>{summary.day_off_count || 0}</strong><small>Published days off</small></div></div>
+    <section className="sb2-card sb2-report-table-card"><header><div><small>Team comparison</small><h3>Employee summary</h3><p>Attendance and exception totals by employee for {report?.month_label || month}.</p></div><span>{report?.employee_summaries?.length || 0} employees</span></header><div className="sb2-table-wrap"><table className="sb2-table sb2-report-table"><thead><tr><th>Employee</th><th>Shop</th><th>Attendance</th><th>Scheduled</th><th>Late</th><th>No-show</th><th>Early</th><th>Overrun</th><th>Unscheduled</th><th>Hours</th></tr></thead><tbody>{loading ? <tr><td colSpan="10">Loading report…</td></tr> : report?.employee_summaries?.length ? report.employee_summaries.map((row) => <tr key={row.user_id}><td><strong>{row.user_name}</strong></td><td>{row.shop}</td><td><span className={`sb2-attendance-rate${row.attendance_rate != null && row.attendance_rate < 90 ? ' is-low' : ''}`}>{row.attendance_rate == null ? '—' : `${row.attendance_rate}%`}</span><small>{row.attended_periods}/{row.attendance_due} due</small></td><td>{row.scheduled_periods}</td><td>{row.late_count}<small>{row.late_minutes} min</small></td><td>{row.no_show_count}</td><td>{row.early_departure_count}<small>{row.early_departure_minutes} min</small></td><td>{row.overrun_count}<small>{row.overrun_minutes} min</small></td><td>{row.unscheduled_count}</td><td><strong>{(row.worked_minutes / 60).toFixed(1)}h</strong></td></tr>) : <tr><td colSpan="10" className="sb2-empty-cell">No published schedules or attendance records for this selection.</td></tr>}</tbody></table></div></section>
+    <section className="sb2-card sb2-report-table-card"><header><div><small>Audit detail</small><h3>Attendance records</h3><p>Planned and actual activity with exact exception minutes.</p></div><div className="sb2-report-view-toggle"><button type="button" className={detailView === 'all' ? 'is-active' : ''} onClick={() => setDetailView('all')}>All records</button><button type="button" className={detailView === 'exceptions' ? 'is-active' : ''} onClick={() => setDetailView('exceptions')}>Exceptions</button></div></header><div className="sb2-table-wrap"><table className="sb2-table sb2-report-table"><thead><tr><th>Date</th><th>Employee</th><th>Shop</th><th>Planned</th><th>Actual</th><th>Worked</th><th>Status</th><th>Exceptions</th><th>Variance</th></tr></thead><tbody>{loading ? <tr><td colSpan="9">Loading report…</td></tr> : visibleRows.length ? visibleRows.map((row) => <tr key={row.id}><td>{formatDate(row.date, { weekday: true, year: false })}</td><td><strong>{row.user_name}</strong></td><td>{row.shop}</td><td>{row.plan_type === 'shift' ? `${row.planned_start}–${row.planned_end}` : row.plan_type === 'day_off' ? 'Day off' : '—'}</td><td>{row.actual_clock_in ? `${formatTime(row.actual_clock_in)}–${row.actual_clock_out ? formatTime(row.actual_clock_out) : 'Active'}` : '—'}</td><td>{row.worked_minutes ? formatDuration(row.worked_minutes) : '—'}</td><td><span className={`sb2-report-status is-${row.status}`}>{REPORT_STATUS_LABELS[row.status] || row.status}</span></td><td><div className="sb2-flags">{row.flags.map((flag) => <FlagPill key={flag} flag={flag} />)}</div></td><td><div className="sb2-report-variance">{row.late_minutes > 0 && <span>+{row.late_minutes}m late</span>}{row.early_departure_minutes > 0 && <span>{row.early_departure_minutes}m early</span>}{row.overrun_minutes > 0 && <span>+{row.overrun_minutes}m over</span>}{!row.late_minutes && !row.early_departure_minutes && !row.overrun_minutes && '—'}</div></td></tr>) : <tr><td colSpan="9" className="sb2-empty-cell">No {detailView === 'exceptions' ? 'exceptions' : 'attendance records'} for this selection.</td></tr>}</tbody></table></div></section>
+  </section>
+}
+
 function ScheduleEditor({ shop, users }) {
   const [weekStart, setWeekStart] = useState(() => shiftWeekStart())
   const [plans, setPlans] = useState([])
@@ -437,7 +501,7 @@ function ExecutiveView() {
   useEffect(() => { loadOverview(); const timer = setInterval(loadOverview, 30000); return () => clearInterval(timer) }, [loadOverview])
   const shops = settings.map((setting) => setting.shop)
   const exceptions = [...(overview.plans || []).filter((plan) => plan.exception), ...(overview.actuals || []).filter((shift) => shift.attendance_flags?.length)]
-  return <div className="sb2-page"><div className="sb2-hero"><div><p>Planned versus actual staffing in Kosovo time.</p><h1>Today’s operations</h1></div>{['schedule', 'history'].includes(tab) && <label className="sb2-shop-filter">Shop<select value={shop} onChange={(event) => setShop(event.target.value)}>{shops.map((name) => <option key={name}>{name}</option>)}</select></label>}</div><Tabs tabs={EXEC_TABS} active={tab} onChange={setTab} /><Notice>{error}</Notice>{tab === 'live' && <><KpiGrid counts={overview.counts} /><section className="sb2-section"><div className="sb2-section-header"><div><h2>Live coverage</h2><p>Who is available across every shop right now.</p></div><span className="sb2-timezone">{SHIFT_TIME_ZONE}</span></div><CoverageGrid shifts={activeShifts} shops={shops} /></section><WeeklyHours rows={overview.weekly_hours} /><section className="sb2-card sb2-exceptions"><header className="sb2-section-header"><div><h2>Attendance exceptions</h2><p>Late, missing, unscheduled, early, and overrun activity requiring attention.</p></div></header>{exceptions.length ? exceptions.map((item) => { const shift = item.actual || item; const flags = item.exception ? [item.exception] : shift.attendance_flags; return <div className="sb2-exception-row" key={item.id}><div><strong>{item.user_name || shift.user_name}</strong><span>{item.shop || shift.shop} · {item.start_time ? `${item.start_time}–${item.end_time}` : formatTime(shift.clock_in)}</span></div><div className="sb2-flags">{flags.map((flag) => <FlagPill key={flag} flag={flag} />)}</div></div> }) : <div className="sb2-empty-cell"><UserCheck size={24} /> No attendance exceptions today.</div>}</section></>}{tab === 'schedule' && <ScheduleEditor shop={shop} users={users} />}{tab === 'requests' && <RequestsPanel executive />}{tab === 'history' && <HistoryPanel activeUser={activeUser} shopFilter={shop} />}{tab === 'settings' && <SettingsPanel settings={settings} users={users} onSaved={loadSettings} />}</div>
+  return <div className="sb2-page"><div className="sb2-hero"><div><p>Planned versus actual staffing in Kosovo time.</p><h1>Today’s operations</h1></div>{['schedule', 'history'].includes(tab) && <label className="sb2-shop-filter">Shop<select value={shop} onChange={(event) => setShop(event.target.value)}>{shops.map((name) => <option key={name}>{name}</option>)}</select></label>}</div><Tabs tabs={EXEC_TABS} active={tab} onChange={setTab} /><Notice>{error}</Notice>{tab === 'live' && <><KpiGrid counts={overview.counts} /><section className="sb2-section"><div className="sb2-section-header"><div><h2>Live coverage</h2><p>Who is available across every shop right now.</p></div><span className="sb2-timezone">{SHIFT_TIME_ZONE}</span></div><CoverageGrid shifts={activeShifts} shops={shops} /></section><WeeklyHours rows={overview.weekly_hours} /><section className="sb2-card sb2-exceptions"><header className="sb2-section-header"><div><h2>Attendance exceptions</h2><p>Late, missing, unscheduled, early, and overrun activity requiring attention.</p></div></header>{exceptions.length ? exceptions.map((item) => { const shift = item.actual || item; const flags = item.exception ? [item.exception] : shift.attendance_flags; return <div className="sb2-exception-row" key={item.id}><div><strong>{item.user_name || shift.user_name}</strong><span>{item.shop || shift.shop} · {item.start_time ? `${item.start_time}–${item.end_time}` : formatTime(shift.clock_in)}</span></div><div className="sb2-flags">{flags.map((flag) => <FlagPill key={flag} flag={flag} />)}</div></div> }) : <div className="sb2-empty-cell"><UserCheck size={24} /> No attendance exceptions today.</div>}</section></>}{tab === 'schedule' && <ScheduleEditor shop={shop} users={users} />}{tab === 'requests' && <RequestsPanel executive />}{tab === 'reports' && <MonthlyAttendanceReport users={users} shops={shops} />}{tab === 'history' && <HistoryPanel activeUser={activeUser} shopFilter={shop} />}{tab === 'settings' && <SettingsPanel settings={settings} users={users} onSaved={loadSettings} />}</div>
 }
 
 function ManagerToday({ activeUser, myShift, activeShifts, overview, onClock, shops }) {

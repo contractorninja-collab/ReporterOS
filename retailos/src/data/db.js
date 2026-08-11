@@ -5366,6 +5366,134 @@ export function getShiftAttendanceOverview(dateKey = shiftDateKey(), shop = '') 
   }
 }
 
+function nextShiftMonth(monthKey) {
+  const [year, month] = String(monthKey).split('-').map(Number)
+  return month === 12 ? `${year + 1}-01` : `${year}-${String(month + 1).padStart(2, '0')}`
+}
+
+function emptyMonthlyAttendanceSummary(userId = '', userName = '', shop = '') {
+  return {
+    user_id: userId, user_name: userName, shop,
+    scheduled_periods: 0, attendance_due: 0, attended_periods: 0, attendance_rate: null,
+    late_count: 0, late_minutes: 0, no_show_count: 0,
+    early_departure_count: 0, early_departure_minutes: 0,
+    overrun_count: 0, overrun_minutes: 0,
+    unscheduled_count: 0, day_off_count: 0, worked_minutes: 0,
+  }
+}
+
+function accumulateMonthlyAttendance(summary, row) {
+  if (row.plan_type === 'day_off') summary.day_off_count++
+  if (row.plan_type === 'shift') {
+    summary.scheduled_periods++
+    if (row.attendance_due) summary.attendance_due++
+    if (row.actual_clock_in) summary.attended_periods++
+  }
+  if (row.plan_type === 'unscheduled') summary.unscheduled_count++
+  if (row.flags.includes('late')) summary.late_count++
+  if (row.flags.includes('no_show')) summary.no_show_count++
+  if (row.flags.includes('early_departure')) summary.early_departure_count++
+  if (row.flags.includes('overrun')) summary.overrun_count++
+  summary.late_minutes += row.late_minutes
+  summary.early_departure_minutes += row.early_departure_minutes
+  summary.overrun_minutes += row.overrun_minutes
+  summary.worked_minutes += row.worked_minutes
+}
+
+export function getMonthlyAttendanceReport({ month = shiftDateKey().slice(0, 7), shop = '', userId = '' } = {}, nowIso = new Date().toISOString()) {
+  const monthKey = String(month || '')
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(monthKey)) throw shiftError('Month must use YYYY-MM')
+  const startDate = `${monthKey}-01`
+  const nextMonth = nextShiftMonth(monthKey)
+  const endDate = `${nextMonth}-01`
+  const startIso = shiftLocalToIso(startDate, '00:00')
+  const endIso = shiftLocalToIso(endDate, '00:00')
+  const planWhere = ["status = 'published'", 'shift_date >= ?', 'shift_date < ?']
+  const planParams = [startDate, endDate]
+  if (shop) { planWhere.push('shop = ?'); planParams.push(shop) }
+  if (userId) { planWhere.push('user_id = ?'); planParams.push(userId) }
+  const plans = db.prepare(`SELECT * FROM shift_plans WHERE ${planWhere.join(' AND ')} ORDER BY shift_date, start_time, user_name COLLATE NOCASE`).all(...planParams)
+  const actualWhere = ['clock_in >= ?', 'clock_in < ?']
+  const actualParams = [startIso, endIso]
+  if (shop) { actualWhere.push('shop = ?'); actualParams.push(shop) }
+  if (userId) { actualWhere.push('user_id = ?'); actualParams.push(userId) }
+  const actuals = db.prepare(`SELECT * FROM shifts WHERE ${actualWhere.join(' AND ')} ORDER BY clock_in`).all(...actualParams).map(toShift)
+  const actualByPlan = new Map(actuals.filter((shift) => shift.planned_shift_id).map((shift) => [shift.planned_shift_id, shift]))
+  const linkedActualIds = new Set()
+  const nowMs = new Date(nowIso).getTime()
+  const rows = []
+
+  for (const plan of plans) {
+    if (plan.plan_type === 'day_off') {
+      rows.push({
+        id: plan.id, plan_id: plan.id, shift_id: null, plan_type: 'day_off',
+        date: plan.shift_date, user_id: plan.user_id, user_name: plan.user_name, shop: plan.shop,
+        planned_start: '', planned_end: '', actual_clock_in: null, actual_clock_out: null,
+        worked_minutes: 0, late_minutes: 0, early_departure_minutes: 0, overrun_minutes: 0,
+        attendance_due: false, status: 'day_off', flags: [],
+      })
+      continue
+    }
+    const actual = actualByPlan.get(plan.id) || null
+    if (actual) linkedActualIds.add(actual.id)
+    const settings = getShiftSettingByShop(plan.shop)
+    const window = planWindow(plan)
+    const tracked = plan.shift_date >= settings.tracking_start_date
+    const noShowDue = tracked && nowMs > new Date(window.startIso).getTime() + settings.no_show_after_min * 60000
+    const flags = [...(actual?.attendance_flags || [])]
+    if (!actual && noShowDue) flags.push('no_show')
+    const actualEnd = actual?.clock_out || (actual ? nowIso : null)
+    const lateMinutes = actual && flags.includes('late') ? shiftMinutesBetween(window.startIso, actual.clock_in) : 0
+    const earlyMinutes = actualEnd && flags.includes('early_departure') ? shiftMinutesBetween(actualEnd, window.endIso) : 0
+    const overrunMinutes = actualEnd && flags.includes('overrun') ? shiftMinutesBetween(window.endIso, actualEnd) : 0
+    rows.push({
+      id: plan.id, plan_id: plan.id, shift_id: actual?.id || null, plan_type: 'shift',
+      date: plan.shift_date, user_id: plan.user_id, user_name: plan.user_name, shop: plan.shop,
+      planned_start: plan.start_time, planned_end: plan.end_time,
+      actual_clock_in: actual?.clock_in || null, actual_clock_out: actual?.clock_out || null,
+      worked_minutes: actual ? (actual.clock_out ? Number(actual.duration_min || 0) : shiftMinutesBetween(actual.clock_in, nowIso)) : 0,
+      late_minutes: lateMinutes, early_departure_minutes: earlyMinutes, overrun_minutes: overrunMinutes,
+      attendance_due: Boolean(actual || noShowDue),
+      status: actual ? (actual.clock_out ? 'completed' : 'active') : noShowDue ? 'no_show' : 'scheduled',
+      flags: [...new Set(flags)],
+    })
+  }
+
+  for (const actual of actuals.filter((shift) => !linkedActualIds.has(shift.id))) {
+    rows.push({
+      id: actual.id, plan_id: null, shift_id: actual.id, plan_type: 'unscheduled',
+      date: shiftDateKey(actual.clock_in), user_id: actual.user_id, user_name: actual.user_name, shop: actual.shop,
+      planned_start: '', planned_end: '', actual_clock_in: actual.clock_in, actual_clock_out: actual.clock_out,
+      worked_minutes: actual.clock_out ? Number(actual.duration_min || 0) : shiftMinutesBetween(actual.clock_in, nowIso),
+      late_minutes: 0, early_departure_minutes: 0, overrun_minutes: 0,
+      attendance_due: false, status: actual.clock_out ? 'unscheduled' : 'active_unscheduled',
+      flags: [...new Set([...(actual.attendance_flags || []), 'unscheduled'])],
+    })
+  }
+
+  rows.sort((a, b) => a.date.localeCompare(b.date) || a.user_name.localeCompare(b.user_name) || a.planned_start.localeCompare(b.planned_start))
+  const employeeMap = new Map()
+  const summary = emptyMonthlyAttendanceSummary()
+  for (const row of rows) {
+    const employee = employeeMap.get(row.user_id) || emptyMonthlyAttendanceSummary(row.user_id, row.user_name, row.shop)
+    accumulateMonthlyAttendance(employee, row)
+    employeeMap.set(row.user_id, employee)
+    accumulateMonthlyAttendance(summary, row)
+  }
+  const finishSummary = (value) => ({
+    ...value,
+    attendance_rate: value.attendance_due ? Math.round((value.attended_periods / value.attendance_due) * 1000) / 10 : null,
+  })
+  const employeeSummaries = [...employeeMap.values()].map(finishSummary)
+    .sort((a, b) => a.shop.localeCompare(b.shop) || a.user_name.localeCompare(b.user_name))
+  return {
+    month: monthKey,
+    month_label: new Intl.DateTimeFormat('en-GB', { month: 'long', year: 'numeric', timeZone: SHIFT_TIME_ZONE }).format(new Date(`${startDate}T12:00:00Z`)),
+    timezone: SHIFT_TIME_ZONE, generated_at: nowIso, filters: { shop, user_id: userId },
+    summary: finishSummary(summary), employee_summaries: employeeSummaries, rows,
+  }
+}
+
 export function createShiftCorrectionRequest(input, requester) {
   const shift = getShiftById(input.shift_id)
   if (!shift) throw shiftError('Shift not found', 404)

@@ -126,6 +126,38 @@ test('stores day off as a publishable schedule entry without attendance alerts',
   db.clockOut(unscheduled.id, 'manual', shiftLocalToIso('2026-08-13', '11:00'))
 })
 
+test('builds calendar-month attendance summaries with minutes and exceptions', () => {
+  const [manager, backup] = db.getAllUsers().filter((user) => user.shop === 'Ring Mall')
+  const executive = db.getAllUsers().find((user) => user.role === 'executive')
+  db.createShiftPlan({ id: 'month-late', user_id: manager.id, shop: 'Ring Mall', shift_date: '2026-09-07', start_time: '09:00', end_time: '17:00' }, executive.id)
+  db.createShiftPlan({ id: 'month-no-show', user_id: manager.id, shop: 'Ring Mall', shift_date: '2026-09-08', start_time: '09:00', end_time: '17:00' }, executive.id)
+  db.createShiftPlan({ id: 'month-overrun', user_id: manager.id, shop: 'Ring Mall', shift_date: '2026-09-09', start_time: '09:00', end_time: '17:00' }, executive.id)
+  db.createShiftPlan({ id: 'month-day-off', user_id: manager.id, shop: 'Ring Mall', shift_date: '2026-09-10', plan_type: 'day_off' }, executive.id)
+  db.publishShiftPlanWeek('Ring Mall', '2026-09-07', executive.id)
+
+  db.clockIn('month-late-actual', manager, shiftLocalToIso('2026-09-07', '09:20'))
+  db.clockOut('month-late-actual', 'manual', shiftLocalToIso('2026-09-07', '16:30'))
+  db.clockIn('month-overrun-actual', manager, shiftLocalToIso('2026-09-09', '09:00'))
+  db.clockOut('month-overrun-actual', 'manual', shiftLocalToIso('2026-09-09', '17:30'))
+  db.clockIn('month-unscheduled-actual', backup, shiftLocalToIso('2026-09-09', '12:00'))
+  db.clockOut('month-unscheduled-actual', 'manual', shiftLocalToIso('2026-09-09', '14:00'))
+
+  const report = db.getMonthlyAttendanceReport({ month: '2026-09', shop: 'Ring Mall' }, shiftLocalToIso('2026-09-30', '12:00'))
+  const managerSummary = report.employee_summaries.find((row) => row.user_id === manager.id)
+  assert.equal(report.month_label, 'September 2026')
+  assert.equal(managerSummary.scheduled_periods, 3)
+  assert.equal(managerSummary.attended_periods, 2)
+  assert.equal(managerSummary.attendance_rate, 66.7)
+  assert.equal(managerSummary.late_count, 1)
+  assert.equal(managerSummary.late_minutes, 20)
+  assert.equal(managerSummary.no_show_count, 1)
+  assert.equal(managerSummary.early_departure_minutes, 30)
+  assert.equal(managerSummary.overrun_minutes, 30)
+  assert.equal(managerSummary.day_off_count, 1)
+  assert.equal(report.summary.unscheduled_count, 1)
+  assert.ok(report.rows.some((row) => row.status === 'no_show'))
+})
+
 test.after(() => {
   db.closeDatabaseForTests()
   fs.rmSync(dataDir, { recursive: true, force: true })

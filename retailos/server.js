@@ -40,7 +40,7 @@ import {
   clockIn, clockOut, getActiveShifts, getShiftHistory, getShiftById,
   getShiftSettings, saveShiftSetting, isShiftPlanner,
   listShiftPlans, getShiftPlanById, createShiftPlan, updateShiftPlan, removeShiftPlan,
-  copyShiftPlanWeek, publishShiftPlanWeek, getShiftAttendanceOverview, evaluateShiftAttendance,
+  copyShiftPlanWeek, publishShiftPlanWeek, getShiftAttendanceOverview, getMonthlyAttendanceReport, evaluateShiftAttendance,
   createShiftCorrectionRequest, listShiftCorrectionRequests, reviewShiftCorrectionRequest,
   appendActivityLog, getActivityLog, backfillActivityLogFromLegacyIfEmpty,
   getProductTypeLabels, getProductTypeLabel, upsertProductTypeLabel, normalizeProductType,
@@ -1170,6 +1170,126 @@ async function activityXlsx(activity) {
   sheet.autoFilter = { from: 'A5', to: `O${sheet.rowCount}` }
   sheet.columns.forEach((c) => { c.width = Math.min(Math.max((c.header || '').length + 3, 12), 28) })
   ;[9, 10].forEach((index) => sheet.getColumn(index).numFmt = '#,##0.00')
+  return workbook.xlsx.writeBuffer()
+}
+
+function attendanceReportTime(iso, timeZone) {
+  if (!iso) return ''
+  return new Intl.DateTimeFormat('en-GB', {
+    timeZone, hour: '2-digit', minute: '2-digit',
+  }).format(new Date(iso))
+}
+
+function attendanceReportStatus(row) {
+  const labels = {
+    completed: 'Completed', active: 'Active', scheduled: 'Scheduled', no_show: 'No-show',
+    day_off: 'Day off', unscheduled: 'Unscheduled', active_unscheduled: 'Active · unscheduled',
+  }
+  return labels[row.status] || row.status
+}
+
+const attendanceSummaryColumns = [
+  ['Shop', 'shop'], ['Employee', 'user_name'], ['Scheduled', 'scheduled_periods'],
+  ['Due', 'attendance_due'], ['Attended', 'attended_periods'], ['Attendance %', 'attendance_rate'],
+  ['Late', 'late_count'], ['Late Minutes', 'late_minutes'], ['No-shows', 'no_show_count'],
+  ['Early Departures', 'early_departure_count'], ['Early Minutes', 'early_departure_minutes'],
+  ['Overruns', 'overrun_count'], ['Overrun Minutes', 'overrun_minutes'],
+  ['Unscheduled', 'unscheduled_count'], ['Days Off', 'day_off_count'], ['Worked Hours', 'worked_hours'],
+]
+
+function attendanceSummaryValues(summary) {
+  return { ...summary, worked_hours: Math.round((summary.worked_minutes / 60) * 100) / 100 }
+}
+
+function monthlyAttendanceCsv(report) {
+  const metrics = [
+    ['Attendance rate', report.summary.attendance_rate == null ? '' : `${report.summary.attendance_rate}%`],
+    ['Scheduled periods', report.summary.scheduled_periods], ['Attendance due', report.summary.attendance_due],
+    ['Attended periods', report.summary.attended_periods], ['Late arrivals', report.summary.late_count],
+    ['Late minutes', report.summary.late_minutes], ['No-shows', report.summary.no_show_count],
+    ['Early departures', report.summary.early_departure_count], ['Overruns', report.summary.overrun_count],
+    ['Unscheduled clock-ins', report.summary.unscheduled_count], ['Days off', report.summary.day_off_count],
+    ['Worked hours', Math.round((report.summary.worked_minutes / 60) * 100) / 100],
+  ]
+  const detailHeaders = ['Date', 'Shop', 'Employee', 'Planned', 'Actual In', 'Actual Out', 'Worked Hours', 'Status', 'Exceptions', 'Late Minutes', 'Early Minutes', 'Overrun Minutes']
+  const lines = [
+    ['RetailOS', 'Monthly Attendance Report'], ['Month', report.month_label],
+    ['Timezone', report.timezone], ['Generated', report.generated_at], [],
+    ['Monthly summary'], ['Metric', 'Value'], ...metrics, [],
+    ['Employee summary'], attendanceSummaryColumns.map(([label]) => label),
+    ...report.employee_summaries.map((summary) => {
+      const values = attendanceSummaryValues(summary)
+      return attendanceSummaryColumns.map(([, key]) => values[key] ?? '')
+    }), [], ['Attendance details'], detailHeaders,
+    ...report.rows.map((row) => [
+      row.date, row.shop, row.user_name,
+      row.plan_type === 'shift' ? `${row.planned_start}–${row.planned_end}` : row.plan_type === 'day_off' ? 'Day off' : '',
+      attendanceReportTime(row.actual_clock_in, report.timezone), attendanceReportTime(row.actual_clock_out, report.timezone),
+      Math.round((row.worked_minutes / 60) * 100) / 100, attendanceReportStatus(row), row.flags.join('; '),
+      row.late_minutes, row.early_departure_minutes, row.overrun_minutes,
+    ]),
+  ]
+  return '\uFEFF' + lines.map((row) => row.map(csvCell).join(',')).join('\r\n') + '\r\n'
+}
+
+function styleAttendanceHeader(row, color = 'FF6D3CF5') {
+  row.font = { bold: true, color: { argb: 'FFFFFFFF' } }
+  row.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: color } }
+  row.alignment = { vertical: 'middle' }
+}
+
+function fitAttendanceColumns(sheet, minimum = 11, maximum = 26) {
+  sheet.columns.forEach((column) => {
+    let width = minimum
+    column.eachCell?.({ includeEmpty: true }, (cell) => { width = Math.max(width, String(cell.value ?? '').length + 2) })
+    column.width = Math.min(width, maximum)
+  })
+}
+
+async function monthlyAttendanceXlsx(report) {
+  const workbook = new ExcelJS.Workbook()
+  workbook.creator = 'RetailOS'
+  workbook.created = new Date()
+  const overview = workbook.addWorksheet('Overview', { views: [{ state: 'frozen', ySplit: 5 }] })
+  overview.mergeCells('A1:D1'); overview.getCell('A1').value = 'RetailOS — Monthly Attendance Report'
+  overview.getCell('A1').font = { bold: true, size: 17, color: { argb: 'FFFFFFFF' } }
+  overview.getCell('A1').fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF171226' } }
+  overview.getCell('A1').alignment = { vertical: 'middle' }; overview.getRow(1).height = 27
+  overview.addRow(['Month', report.month_label]); overview.addRow(['Timezone', report.timezone]); overview.addRow(['Generated', report.generated_at]); overview.addRow([])
+  const overviewHeader = overview.addRow(['Metric', 'Value']); styleAttendanceHeader(overviewHeader)
+  ;[
+    ['Attendance rate', report.summary.attendance_rate == null ? '—' : `${report.summary.attendance_rate}%`],
+    ['Scheduled periods', report.summary.scheduled_periods], ['Attendance due', report.summary.attendance_due],
+    ['Attended periods', report.summary.attended_periods], ['Late arrivals', report.summary.late_count],
+    ['Late minutes', report.summary.late_minutes], ['No-shows', report.summary.no_show_count],
+    ['Early departures', report.summary.early_departure_count], ['Early minutes', report.summary.early_departure_minutes],
+    ['Overruns', report.summary.overrun_count], ['Overrun minutes', report.summary.overrun_minutes],
+    ['Unscheduled clock-ins', report.summary.unscheduled_count], ['Days off', report.summary.day_off_count],
+    ['Worked hours', Math.round((report.summary.worked_minutes / 60) * 100) / 100],
+  ].forEach((row) => overview.addRow(row))
+  fitAttendanceColumns(overview, 16, 34)
+
+  const employees = workbook.addWorksheet('Employee Summary', { views: [{ state: 'frozen', ySplit: 1 }] })
+  const employeeHeader = employees.addRow(attendanceSummaryColumns.map(([label]) => label)); styleAttendanceHeader(employeeHeader)
+  report.employee_summaries.forEach((summary) => {
+    const values = attendanceSummaryValues(summary)
+    employees.addRow(attendanceSummaryColumns.map(([, key]) => values[key] ?? ''))
+  })
+  employees.autoFilter = { from: 'A1', to: `P${Math.max(1, employees.rowCount)}` }
+  fitAttendanceColumns(employees)
+
+  const details = workbook.addWorksheet('Attendance Details', { views: [{ state: 'frozen', ySplit: 1 }] })
+  const detailHeaders = ['Date', 'Shop', 'Employee', 'Planned', 'Actual In', 'Actual Out', 'Worked Hours', 'Status', 'Exceptions', 'Late Minutes', 'Early Minutes', 'Overrun Minutes']
+  const detailHeader = details.addRow(detailHeaders); styleAttendanceHeader(detailHeader, 'FF0F988C')
+  report.rows.forEach((row) => details.addRow([
+    row.date, row.shop, row.user_name,
+    row.plan_type === 'shift' ? `${row.planned_start}–${row.planned_end}` : row.plan_type === 'day_off' ? 'Day off' : '',
+    attendanceReportTime(row.actual_clock_in, report.timezone), attendanceReportTime(row.actual_clock_out, report.timezone),
+    Math.round((row.worked_minutes / 60) * 100) / 100, attendanceReportStatus(row), row.flags.join('; '),
+    row.late_minutes, row.early_departure_minutes, row.overrun_minutes,
+  ]))
+  details.autoFilter = { from: 'A1', to: `L${Math.max(1, details.rowCount)}` }
+  fitAttendanceColumns(details)
   return workbook.xlsx.writeBuffer()
 }
 
@@ -2827,6 +2947,39 @@ app.get('/api/shifts/overview', (req, res) => {
     const shop = req.authUser.role === 'executive' ? requestedShop : (req.authUser.shop || '')
     res.json(getShiftAttendanceOverview(req.query.date ? String(req.query.date) : undefined, shop))
   } catch (e) { safeError(res, e) }
+})
+
+function monthlyAttendanceFilters(query) {
+  return {
+    month: String(query.month || ''),
+    shop: String(query.shop || ''),
+    userId: String(query.userId || ''),
+  }
+}
+
+app.get('/api/shifts/monthly-report', requireExecutive, (req, res) => {
+  try {
+    res.json(getMonthlyAttendanceReport(monthlyAttendanceFilters(req.query)))
+  } catch (e) { safeError(res, e, e.statusCode || 500) }
+})
+
+app.get('/api/shifts/monthly-report.csv', requireExecutive, (req, res) => {
+  try {
+    const report = getMonthlyAttendanceReport(monthlyAttendanceFilters(req.query))
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8')
+    res.setHeader('Content-Disposition', `attachment; filename="RetailOS_Attendance_${report.month}.csv"`)
+    res.send(monthlyAttendanceCsv(report))
+  } catch (e) { safeError(res, e, e.statusCode || 500) }
+})
+
+app.get('/api/shifts/monthly-report.xlsx', requireExecutive, async (req, res) => {
+  try {
+    const report = getMonthlyAttendanceReport(monthlyAttendanceFilters(req.query))
+    const buffer = await monthlyAttendanceXlsx(report)
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    res.setHeader('Content-Disposition', `attachment; filename="RetailOS_Attendance_${report.month}.xlsx"`)
+    res.send(Buffer.from(buffer))
+  } catch (e) { safeError(res, e, e.statusCode || 500) }
 })
 
 app.get('/api/shift-plans', (req, res) => {
