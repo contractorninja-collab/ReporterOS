@@ -16,10 +16,10 @@ import {
 
 const THUMB_SIZE = 36
 
-function Thumb({ src, onClick }) {
+function Thumb({ src, onClick, size = THUMB_SIZE }) {
   const interactive = !!onClick
   const base = {
-    width: THUMB_SIZE, height: THUMB_SIZE, borderRadius: 6, flexShrink: 0,
+    width: size, height: size, borderRadius: 6, flexShrink: 0,
     background: 'var(--ro-fill-soft)',
     ...(interactive ? { cursor: 'pointer', transition: 'opacity 0.15s' } : {}),
   }
@@ -480,6 +480,7 @@ function TwoPhaseChecklist({ batch, phase, onCompleted, onSkuClick }) {
 
   const totals = verificationTotals(batch, phase, statuses)
   const complete = isPhaseComplete(batch, phase, statuses)
+  const confirmedPercent = totals.expected > 0 ? Math.min(100, (totals.confirmed / totals.expected) * 100) : 0
 
   const finish = async () => {
     if (!complete || finishing) return
@@ -500,10 +501,13 @@ function TwoPhaseChecklist({ batch, phase, onCompleted, onSkuClick }) {
   return (
     <section className="st-phase-checklist" aria-label={`${phase === 'send' ? 'Sending' : 'Receiving'} checklist`}>
       <div className="st-phase-progress" aria-live="polite">
-        <strong>{phase === 'send' ? 'Sending checklist' : 'Receiving checklist'}</strong>
-        <span>{totals.resolved}/{totals.lines} sizes resolved</span>
-        <span>{totals.confirmed}/{totals.expected} units confirmed</span>
-        {totals.issues > 0 && <span className="st-phase-progress__issue">{totals.issues} issue{totals.issues === 1 ? '' : 's'}</span>}
+        <div className="st-phase-progress__line">
+          <strong>{phase === 'send' ? 'Sending checklist' : 'Receiving checklist'}</strong>
+          <span>{totals.resolved}/{totals.lines} sizes resolved · {totals.confirmed}/{totals.expected} units confirmed</span>
+        </div>
+        <p>Tap a size once it&apos;s fully {phase === 'send' ? 'sent' : 'received'}. Use Adjust only for shortages, then confirm the SKU.</p>
+        <div className="st-phase-progress__track" aria-hidden><span style={{ width: `${confirmedPercent}%` }} /></div>
+        {totals.issues > 0 && <span className="st-phase-progress__issue">{totals.issues} shortage{totals.issues === 1 ? '' : 's'}</span>}
       </div>
 
       {groups.map((group) => {
@@ -517,22 +521,31 @@ function TwoPhaseChecklist({ batch, phase, onCompleted, onSkuClick }) {
         })
         const selectedCount = applicable.filter((line) => Number(drafts[line.key]?.confirmed) === line.expected).length
         const issueCount = applicable.filter((line) => drafts[line.key]?.confirmed !== '' && Number(drafts[line.key]?.confirmed) < line.expected).length
+        const groupReady = applicable.length > 0 && applicable.every((line) => !draftError(line, drafts[line.key] || { confirmed: '', comment: '' }))
+        const hasProgress = selectedCount > 0 || issueCount > 0
         const editingLine = group.sizes.find((line) => line.key === editingLineKey)
         const editingDraft = editingLine ? (drafts[editingLine.key] || { confirmed: '', comment: '' }) : null
         return (
-          <article key={group.skuCode} className={`st-check-sku${groupDone ? ' is-done' : ''}`}>
+          <article key={group.skuCode} className={`st-check-sku${groupDone ? ' is-done' : hasProgress ? ' is-active' : ''}`}>
             <header className="st-check-sku__head">
               <div className="st-check-sku__identity">
-                <Thumb src={photoMap?.[group.skuCode] || null} onClick={onSkuClick ? () => onSkuClick(group.skuCode) : undefined} />
+                <Thumb size={28} src={photoMap?.[group.skuCode] || null} onClick={onSkuClick ? () => onSkuClick(group.skuCode) : undefined} />
                 <div>
                   <strong>{toTitleCase(group.productName)}</strong>
                   <span>{group.skuCode} · {applicable.length} size{applicable.length === 1 ? '' : 's'}</span>
                 </div>
               </div>
-              <div className="st-check-sku__confirm"><span>{selectedCount}/{applicable.length} selected{issueCount ? ` · ${issueCount} adjusted` : ''}</span><button type="button" className={`st-sku-done${groupDone ? ' is-done' : ''}`} disabled={groupDone || savingSku === group.skuCode} onClick={() => saveGroup(group)}><Check size={13} /> {savingSku === group.skuCode ? 'Saving…' : groupDone ? 'SKU confirmed' : 'Confirm SKU'}</button></div>
+              {groupDone ? (
+                <span className="st-sku-confirmed"><Check size={11} /> Confirmed</span>
+              ) : (
+                <div className="st-check-sku__confirm">
+                  <span className={groupReady ? 'is-ready' : ''}>{selectedCount}/{applicable.length}{issueCount ? ` · ${issueCount} adjusted` : ' selected'}</span>
+                  <button type="button" className={`st-sku-done${groupReady ? ' is-ready' : ''}`} disabled={!hasProgress || savingSku === group.skuCode} onClick={() => saveGroup(group)}><Check size={11} /> {savingSku === group.skuCode ? 'Saving…' : 'Confirm SKU'}</button>
+                </div>
+              )}
             </header>
 
-            <div className="st-check-size-list">
+            {!groupDone && <div className="st-check-size-list">
               {group.sizes.map((line) => {
                 const saved = statuses[line.key]
                 const draft = drafts[line.key] || { confirmed: '', comment: '' }
@@ -544,23 +557,21 @@ function TwoPhaseChecklist({ batch, phase, onCompleted, onSkuClick }) {
                 return (
                   <div key={line.key} className="st-size-choice">
                     <button type="button" aria-pressed={full} aria-label={`Size ${line.size}, expected ${line.expected}${full ? ', selected' : ''}`} disabled={zeroSent || savingSku === group.skuCode} className={`st-size-bubble${full ? ' is-selected' : ''}${shortDraft ? ' is-short' : ''}${errors[line.key] ? ' has-error' : ''}${savedCurrent ? ' is-saved' : ''}${zeroSent ? ' is-skipped' : ''}`} onClick={() => toggleFull(line)}>
-                      {savedCurrent && <Check size={10} className="st-size-bubble__saved" />}
                       <strong>{line.size}</strong><small>×{line.expected}</small>
                     </button>
-                    {!zeroSent && <button type="button" className={`st-size-choice__adjust${editingLineKey === line.key ? ' is-active' : ''}`} onClick={() => setEditingLineKey(editingLineKey === line.key ? '' : line.key)}><SlidersHorizontal size={9} /> Adjust</button>}
+                    {!zeroSent && <button type="button" className={`st-size-choice__adjust${editingLineKey === line.key ? ' is-active' : ''}`} onClick={() => setEditingLineKey(editingLineKey === line.key ? '' : line.key)}>Adjust</button>}
                     {zeroSent && <span className="st-size-choice__not-sent">Not sent</span>}
                     {errors[line.key] && <span className="st-size-choice__error" role="alert">Check details</span>}
                   </div>
                 )
               })}
-            </div>
+            </div>}
             {editingLine && editingDraft && !(phase === 'receive' && editingLine.expected === 0) && <div className="st-size-adjuster">
               <div className="st-size-adjuster__title"><div><SlidersHorizontal size={13} /><span>Adjust size <strong>{editingLine.size}</strong></span><small>Expected ×{editingLine.expected}</small></div><button type="button" aria-label="Close size adjustment" onClick={() => setEditingLineKey('')}><X size={14} /></button></div>
               <label><span>Confirmed quantity</span><input type="number" min="0" max={editingLine.expected} step="1" inputMode="numeric" value={editingDraft.confirmed} onChange={(event) => { setDrafts((current) => ({ ...current, [editingLine.key]: { ...current[editingLine.key], confirmed: event.target.value } })); setErrors((current) => ({ ...current, [editingLine.key]: '' })) }} /></label>
               <label className="st-size-adjuster__reason"><span>Shortage reason {Number(editingDraft.confirmed) < editingLine.expected ? '· required' : '· optional'}</span><textarea rows="2" maxLength="1000" placeholder="Explain any missing quantity…" value={editingDraft.comment || ''} onChange={(event) => { setDrafts((current) => ({ ...current, [editingLine.key]: { ...current[editingLine.key], comment: event.target.value } })); setErrors((current) => ({ ...current, [editingLine.key]: '' })) }} /></label>
               {errors[editingLine.key] && <p className="st-check-size__error" role="alert">{errors[editingLine.key]}</p>}
             </div>}
-            <p className="st-check-sku__hint">Tap every size that is fully {phase === 'send' ? 'sent' : 'received'}. Use <strong>Adjust</strong> only for shortages, then confirm the SKU once.</p>
           </article>
         )
       })}
