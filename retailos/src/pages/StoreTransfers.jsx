@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { Check, AlertTriangle, PackageCheck, CheckCircle2, Clock, ArrowLeftRight, ImageOff } from 'lucide-react'
+import { Check, AlertTriangle, PackageCheck, CheckCircle2, Clock, ArrowLeftRight, ImageOff, SlidersHorizontal, X } from 'lucide-react'
 import useStore from '../store/useStore.js'
 import ProductDetailModal from '../components/ProductDetailModal.jsx'
 import { aggregateSkus } from '../utils/aggregateSkus.js'
@@ -379,20 +379,39 @@ function TwoPhaseChecklist({ batch, phase, onCompleted, onSkuClick }) {
   )
   const [drafts, setDrafts] = useState({})
   const [errors, setErrors] = useState({})
-  const [savingKey, setSavingKey] = useState('')
+  const [savingSku, setSavingSku] = useState('')
+  const [editingLineKey, setEditingLineKey] = useState('')
   const [finishing, setFinishing] = useState(false)
+  const draftScopeRef = useRef('')
+  const savedDraftsRef = useRef({})
 
   useEffect(() => {
-    const next = {}
+    const scope = `${batch.id}:${phase}`
+    const nextSaved = {}
     for (const line of lines) {
       const saved = statuses[line.key]
-      next[line.key] = {
+      nextSaved[line.key] = {
         confirmed: saved?.confirmed ?? saved?.received ?? '',
         comment: saved?.comment || '',
       }
     }
-    setDrafts(next)
-  }, [batch.id, batch.status, lines, statuses])
+    const previousSaved = savedDraftsRef.current
+    const scopeChanged = draftScopeRef.current !== scope
+    setDrafts((current) => Object.fromEntries(lines.map((line) => {
+      const currentDraft = current[line.key]
+      const priorServerDraft = previousSaved[line.key]
+      const locallyChanged = !scopeChanged && currentDraft && priorServerDraft
+        && (String(currentDraft.confirmed) !== String(priorServerDraft.confirmed)
+          || String(currentDraft.comment || '') !== String(priorServerDraft.comment || ''))
+      return [line.key, locallyChanged ? currentDraft : nextSaved[line.key]]
+    })))
+    if (scopeChanged) {
+      setErrors({})
+      setEditingLineKey('')
+    }
+    draftScopeRef.current = scope
+    savedDraftsRef.current = nextSaved
+  }, [batch.id, lines, phase, statuses])
 
   const groups = useMemo(() => {
     const grouped = new Map()
@@ -403,58 +422,60 @@ function TwoPhaseChecklist({ batch, phase, onCompleted, onSkuClick }) {
     return [...grouped.values()]
   }, [lines])
 
-  const saveLine = async (line, override) => {
-    const draft = override || drafts[line.key] || {}
+  const draftError = (line, draft) => {
+    if (draft.confirmed === '') return `Select size ${line.size} or add shortage details.`
     const confirmed = Number(draft.confirmed)
-    let error = ''
     if (!Number.isInteger(confirmed) || confirmed < 0 || confirmed > line.expected) {
-      error = `Enter a whole number from 0 to ${line.expected}.`
-    } else if (confirmed < line.expected && !String(draft.comment || '').trim()) {
-      error = `Explain why size ${line.size} is short.`
+      return `Enter a whole number from 0 to ${line.expected}.`
     }
-    if (error) {
-      setErrors((current) => ({ ...current, [line.key]: error }))
-      return false
+    if (confirmed < line.expected && !String(draft.comment || '').trim()) {
+      return `Explain why size ${line.size} is short.`
     }
-    setSavingKey(line.key)
-    setErrors((current) => ({ ...current, [line.key]: '' }))
-    try {
-      await verifyLine(batch.id, { phase, key: line.key, confirmed, comment: draft.comment || '' })
-      return true
-    } catch (err) {
-      setErrors((current) => ({ ...current, [line.key]: err?.message || 'Could not save this size.' }))
-      return false
-    } finally {
-      setSavingKey('')
-    }
+    return ''
   }
 
-  const toggleFull = (line, checked) => {
-    if (checked) {
-      const next = { confirmed: line.expected, comment: '' }
-      setDrafts((current) => ({ ...current, [line.key]: next }))
-      saveLine(line, next)
-    } else {
-      setDrafts((current) => ({ ...current, [line.key]: { confirmed: 0, comment: current[line.key]?.comment || '' } }))
-      setErrors((current) => ({ ...current, [line.key]: `Explain why size ${line.size} was not fully ${phase === 'send' ? 'sent' : 'received'}.` }))
-    }
-  }
-
-  const promptMissingSizes = (group) => {
+  const saveGroup = async (group) => {
+    const applicable = group.sizes.filter((line) => phase !== 'receive' || line.expected > 0)
     const nextErrors = {}
-    setDrafts((current) => {
-      const next = { ...current }
-      for (const line of group.sizes) {
-        if (phase === 'receive' && line.expected === 0) continue
-        if (!statuses[line.key]) {
-          next[line.key] = { confirmed: 0, comment: next[line.key]?.comment || '' }
-          nextErrors[line.key] = `Explain why size ${line.size} was not ${phase === 'send' ? 'sent' : 'received'}.`
+    for (const line of applicable) {
+      const error = draftError(line, drafts[line.key] || { confirmed: '', comment: '' })
+      if (error) nextErrors[line.key] = error
+    }
+    setErrors((current) => ({ ...current, ...Object.fromEntries(applicable.map((line) => [line.key, nextErrors[line.key] || ''])) }))
+    if (Object.keys(nextErrors).length) {
+      const first = applicable.find((line) => nextErrors[line.key])
+      if (first) setEditingLineKey(first.key)
+      return
+    }
+    setSavingSku(group.skuCode)
+    try {
+      for (const line of applicable) {
+        const draft = drafts[line.key]
+        const saved = statuses[line.key]
+        const savedConfirmed = Number(saved?.confirmed ?? saved?.received)
+        const unchanged = saved && savedConfirmed === Number(draft.confirmed) && String(saved.comment || '') === String(draft.comment || '').trim()
+        if (!unchanged) {
+          await verifyLine(batch.id, {
+            phase, key: line.key, confirmed: Number(draft.confirmed), comment: String(draft.comment || '').trim(),
+          })
         }
       }
-      return next
+      setEditingLineKey('')
+    } catch (err) {
+      setErrors((current) => ({ ...current, [group.sizes[0]?.key]: err?.message || 'Could not confirm this SKU.' }))
+    } finally {
+      setSavingSku('')
+    }
+  }
+
+  const toggleFull = (line) => {
+    setDrafts((current) => {
+      const currentDraft = current[line.key] || { confirmed: '', comment: '' }
+      const full = currentDraft.confirmed !== '' && Number(currentDraft.confirmed) === line.expected
+      return { ...current, [line.key]: { confirmed: full ? '' : line.expected, comment: '' } }
     })
-    setErrors((current) => ({ ...current, ...nextErrors }))
-    requestAnimationFrame(() => document.querySelector(`[data-transfer-reason="${group.skuCode}"]`)?.focus())
+    setErrors((current) => ({ ...current, [line.key]: '' }))
+    if (editingLineKey === line.key) setEditingLineKey('')
   }
 
   const totals = verificationTotals(batch, phase, statuses)
@@ -487,20 +508,28 @@ function TwoPhaseChecklist({ batch, phase, onCompleted, onSkuClick }) {
 
       {groups.map((group) => {
         const applicable = group.sizes.filter((line) => phase !== 'receive' || line.expected > 0)
-        const groupDone = applicable.length > 0 && applicable.every((line) => !verificationEntryError(statuses[line.key], line.expected))
+        const groupDone = applicable.length > 0 && applicable.every((line) => {
+          const saved = statuses[line.key]
+          const draft = drafts[line.key] || { confirmed: '', comment: '' }
+          return !verificationEntryError(saved, line.expected)
+            && Number(saved.confirmed ?? saved.received) === Number(draft.confirmed)
+            && String(saved.comment || '') === String(draft.comment || '').trim()
+        })
+        const selectedCount = applicable.filter((line) => Number(drafts[line.key]?.confirmed) === line.expected).length
+        const issueCount = applicable.filter((line) => drafts[line.key]?.confirmed !== '' && Number(drafts[line.key]?.confirmed) < line.expected).length
+        const editingLine = group.sizes.find((line) => line.key === editingLineKey)
+        const editingDraft = editingLine ? (drafts[editingLine.key] || { confirmed: '', comment: '' }) : null
         return (
-          <article key={group.skuCode} className="st-check-sku">
+          <article key={group.skuCode} className={`st-check-sku${groupDone ? ' is-done' : ''}`}>
             <header className="st-check-sku__head">
               <div className="st-check-sku__identity">
                 <Thumb src={photoMap?.[group.skuCode] || null} onClick={onSkuClick ? () => onSkuClick(group.skuCode) : undefined} />
                 <div>
                   <strong>{toTitleCase(group.productName)}</strong>
-                  <span>{group.skuCode}</span>
+                  <span>{group.skuCode} · {applicable.length} size{applicable.length === 1 ? '' : 's'}</span>
                 </div>
               </div>
-              <button type="button" className={`st-sku-done${groupDone ? ' is-done' : ''}`} disabled={groupDone} onClick={() => promptMissingSizes(group)}>
-                <Check size={13} /> {groupDone ? 'SKU done' : 'Mark SKU done'}
-              </button>
+              <div className="st-check-sku__confirm"><span>{selectedCount}/{applicable.length} selected{issueCount ? ` · ${issueCount} adjusted` : ''}</span><button type="button" className={`st-sku-done${groupDone ? ' is-done' : ''}`} disabled={groupDone || savingSku === group.skuCode} onClick={() => saveGroup(group)}><Check size={13} /> {savingSku === group.skuCode ? 'Saving…' : groupDone ? 'SKU confirmed' : 'Confirm SKU'}</button></div>
             </header>
 
             <div className="st-check-size-list">
@@ -510,54 +539,28 @@ function TwoPhaseChecklist({ batch, phase, onCompleted, onSkuClick }) {
                 const zeroSent = phase === 'receive' && line.expected === 0
                 const full = draft.confirmed !== '' && Number(draft.confirmed) === line.expected
                 const shortDraft = draft.confirmed !== '' && Number(draft.confirmed) < line.expected
+                const savedConfirmed = Number(saved?.confirmed ?? saved?.received)
+                const savedCurrent = saved && savedConfirmed === Number(draft.confirmed) && String(saved.comment || '') === String(draft.comment || '').trim()
                 return (
-                  <div key={line.key} className={`st-check-size${saved ? ` is-${saved.status}` : ''}${zeroSent ? ' is-skipped' : ''}`}>
-                    <label className="st-check-size__select">
-                      <input
-                        type="checkbox"
-                        checked={full}
-                        disabled={zeroSent || savingKey === line.key}
-                        onChange={(event) => toggleFull(line, event.target.checked)}
-                      />
-                      <span className="st-check-size__name">Size {line.size}</span>
-                      <span className="st-check-size__expected">Expected ×{line.expected}</span>
-                    </label>
-                    {zeroSent ? (
-                      <div className="st-check-size__sender-note">
-                        Not sent by origin{batch.send_item_statuses?.[line.key]?.comment ? ` — ${batch.send_item_statuses[line.key].comment}` : ''}
-                      </div>
-                    ) : (
-                      <div className="st-check-size__fields">
-                        <label>
-                          <span>Confirmed qty</span>
-                          <input
-                            type="number" min="0" max={line.expected} step="1" inputMode="numeric"
-                            value={draft.confirmed}
-                            onChange={(event) => setDrafts((current) => ({ ...current, [line.key]: { ...current[line.key], confirmed: event.target.value } }))}
-                          />
-                        </label>
-                        {(shortDraft || saved?.status === 'partial' || saved?.status === 'missing' || errors[line.key]) && (
-                          <label className="st-check-size__reason">
-                            <span>Reason for missing quantity</span>
-                            <textarea
-                              data-transfer-reason={group.skuCode}
-                              rows="2" maxLength="1000"
-                              value={draft.comment || ''}
-                              onChange={(event) => setDrafts((current) => ({ ...current, [line.key]: { ...current[line.key], comment: event.target.value } }))}
-                            />
-                          </label>
-                        )}
-                        <button type="button" className="st-check-size__save" disabled={savingKey === line.key} onClick={() => saveLine(line)}>
-                          {savingKey === line.key ? 'Saving…' : saved ? 'Update' : 'Confirm'}
-                        </button>
-                      </div>
-                    )}
-                    {errors[line.key] && <p className="st-check-size__error" role="alert">{errors[line.key]}</p>}
-                    {saved?.updatedBy && <p className="st-check-size__saved">Saved · {saved.confirmed ?? saved.received}/{line.expected}</p>}
+                  <div key={line.key} className="st-size-choice">
+                    <button type="button" aria-pressed={full} aria-label={`Size ${line.size}, expected ${line.expected}${full ? ', selected' : ''}`} disabled={zeroSent || savingSku === group.skuCode} className={`st-size-bubble${full ? ' is-selected' : ''}${shortDraft ? ' is-short' : ''}${errors[line.key] ? ' has-error' : ''}${savedCurrent ? ' is-saved' : ''}${zeroSent ? ' is-skipped' : ''}`} onClick={() => toggleFull(line)}>
+                      {savedCurrent && <Check size={10} className="st-size-bubble__saved" />}
+                      <strong>{line.size}</strong><small>×{line.expected}</small>
+                    </button>
+                    {!zeroSent && <button type="button" className={`st-size-choice__adjust${editingLineKey === line.key ? ' is-active' : ''}`} onClick={() => setEditingLineKey(editingLineKey === line.key ? '' : line.key)}><SlidersHorizontal size={9} /> Adjust</button>}
+                    {zeroSent && <span className="st-size-choice__not-sent">Not sent</span>}
+                    {errors[line.key] && <span className="st-size-choice__error" role="alert">Check details</span>}
                   </div>
                 )
               })}
             </div>
+            {editingLine && editingDraft && !(phase === 'receive' && editingLine.expected === 0) && <div className="st-size-adjuster">
+              <div className="st-size-adjuster__title"><div><SlidersHorizontal size={13} /><span>Adjust size <strong>{editingLine.size}</strong></span><small>Expected ×{editingLine.expected}</small></div><button type="button" aria-label="Close size adjustment" onClick={() => setEditingLineKey('')}><X size={14} /></button></div>
+              <label><span>Confirmed quantity</span><input type="number" min="0" max={editingLine.expected} step="1" inputMode="numeric" value={editingDraft.confirmed} onChange={(event) => { setDrafts((current) => ({ ...current, [editingLine.key]: { ...current[editingLine.key], confirmed: event.target.value } })); setErrors((current) => ({ ...current, [editingLine.key]: '' })) }} /></label>
+              <label className="st-size-adjuster__reason"><span>Shortage reason {Number(editingDraft.confirmed) < editingLine.expected ? '· required' : '· optional'}</span><textarea rows="2" maxLength="1000" placeholder="Explain any missing quantity…" value={editingDraft.comment || ''} onChange={(event) => { setDrafts((current) => ({ ...current, [editingLine.key]: { ...current[editingLine.key], comment: event.target.value } })); setErrors((current) => ({ ...current, [editingLine.key]: '' })) }} /></label>
+              {errors[editingLine.key] && <p className="st-check-size__error" role="alert">{errors[editingLine.key]}</p>}
+            </div>}
+            <p className="st-check-sku__hint">Tap every size that is fully {phase === 'send' ? 'sent' : 'received'}. Use <strong>Adjust</strong> only for shortages, then confirm the SKU once.</p>
           </article>
         )
       })}
