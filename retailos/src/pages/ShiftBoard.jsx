@@ -61,6 +61,13 @@ function initials(name) {
   return String(name || '').trim().split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase() || '—'
 }
 
+const SHIFT_AVATAR_COLORS = ['#7c3aed', '#2563eb', '#0f9f83', '#db2777', '#d97706', '#4f46e5']
+
+function shiftAvatarStyle(value) {
+  const hash = [...String(value || '')].reduce((total, character) => ((total * 31) + character.charCodeAt(0)) | 0, 0)
+  return { '--sb2-avatar-color': SHIFT_AVATAR_COLORS[Math.abs(hash) % SHIFT_AVATAR_COLORS.length] }
+}
+
 function isoToLocalInput(iso) {
   if (!iso) return ''
   const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', {
@@ -431,12 +438,49 @@ function ScheduleEditor({ shop, users }) {
         {selectedUserPeriods.length > 1 && <div className="sb2-plan-inspector__timeline"><span><GitBranch size={12} /> Daily split timeline</span><div>{selectedUserPeriods.map((period, index) => <button type="button" className={period.id === selectedPlan.id ? 'is-selected' : ''} key={period.id} onClick={() => setSelectedPlanId(period.id)}><small>Period {index + 1}</small><strong>{period.start_time}–{period.end_time}</strong><span>{formatPlannedDuration(period.start_time, period.end_time)}</span></button>)}</div></div>}
         <div className="sb2-plan-inspector__actions"><span>Click any schedule card to inspect its full details.</span><div>{selectedPlan.plan_type !== 'day_off' && <button type="button" onClick={() => openComposer('split', selectedPlan.shift_date, selectedPlan.user_id)}><GitBranch size={13} /> Add split</button>}<button type="button" onClick={() => edit(selectedPlan)}><Edit3 size={13} /> Edit</button><button type="button" className="is-danger" onClick={() => remove(selectedPlan)}><Trash2 size={13} /> Delete</button></div></div>
       </aside>}
-      <div className="sb2-week-grid" aria-busy={loading}>
-        {days.map((day) => {
-          const dayPlans = plans.filter((plan) => plan.shift_date === day)
-          const dayShifts = dayPlans.filter((plan) => plan.plan_type !== 'day_off')
-          return <article className={`sb2-day${day === shiftDateKey() ? ' sb2-day--today' : ''}`} key={day}><header><div><span>{formatDate(day, { weekday: true, year: false }).split(' ')[0]}</span><strong>{formatDate(day, { weekday: true, year: false }).replace(/^\w+\s/, '')}</strong></div><span className={dayShifts.length ? 'is-covered' : ''}>{dayShifts.length ? `${dayShifts.length} period${dayShifts.length === 1 ? '' : 's'}` : 'Open'}</span></header><div className="sb2-day__quick"><button type="button" aria-label={`Add shift on ${formatDate(day)}`} onClick={() => openComposer('shift', day)}><Plus size={11} /> Shift</button><button type="button" aria-label={`Add day off on ${formatDate(day)}`} onClick={() => openComposer('day_off', day)}><Coffee size={11} /> Off</button></div><div className="sb2-day__body">{dayPlans.length ? dayPlans.map((plan) => { const userPeriods = dayShifts.filter((period) => period.user_id === plan.user_id); const periodIndex = userPeriods.findIndex((period) => period.id === plan.id); return <div role="button" tabIndex="0" aria-label={`View details for ${plan.user_name}`} aria-pressed={selectedPlanId === plan.id} className={`sb2-plan sb2-plan--${plan.status}${plan.plan_type === 'day_off' ? ' sb2-plan--day-off' : ''}${selectedPlanId === plan.id ? ' is-selected' : ''}`} key={plan.id} onClick={() => setSelectedPlanId(plan.id)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setSelectedPlanId(plan.id) } }}><div className="sb2-plan__person"><span>{initials(plan.user_name)}</span><div><strong>{plan.user_name}</strong><small>{plan.plan_type === 'day_off' ? 'Protected rest day' : userPeriods.length > 1 ? `Split period ${periodIndex + 1} of ${userPeriods.length}` : 'Scheduled shift'}</small></div><ChevronRight size={13} /></div><div className="sb2-plan__time">{plan.plan_type === 'day_off' ? <><Coffee size={12} /><strong>Day off</strong></> : <><Clock size={12} /><strong>{plan.start_time}</strong><span>→</span><strong>{plan.end_time}</strong></>}</div><div className="sb2-plan__footer"><span className="sb2-plan__status">{plan.status}</span><small>{plan.plan_type === 'day_off' ? 'No alerts' : formatPlannedDuration(plan.start_time, plan.end_time)}</small></div></div> }) : <div className="sb2-day__empty"><span><Plus size={14} /></span><strong>Build this day</strong><small>Add coverage or a day off</small></div>}</div></article>
-        })}
+      <div className="sb2-week-grid-shell">
+        <div className="sb2-week-grid" aria-busy={loading}>
+          {days.map((day) => {
+            const dayPlans = plans.filter((plan) => plan.shift_date === day)
+            const dayShifts = dayPlans.filter((plan) => plan.plan_type !== 'day_off')
+            return (
+              <article className={`sb2-day${day === shiftDateKey() ? ' sb2-day--today' : ''}`} key={day}>
+                <header>
+                  <div><span>{formatDate(day, { weekday: true, year: false }).split(' ')[0]}</span><strong>{formatDate(day, { weekday: true, year: false }).replace(/^\w+\s/, '')}</strong></div>
+                  <span>{dayShifts.length ? `${dayShifts.length} period${dayShifts.length === 1 ? '' : 's'}` : 'Open'}</span>
+                </header>
+                <div className="sb2-day__quick">
+                  <button type="button" aria-label={`Add shift on ${formatDate(day)}`} onClick={() => openComposer('shift', day)}><Plus size={11} /> Shift</button>
+                  <button type="button" aria-label={`Add day off on ${formatDate(day)}`} onClick={() => openComposer('day_off', day)}><Coffee size={11} /> Off</button>
+                </div>
+                <div className="sb2-day__body">
+                  {dayPlans.length ? dayPlans.map((plan) => (
+                    <div
+                      role="button" tabIndex="0" aria-label={`View details for ${plan.user_name}`} aria-pressed={selectedPlanId === plan.id}
+                      className={`sb2-plan sb2-plan--${plan.status}${plan.plan_type === 'day_off' ? ' sb2-plan--day-off' : ''}${selectedPlanId === plan.id ? ' is-selected' : ''}`}
+                      key={plan.id} onClick={() => setSelectedPlanId(plan.id)}
+                      onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setSelectedPlanId(plan.id) } }}
+                    >
+                      <span className="sb2-plan__avatar" style={shiftAvatarStyle(plan.user_id || plan.user_name)}>{initials(plan.user_name)}</span>
+                      <strong className="sb2-plan__name">{plan.user_name}</strong>
+                      {plan.plan_type === 'day_off' ? (
+                        <><span className="sb2-plan__day-off-label">Day off</span><Coffee className="sb2-plan__day-off-icon" size={13} /></>
+                      ) : (
+                        <>
+                          <span className="sb2-plan__range">{plan.start_time}–{plan.end_time}</span>
+                          <small className="sb2-plan__duration">{formatPlannedDuration(plan.start_time, plan.end_time).replace(/\s0m$/, '')}</small>
+                          {plan.status === 'draft' && <span className="sb2-plan__status">Draft</span>}
+                        </>
+                      )}
+                    </div>
+                  )) : (
+                    <button type="button" className="sb2-day__empty" onClick={() => openComposer('shift', day)}><Plus size={12} /> Build this day</button>
+                  )}
+                </div>
+              </article>
+            )
+          })}
+        </div>
       </div>
     </section>
   )
