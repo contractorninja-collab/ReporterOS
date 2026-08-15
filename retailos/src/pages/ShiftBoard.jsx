@@ -61,6 +61,12 @@ function initials(name) {
   return String(name || '').trim().split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase() || '—'
 }
 
+function shortName(fullName) {
+  const [first, ...rest] = String(fullName || '').trim().split(/\s+/).filter(Boolean)
+  const lastInitial = rest.length ? `${rest[rest.length - 1][0]}.` : ''
+  return `${first || ''} ${lastInitial}`.trim() || '—'
+}
+
 const SHIFT_AVATAR_COLORS = ['#7c3aed', '#2563eb', '#0f9f83', '#db2777', '#d97706', '#4f46e5']
 
 function shiftAvatarStyle(value) {
@@ -462,7 +468,7 @@ function ScheduleEditor({ shop, users }) {
                       onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setSelectedPlanId(plan.id) } }}
                     >
                       <span className="sb2-plan__avatar" style={shiftAvatarStyle(plan.user_id || plan.user_name)}>{initials(plan.user_name)}</span>
-                      <strong className="sb2-plan__name">{plan.user_name}</strong>
+                      <strong className="sb2-plan__name" title={plan.user_name}>{shortName(plan.user_name)}</strong>
                       {plan.plan_type === 'day_off' ? (
                         <><span className="sb2-plan__day-off-label">Day off</span><Coffee className="sb2-plan__day-off-icon" size={13} /></>
                       ) : (
