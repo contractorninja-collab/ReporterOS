@@ -449,11 +449,12 @@ function ScheduleEditor({ shop, users }) {
           {days.map((day) => {
             const dayPlans = plans.filter((plan) => plan.shift_date === day)
             const dayShifts = dayPlans.filter((plan) => plan.plan_type !== 'day_off')
+            const dayHasSelection = dayPlans.some((plan) => plan.id === selectedPlanId)
             return (
-              <article className={`sb2-day${day === shiftDateKey() ? ' sb2-day--today' : ''}`} key={day}>
+              <article className={`sb2-day${day === shiftDateKey() ? ' sb2-day--today' : ''}${dayHasSelection ? ' has-selection' : ''}`} key={day}>
                 <header>
                   <div><span>{formatDate(day, { weekday: true, year: false }).split(' ')[0]}</span><strong>{formatDate(day, { weekday: true, year: false }).replace(/^\w+\s/, '')}</strong></div>
-                  <span>{dayShifts.length ? `${dayShifts.length} period${dayShifts.length === 1 ? '' : 's'}` : 'Open'}</span>
+                  <span className={dayShifts.length ? 'is-active' : 'is-open'}>{dayShifts.length ? `${dayShifts.length} period${dayShifts.length === 1 ? '' : 's'}` : 'Open'}</span>
                 </header>
                 <div className="sb2-day__quick">
                   <button type="button" aria-label={`Add shift on ${formatDate(day)}`} onClick={() => openComposer('shift', day)}><Plus size={11} /> Shift</button>
@@ -468,7 +469,7 @@ function ScheduleEditor({ shop, users }) {
                       onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setSelectedPlanId(plan.id) } }}
                     >
                       <span className="sb2-plan__avatar" style={shiftAvatarStyle(plan.user_id || plan.user_name)}>{initials(plan.user_name)}</span>
-                      <strong className="sb2-plan__name" title={plan.user_name}>{shortName(plan.user_name)}</strong>
+                      <strong className={`sb2-plan__name${shortName(plan.user_name).length > 10 ? ' is-long' : ''}`} title={plan.user_name}>{shortName(plan.user_name)}</strong>
                       {plan.plan_type === 'day_off' ? (
                         <><span className="sb2-plan__day-off-label">Day off</span><Coffee className="sb2-plan__day-off-icon" size={13} /></>
                       ) : (
