@@ -27,9 +27,10 @@ import StatusChip from '../components/StatusChip'
 import ProgressBar from '../components/ProgressBar'
 import { IconClose, IconSearchEmpty } from '../utils/icons.js'
 import { normalizeGenderCodeForFilter, genderShortLabel } from '../utils/gender.js'
-import { fetchSalesByDay } from '../api/client.js'
+import { fetchSalesBySku } from '../api/client.js'
 import { productMatchesActiveSeason } from '../utils/seasons.js'
 import { DASHBOARD_PRODUCT_SORT_OPTIONS, sortDashboardProducts } from '../utils/dashboardProductSort.js'
+import { summarizeBestsellerSalesRows } from '../utils/bestsellerMetrics.js'
 
 const DM_SANS = '"DM Sans", sans-serif'
 const DASH_PRIVACY_KEY = 'retailos_dashboard_privacy'
@@ -320,7 +321,7 @@ export function Dashboard() {
     }
     let alive = true
     setPeriodSalesLoading(true)
-    fetchSalesByDay(selectedSalesPeriod.since, selectedSalesPeriod.until)
+    fetchSalesBySku(selectedSalesPeriod.since, selectedSalesPeriod.until, activeSeason)
       .then((rows) => {
         if (alive) setPeriodSalesRows(Array.isArray(rows) ? rows : [])
       })
@@ -331,7 +332,7 @@ export function Dashboard() {
         if (alive) setPeriodSalesLoading(false)
       })
     return () => { alive = false }
-  }, [execUser, selectedSalesPeriod])
+  }, [execUser, selectedSalesPeriod, activeSeason])
 
   const products = useMemo(
     () => aggregateSkus(skus, shipmentMeta, activeSeason).filter((p) => productMatchesActiveSeason(p, activeSeason)),
@@ -480,13 +481,7 @@ export function Dashboard() {
   }, [activeInventoryGender, genderLegendData])
 
   const selectedPeriodSales = useMemo(() => {
-    return (periodSalesRows || []).reduce(
-      (acc, row) => ({
-        revenue: acc.revenue + (Number(row.revenue) || 0),
-        units: acc.units + (Number(row.units) || 0),
-      }),
-      { revenue: 0, units: 0 },
-    )
+    return summarizeBestsellerSalesRows(periodSalesRows)
   }, [periodSalesRows])
 
   const avgDailyRevenue = useMemo(() => {
@@ -666,7 +661,7 @@ export function Dashboard() {
           <p className="dash-sales-events-kpi-note">
             Selected-period figures ({selectedSalesPeriod.since} to {selectedSalesPeriod.until}) come from{' '}
             <strong className="dash-sales-events-kpi-note__term">Reporting CSV</strong> sales
-            events, not from New Arrivals intake.{' '}
+            events for <strong>{activeSeason || 'All'} season</strong>, using the same positive net-SKU logic as Bestsellers.{' '}
             <button
               type="button"
               disabled={clearingSalesKpi}
