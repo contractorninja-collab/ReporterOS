@@ -104,6 +104,12 @@ export function productMatchesActiveSeason(row, activeSeason) {
   return normalizeSeasonInput(row?.current_season || row?.season) === target
 }
 
+/** Apply the shipment-aware season rule to an aggregated product collection. */
+export function filterProductsByActiveSeason(rows, activeSeason) {
+  if (!Array.isArray(rows)) return []
+  return rows.filter((row) => productMatchesActiveSeason(row, activeSeason))
+}
+
 export function buildSeasonSwitcherList(skus, extraSeasons, activeSeason) {
   const set = new Set()
   for (const d of DEFAULT_SEASON_PRESETS) {

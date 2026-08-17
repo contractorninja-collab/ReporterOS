@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { useStore } from '../store/useStore'
 import { getSellThrough, getProductLifecycleStatus } from '../utils/lifecycle'
 import { aggregateSkus } from '../utils/aggregateSkus'
@@ -6,6 +6,7 @@ import KpiCard from '../components/KpiCard'
 import { IconFootwear } from '../utils/icons.js'
 import { isExecutive } from '../utils/roles.js'
 import { toTitleCase } from '../utils/textFormat.js'
+import { filterProductsByActiveSeason } from '../utils/seasons.js'
 
 const sizes = [35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46]
 
@@ -24,10 +25,14 @@ export function Footwear() {
   const [brandFilter, setBrandFilter] = useState('All brands')
   const skus = useStore((s) => s.skus)
   const shipmentMeta = useStore((s) => s.shipmentMeta)
+  const activeSeason = useStore((s) => s.activeSeason)
   const activeUser = useStore((s) => s.activeUser)
   const exec = isExecutive(activeUser)
 
-  const products = useMemo(() => aggregateSkus(skus, shipmentMeta), [skus, shipmentMeta])
+  const products = useMemo(
+    () => filterProductsByActiveSeason(aggregateSkus(skus, shipmentMeta, activeSeason), activeSeason),
+    [skus, shipmentMeta, activeSeason],
+  )
 
   const dynamicBrands = useMemo(() => {
     const set = new Set()
@@ -39,11 +44,19 @@ export function Footwear() {
 
   const BRANDS = ['All brands', ...dynamicBrands]
 
+  useEffect(() => {
+    if (brandFilter !== 'All brands' && !dynamicBrands.includes(brandFilter)) {
+      setBrandFilter('All brands')
+    }
+  }, [brandFilter, dynamicBrands])
+
   const footwearProducts = products
     .filter((s) => String(s.category || '').toLowerCase() === 'footwear')
     .filter((s) => brandFilter === 'All brands' || s.brand === brandFilter)
 
+  const footwearSkuCodes = new Set(footwearProducts.map((product) => product.sku))
   const footwearRawSkus = skus
+    .filter((s) => footwearSkuCodes.has(s.sku))
     .filter((s) => String(s.category || '').toLowerCase() === 'footwear')
     .filter((s) => brandFilter === 'All brands' || s.brand === brandFilter)
 

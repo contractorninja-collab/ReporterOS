@@ -7,6 +7,7 @@ import { IconApparel } from '../utils/icons.js'
 import { isExecutive } from '../utils/roles.js'
 import { toTitleCase } from '../utils/textFormat.js'
 import * as api from '../api/client'
+import { filterProductsByActiveSeason } from '../utils/seasons.js'
 
 const CATS = ['All', 'Tops', 'Bottoms', 'Outerwear', 'Underwear']
 const PRODUCT_TYPE_FILTERS = [
@@ -28,24 +29,18 @@ const categories = [
     gradient: 'linear-gradient(135deg,#1a0a2e,#2d1357)',
     barColor: '#fbbf24',
     desc: 'Jackets, Windbreakers',
-    placeholderCount: 14,
-    placeholderAvg: 41,
   },
   {
     name: 'Tops & Tees',
     gradient: 'linear-gradient(135deg,#0f1923,#1e3a5f)',
     barColor: '#00e676',
     desc: 'Polos, Tees, Vests',
-    placeholderCount: 28,
-    placeholderAvg: 52,
   },
   {
     name: 'Underwear & Sports',
     gradient: 'linear-gradient(135deg,#1a0010,#3d0028)',
     barColor: '#00e676',
     desc: 'Fila Licensed',
-    placeholderCount: 19,
-    placeholderAvg: 67,
   },
 ]
 
@@ -130,6 +125,7 @@ export function Apparel() {
   const [classificationStatus, setClassificationStatus] = useState('')
   const skus = useStore((s) => s.skus)
   const shipmentMeta = useStore((s) => s.shipmentMeta)
+  const activeSeason = useStore((s) => s.activeSeason)
   const activeUser = useStore((s) => s.activeUser)
   const exec = isExecutive(activeUser)
 
@@ -147,7 +143,10 @@ export function Apparel() {
     }
   }, [])
 
-  const products = useMemo(() => aggregateSkus(skus, shipmentMeta), [skus, shipmentMeta])
+  const products = useMemo(
+    () => filterProductsByActiveSeason(aggregateSkus(skus, shipmentMeta, activeSeason), activeSeason),
+    [skus, shipmentMeta, activeSeason],
+  )
 
   const apparelSkus = products
     .filter((s) => {
@@ -209,20 +208,17 @@ export function Apparel() {
   const categoryCardStats = categories.map((c) => {
     const groupSkus = skusForCategoryGroup(apparelSkus, c.name)
     const countRaw = groupSkus.length
-    const usePlaceholder = countRaw === 0
-    const count = usePlaceholder ? c.placeholderCount : countRaw
-    const avg = usePlaceholder
-      ? c.placeholderAvg
-      : Math.round(
-          groupSkus.reduce((acc, s) => acc + getSellThrough(getSold(s), getQty(s)), 0) / (countRaw || 1)
+    const count = countRaw
+    const avg = countRaw
+      ? Math.round(
+          groupSkus.reduce((acc, s) => acc + getSellThrough(getSold(s), getQty(s)), 0) / countRaw
         )
-    const atRisk = usePlaceholder
-      ? Math.min(3, Math.floor(count * 0.08))
-      : groupSkus.filter((s) =>
-          ['Risk', 'Clearance', 'Outlet'].includes(
-            getProductLifecycleStatus(s)
-          )
-        ).length
+      : 0
+    const atRisk = groupSkus.filter((s) =>
+      ['Risk', 'Clearance', 'Outlet'].includes(
+        getProductLifecycleStatus(s)
+      )
+    ).length
     return { c, count, avg, atRisk }
   })
 

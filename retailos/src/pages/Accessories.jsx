@@ -6,6 +6,7 @@ import KpiCard from '../components/KpiCard'
 import { IconAccessories } from '../utils/icons.js'
 import { isExecutive } from '../utils/roles.js'
 import { toTitleCase } from '../utils/textFormat.js'
+import { filterProductsByActiveSeason } from '../utils/seasons.js'
 
 function avgSellThroughForSkus(list) {
   if (!list.length) return 0
@@ -23,8 +24,6 @@ const subcategories = [
     barColor: '#00e676',
     highlight: 'Hot',
     highlightColor: '#00e676',
-    placeholderCount: 9,
-    placeholderAvg: 46,
   },
   {
     name: 'Bags & Backpacks',
@@ -32,8 +31,6 @@ const subcategories = [
     barColor: '#00e676',
     highlight: 'Normal',
     highlightColor: '#38bdf8',
-    placeholderCount: 7,
-    placeholderAvg: 38,
   },
   {
     name: 'Socks & Basics',
@@ -41,8 +38,6 @@ const subcategories = [
     barColor: '#00e676',
     highlight: 'Strong',
     highlightColor: '#00e676',
-    placeholderCount: 12,
-    placeholderAvg: 52,
   },
 ]
 
@@ -82,10 +77,14 @@ function catalogCardSlug(name) {
 export function Accessories() {
   const skus = useStore((s) => s.skus)
   const shipmentMeta = useStore((s) => s.shipmentMeta)
+  const activeSeason = useStore((s) => s.activeSeason)
   const activeUser = useStore((s) => s.activeUser)
   const exec = isExecutive(activeUser)
 
-  const products = useMemo(() => aggregateSkus(skus, shipmentMeta), [skus, shipmentMeta])
+  const products = useMemo(
+    () => filterProductsByActiveSeason(aggregateSkus(skus, shipmentMeta, activeSeason), activeSeason),
+    [skus, shipmentMeta, activeSeason],
+  )
 
   const accessoriesSkus = products.filter(
     (s) => String(s.category || '').toLowerCase() === 'accessories'
@@ -128,20 +127,17 @@ export function Accessories() {
   const subcategoryCardStats = subcategories.map((sc) => {
     const groupSkus = skusForAccessorySubcategory(accessoriesSkus, sc.name)
     const countRaw = groupSkus.length
-    const usePlaceholder = countRaw === 0
-    const count = usePlaceholder ? sc.placeholderCount : countRaw
-    const avg = usePlaceholder
-      ? sc.placeholderAvg
-      : Math.round(
-          groupSkus.reduce((acc, s) => acc + getSellThrough(getSold(s), getQty(s)), 0) / (countRaw || 1)
+    const count = countRaw
+    const avg = countRaw
+      ? Math.round(
+          groupSkus.reduce((acc, s) => acc + getSellThrough(getSold(s), getQty(s)), 0) / countRaw
         )
-    const atRisk = usePlaceholder
-      ? 0
-      : groupSkus.filter((s) =>
-          ['Risk', 'Clearance', 'Outlet'].includes(
-            getProductLifecycleStatus(s)
-          )
-        ).length
+      : 0
+    const atRisk = groupSkus.filter((s) =>
+      ['Risk', 'Clearance', 'Outlet'].includes(
+        getProductLifecycleStatus(s)
+      )
+    ).length
     return { sc, count, avg, atRisk }
   })
 
