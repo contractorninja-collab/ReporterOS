@@ -3605,6 +3605,93 @@ export function getSoldQuantityMap() {
   return map
 }
 
+/**
+ * Attribute every sales event to exactly one season: the latest real intake
+ * season for that SKU on or before the event date. Historical events that
+ * predate the first retained intake use that first season; catalog season is
+ * the final fallback for legacy SKUs without import lines.
+ */
+export function getSalesBySeasonSku(sinceDate, untilDate, season) {
+  const params = [sinceDate || '1970-01-01']
+  let where = 'event_date >= ?'
+  if (untilDate) { where += ' AND event_date <= ?'; params.push(untilDate) }
+
+  const events = db.prepare(`
+    SELECT sku, units_sold, revenue, event_date
+    FROM sales_events
+    WHERE ${where}
+    ORDER BY event_date ASC, created_at ASC, id ASC
+  `).all(...params)
+  if (!events.length) return []
+
+  const skuCodes = [...new Set(events.map((row) => row.sku).filter(Boolean))]
+  const placeholders = skuCodes.map(() => '?').join(',')
+  const intakeRows = placeholders
+    ? db.prepare(`
+        SELECT il.sku, il.season, il.imported_at, il.id
+        FROM import_lines il
+        WHERE il.import_id IN (SELECT id FROM import_history)
+          AND COALESCE(il.quantity_added, 0) > 0
+          AND TRIM(COALESCE(il.season, '')) != ''
+          AND il.sku IN (${placeholders})
+        ORDER BY il.sku ASC, il.imported_at ASC, il.id ASC
+      `).all(...skuCodes)
+    : []
+  const catalogRows = placeholders
+    ? db.prepare(`
+        SELECT sku, season
+        FROM skus
+        WHERE deleted_at IS NULL
+          AND TRIM(COALESCE(season, '')) != ''
+          AND sku IN (${placeholders})
+        ORDER BY sku ASC
+      `).all(...skuCodes)
+    : []
+
+  const intakesBySku = new Map()
+  for (const row of intakeRows) {
+    const normalized = normalizeSeasonInput(row.season).toUpperCase()
+    if (!normalized) continue
+    const entry = { season: normalized, date: String(row.imported_at || '').slice(0, 10) }
+    if (!intakesBySku.has(row.sku)) intakesBySku.set(row.sku, [])
+    const boundaries = intakesBySku.get(row.sku)
+    const prior = boundaries[boundaries.length - 1]
+    if (!prior || prior.season !== entry.season || prior.date !== entry.date) boundaries.push(entry)
+  }
+
+  const catalogSeasonBySku = new Map()
+  for (const row of catalogRows) {
+    const normalized = normalizeSeasonInput(row.season).toUpperCase()
+    if (!normalized) continue
+    const current = catalogSeasonBySku.get(row.sku)
+    if (!current || compareSeasons(current, normalized) < 0) catalogSeasonBySku.set(row.sku, normalized)
+  }
+
+  const requestedSeason = normalizeSeasonInput(season).toUpperCase()
+  const seasonActive = requestedSeason && requestedSeason !== 'ALL'
+  const groups = new Map()
+  for (const event of events) {
+    const boundaries = intakesBySku.get(event.sku) || []
+    let attributedSeason = boundaries[0]?.season || catalogSeasonBySku.get(event.sku) || 'UNASSIGNED'
+    for (const boundary of boundaries) {
+      if (boundary.date && boundary.date <= event.event_date) attributedSeason = boundary.season
+      else if (boundary.date > event.event_date) break
+    }
+    if (seasonActive && attributedSeason !== requestedSeason) continue
+
+    const key = `${attributedSeason}\u0000${event.sku}`
+    if (!groups.has(key)) {
+      groups.set(key, { sku: event.sku, season: attributedSeason, sold_qty: 0, revenue: 0, return_units: 0 })
+    }
+    const group = groups.get(key)
+    const units = Number(event.units_sold) || 0
+    group.sold_qty += units
+    group.revenue += Number(event.revenue) || 0
+    if (units < 0) group.return_units += Math.abs(units)
+  }
+  return [...groups.values()].sort((a, b) => compareSeasons(a.season, b.season) || a.sku.localeCompare(b.sku))
+}
+
 export function getSalesBySku(sinceDate, untilDate, season) {
   const params = [sinceDate || '1970-01-01']
   let where = 'event_date >= ?'
@@ -3612,26 +3699,12 @@ export function getSalesBySku(sinceDate, untilDate, season) {
   const seasonFilter = normalizeSeasonInput(season)
   const seasonActive = seasonFilter && seasonFilter.toLowerCase() !== 'all'
   if (seasonActive) {
-    const seasonValues = seasonSqlValues(seasonFilter)
-    const seasonWhere = seasonInClause('il.season', seasonValues)
-    const skuCodes = db.prepare(`
-      SELECT DISTINCT il.sku
-      FROM import_lines il
-      WHERE il.import_id IN (SELECT id FROM import_history)
-        AND COALESCE(il.quantity_added, 0) > 0
-        AND ${seasonWhere}
-    `).all(...seasonValues).map((s) => s.sku).filter(Boolean)
-    if (!skuCodes.length) return []
-    where += ` AND sku IN (${skuCodes.map(() => '?').join(',')})`
-    params.push(...skuCodes)
-    where += ` AND event_date >= COALESCE((
-      SELECT SUBSTR(MIN(il.imported_at), 1, 10)
-      FROM import_lines il
-      WHERE il.import_id IN (SELECT id FROM import_history)
-        AND il.sku = sales_events.sku
-        AND ${seasonWhere}
-    ), '9999-12-31')`
-    params.push(...seasonValues)
+    return getSalesBySeasonSku(sinceDate, untilDate, seasonFilter).map((row) => ({
+      sku: row.sku,
+      sold_qty: row.sold_qty,
+      revenue: row.revenue,
+      return_units: row.return_units,
+    }))
   }
   return db.prepare(`
     SELECT sku,

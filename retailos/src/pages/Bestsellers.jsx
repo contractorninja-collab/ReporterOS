@@ -11,8 +11,8 @@ import ProductDetailModal from '../components/ProductDetailModal'
 import ProductActivityModal from '../components/ProductActivityModal'
 import StatusChip from '../components/StatusChip'
 import BrandSelect from '../components/BrandSelect.jsx'
-import { fetchSalesBySku } from '../api/client.js'
-import { enrichBestsellerProducts } from '../utils/bestsellerMetrics.js'
+import { fetchSalesBySeasonSku } from '../api/client.js'
+import { enrichBestsellerProducts, indexBestsellerSalesRows } from '../utils/bestsellerMetrics.js'
 import {
   IconFootwear,
   IconApparel,
@@ -369,19 +369,15 @@ export function Bestsellers() {
     try {
       const since = timeRange === 'all' ? '1970-01-01' : (sinceDate || '1970-01-01')
       const until = timeRange === 'all' ? today : untilDate
-      const data = await fetchSalesBySku(since, until, activeSeason)
-      const map = {}
-      if (Array.isArray(data)) for (const r of data) map[r.sku] = r
-      setSalesData(map)
+      const data = await fetchSalesBySeasonSku(since, until, activeSeason)
+      setSalesData(indexBestsellerSalesRows(data))
     } catch { setSalesData(null) }
 
     const prev = timeRange === 'all' ? null : computePreviousPeriod(timeRange, customFrom, customTo)
     if (prev) {
       try {
-        const data = await fetchSalesBySku(prev.since, prev.until, activeSeason)
-        const map = {}
-        if (Array.isArray(data)) for (const r of data) map[r.sku] = r
-        setPrevSalesData(map)
+        const data = await fetchSalesBySeasonSku(prev.since, prev.until, activeSeason)
+        setPrevSalesData(indexBestsellerSalesRows(data))
       } catch { setPrevSalesData(null) }
     } else { setPrevSalesData(null) }
   }, [exec, timeRange, sinceDate, untilDate, customFrom, customTo, activeSeason])

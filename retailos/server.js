@@ -31,7 +31,7 @@ import {
   getAllSaleChangeReports, getSaleChangeReportById, saleChangeReportVisibleToUser,
   toggleSaleChangeItemMarked, discardSaleChangeReport, discardSaleChangeReportProduct,
   getAllSnapshots, insertSnapshot,
-  getSoldQuantityMap, getSalesBySku, getSalesSummaryForSku, getSkuActivity, getSalesAggregatedByDay, getExchangePairs,
+  getSoldQuantityMap, getSalesBySku, getSalesBySeasonSku, getSalesSummaryForSku, getSkuActivity, getSalesAggregatedByDay, getExchangePairs,
   replaceSalesEventsForReportingImport,
   getExecutiveBuyingReport, getBrandProductivityReport, getReturnsExchangeReport, getSizeCurveHealthReport, getMarkdownRiskReport,
   getCategoryProductivityReport, getMoversReport,
@@ -2803,6 +2803,15 @@ app.get('/api/sales/by-sku', (req, res) => {
     const until = req.query.until || undefined
     const season = typeof req.query.season === 'string' && req.query.season ? req.query.season : undefined
     res.json(getSalesBySku(since, until, season))
+  } catch (e) { safeError(res, e) }
+})
+
+app.get('/api/sales/by-season-sku', (req, res) => {
+  try {
+    const since = req.query.since || '1970-01-01'
+    const until = req.query.until || undefined
+    const season = typeof req.query.season === 'string' && req.query.season ? req.query.season : undefined
+    res.json(getSalesBySeasonSku(since, until, season))
   } catch (e) { safeError(res, e) }
 })
 

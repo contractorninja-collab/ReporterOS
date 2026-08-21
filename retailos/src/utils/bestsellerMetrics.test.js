@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { enrichBestsellerProducts, summarizeBestsellerSalesRows } from './bestsellerMetrics.js'
+import { enrichBestsellerProducts, indexBestsellerSalesRows, summarizeBestsellerSalesRows } from './bestsellerMetrics.js'
 
 test('adds period return units and net revenue to a bestseller product', () => {
   const [product] = enrichBestsellerProducts(
@@ -42,4 +42,14 @@ test('accepts the Bestsellers sales map shape', () => {
   })
 
   assert.deepEqual(totals, { units: 3, revenue: 120, returnUnits: 1 })
+})
+
+test('indexes positive season buckets without netting one season against another', () => {
+  assert.deepEqual(indexBestsellerSalesRows([
+    { sku: 'CARRYOVER', season: 'SS26', sold_qty: 2, revenue: 90, return_units: 0 },
+    { sku: 'CARRYOVER', season: 'FW26', sold_qty: 3, revenue: 120, return_units: 1 },
+    { sku: 'RETURN-ONLY', season: 'SS26', sold_qty: -1, revenue: -45, return_units: 1 },
+  ]), {
+    CARRYOVER: { sku: 'CARRYOVER', sold_qty: 5, revenue: 210, return_units: 1 },
+  })
 })

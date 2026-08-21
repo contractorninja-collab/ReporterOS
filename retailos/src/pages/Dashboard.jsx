@@ -27,7 +27,7 @@ import StatusChip from '../components/StatusChip'
 import ProgressBar from '../components/ProgressBar'
 import { IconClose, IconSearchEmpty } from '../utils/icons.js'
 import { normalizeGenderCodeForFilter, genderShortLabel } from '../utils/gender.js'
-import { fetchSalesBySku } from '../api/client.js'
+import { fetchSalesBySeasonSku } from '../api/client.js'
 import { productMatchesActiveSeason } from '../utils/seasons.js'
 import { DASHBOARD_PRODUCT_SORT_OPTIONS, sortDashboardProducts } from '../utils/dashboardProductSort.js'
 import { summarizeBestsellerSalesRows } from '../utils/bestsellerMetrics.js'
@@ -321,7 +321,7 @@ export function Dashboard() {
     }
     let alive = true
     setPeriodSalesLoading(true)
-    fetchSalesBySku(selectedSalesPeriod.since, selectedSalesPeriod.until, activeSeason)
+    fetchSalesBySeasonSku(selectedSalesPeriod.since, selectedSalesPeriod.until, activeSeason)
       .then((rows) => {
         if (alive) setPeriodSalesRows(Array.isArray(rows) ? rows : [])
       })

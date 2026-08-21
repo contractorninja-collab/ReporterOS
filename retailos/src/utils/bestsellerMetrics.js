@@ -38,3 +38,17 @@ export function summarizeBestsellerSalesRows(rows) {
     return totals
   }, { units: 0, revenue: 0, returnUnits: 0 })
 }
+
+/** Index mutually exclusive season/SKU rows for the product-level ranking. */
+export function indexBestsellerSalesRows(rows) {
+  const map = {}
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const units = Number(row?.sold_qty) || 0
+    if (!row?.sku || units <= 0) continue
+    if (!map[row.sku]) map[row.sku] = { sku: row.sku, sold_qty: 0, revenue: 0, return_units: 0 }
+    map[row.sku].sold_qty += units
+    map[row.sku].revenue += Number(row.revenue) || 0
+    map[row.sku].return_units += Number(row.return_units) || 0
+  }
+  return map
+}

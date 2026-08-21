@@ -305,6 +305,13 @@ export const fetchSalesBySku = (since, until, season) => {
   return request(url)
 }
 
+export const fetchSalesBySeasonSku = (since, until, season) => {
+  let url = `/sales/by-season-sku?since=${encodeURIComponent(since || '')}`
+  if (until) url += `&until=${encodeURIComponent(until)}`
+  if (season && String(season).toLowerCase() !== 'all') url += `&season=${encodeURIComponent(season)}`
+  return request(url)
+}
+
 export const fetchSalesSummaryForSku = (sku, options = {}) => {
   const q = new URLSearchParams()
   if (options.season) q.set('season', options.season)
