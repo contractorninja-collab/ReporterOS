@@ -129,7 +129,7 @@ export function TransferBuilder() {
   const [showAllUsers, setShowAllUsers] = useState(false)
   const isExec = activeUser?.role === 'executive'
 
-  /** Ring Mall & Village managers only (never outlet staff). Used for "To Outlet" recipients. */
+  /** Sending-shop managers only (never outlet staff). They verify the batch before Outlet receives it. */
   const assignableUsers = useMemo(() => {
     const onShiftIds = new Set(activeShifts.map((s) => s.user_id))
     let pool
@@ -137,7 +137,7 @@ export function TransferBuilder() {
       pool = users.filter(
         (u) =>
           u.role === 'manager' &&
-          (u.shop === 'Ring Mall' || u.shop === 'Village') &&
+          sameShop(u.shop, fromShop) &&
           u.shop !== 'Outlet' &&
           u.role !== 'outlet',
       )

@@ -4,6 +4,11 @@ import {
   notifyLocalWriteFailure,
   resyncAfterWriteFailure,
 } from '../storeHelpers.js'
+import {
+  clearOutletItemStatuses,
+  findTodayPendingOutletTransfer,
+  upsertOutletTransferItem,
+} from '../../utils/outletTransfers.js'
 
 /** Outlet + store transfer workflows, including full batch creation. */
 export function createTransfersSlice(set, get) {
@@ -90,22 +95,35 @@ export function createTransfersSlice(set, get) {
       }
     },
 
-    addItemToTodayTransfer: (item, createdBy) => {
-      const today = new Date().toISOString().slice(0, 10)
+    addItemToTodayTransfer: async (item, createdBy, fromShop) => {
       const state = get()
-      const existing = state.outletTransfers.find((t) => t.status === 'pending' && t.createdAt.slice(0, 10) === today)
+      const sourceShop = String(fromShop ?? state.activeUser?.shop ?? '').trim()
+      if (!sourceShop) throw new Error('Choose the store sending this product to Outlet')
+      const existing = findTodayPendingOutletTransfer(state.outletTransfers, sourceShop)
       if (existing) {
-        const newItems = [...existing.items, item]
+        const newItems = upsertOutletTransferItem(existing.items, item)
+        const itemStatuses = clearOutletItemStatuses(existing.item_statuses, item.skuCode)
+        const changes = { items: newItems, item_statuses: itemStatuses }
         set((s) => ({
-          outletTransfers: s.outletTransfers.map((t) => (t.id === existing.id ? { ...t, items: newItems } : t)),
+          outletTransfers: s.outletTransfers.map((t) => (t.id === existing.id ? { ...t, ...changes } : t)),
         }))
-        api.putOutletTransfer(existing.id, { items: newItems }).catch((err) => {
+        try {
+          const result = await api.putOutletTransfer(existing.id, changes)
+          const saved = result?.transfer || result
+          if (saved?.id) {
+            set((s) => ({
+              outletTransfers: s.outletTransfers.map((t) => (t.id === existing.id ? saved : t)),
+            }))
+          }
+          return saved
+        } catch (err) {
           set((s) => ({
             outletTransfers: s.outletTransfers.map((t) => (t.id === existing.id ? existing : t)),
           }))
           notifyLocalWriteFailure(set, get, 'Outlet transfer item was not saved', err)
           resyncAfterWriteFailure(get)
-        })
+          throw err
+        }
       } else {
         const full = {
           id: generateId(),
@@ -114,15 +132,24 @@ export function createTransfersSlice(set, get) {
           createdAt: new Date().toISOString(),
           status: 'pending',
           receivedAt: null,
-          fromShop: state.activeUser?.shop ?? '',
+          fromShop: sourceShop,
           item_statuses: {},
         }
         set((s) => ({ outletTransfers: [full, ...s.outletTransfers] }))
-        api.postOutletTransfer(full).catch((err) => {
+        try {
+          const saved = await api.postOutletTransfer(full)
+          if (saved?.id) {
+            set((s) => ({
+              outletTransfers: s.outletTransfers.map((t) => (t.id === full.id ? saved : t)),
+            }))
+          }
+          return saved
+        } catch (err) {
           set((s) => ({ outletTransfers: s.outletTransfers.filter((t) => t.id !== full.id) }))
           notifyLocalWriteFailure(set, get, 'Outlet transfer was not saved', err)
           resyncAfterWriteFailure(get)
-        })
+          throw err
+        }
       }
     },
 

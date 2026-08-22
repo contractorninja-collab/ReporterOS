@@ -71,6 +71,9 @@ export default function ProductDetailModal({ sku, status, statusData, onClose, s
   const [markdownTier, setMarkdownTier] = useState(null)
   const [customMarkdown, setCustomMarkdown] = useState('')
   const [transferShop, setTransferShop] = useState('')
+  const [outletSourceShop, setOutletSourceShop] = useState(activeUser?.shop || '')
+  const [outletMoveSaving, setOutletMoveSaving] = useState(false)
+  const [outletMoveError, setOutletMoveError] = useState('')
   const [selectedSaleListId, setSelectedSaleListId] = useState('')
   const [salePct, setSalePct] = useState(30)
   const [saleExtraPct, setSaleExtraPct] = useState(0)
@@ -302,39 +305,6 @@ export default function ProductDetailModal({ sku, status, statusData, onClose, s
     setTimeout(() => setAssignDone(null), 1800)
   }
 
-  const handleOutletMove = () => {
-    addItemToTodayTransfer(
-      {
-        skuCode: sku.sku,
-        productName: sku.product_name,
-        quantity: Math.max(0, sku.quantity - netSoldQty),
-        sizes: (sku.sizes || []).join(', '),
-      },
-      activeUser?.id || '',
-    )
-    const onShiftIds = new Set((activeShifts || []).map((s) => s.user_id))
-    const outletManagers = users.filter(
-      (u) =>
-        u.role === 'manager' &&
-        (u.shop === 'Ring Mall' || u.shop === 'Village') &&
-        onShiftIds.has(u.id),
-    )
-    for (const m of outletManagers) {
-      addAssignment({
-        type: 'outlet_move',
-        skuCode: sku.sku,
-        productName: sku.product_name,
-        assignedTo: m.id,
-        assignedBy: activeUser?.id || '',
-        shop: 'Outlet',
-        status: 'pending',
-        note: 'Moved to outlet transfer batch',
-      })
-    }
-    setAssignDone('Moved to Outlet')
-    setTimeout(() => setAssignDone(null), 1800)
-  }
-
   const sizeBreakdown = useMemo(() => {
     const rows = rawSkus.filter((r) => r.sku === sku.sku)
     if (!rows.length) return []
@@ -354,6 +324,79 @@ export default function ProductDetailModal({ sku, status, statusData, onClose, s
     }
     return [...map.values()]
   }, [rawSkus, sku.sku])
+
+  const handleOutletMove = async (requestedSourceShop = activeUser?.shop) => {
+    const sourceShop = String(requestedSourceShop || '').trim()
+    if (!sourceShop) {
+      setOutletMoveError('Choose the store sending this product.')
+      return
+    }
+
+    const availableSizes = sizeBreakdown
+      .filter((line) => line.remaining > 0)
+      .map((line) => ({ size: line.size === '—' ? 'One Size' : line.size, qty: line.remaining }))
+    const sizeTotal = availableSizes.reduce((sum, line) => sum + line.qty, 0)
+    const fallbackTotal = Math.max(0, (Number(sku.quantity) || 0) - (Number(netSoldQty) || 0))
+    const quantity = availableSizes.length > 0 ? sizeTotal : fallbackTotal
+    if (quantity <= 0) {
+      setOutletMoveError('This product has no stock available to transfer.')
+      return
+    }
+
+    setOutletMoveSaving(true)
+    setOutletMoveError('')
+    try {
+      await addItemToTodayTransfer(
+        {
+          skuCode: sku.sku,
+          productName: sku.product_name,
+          quantity,
+          totalQty: quantity,
+          sizes: availableSizes.map((line) => line.size).join(', '),
+          ...(availableSizes.length > 0 ? { sizeBreakdown: availableSizes } : {}),
+        },
+        activeUser?.id || '',
+        sourceShop,
+      )
+
+      const onShiftIds = new Set((activeShifts || []).map((shift) => shift.user_id))
+      const sendingManagers = users.filter((user) => (
+        user.role === 'manager' &&
+        user.shop === sourceShop &&
+        onShiftIds.has(user.id)
+      ))
+      for (const manager of sendingManagers) {
+        addAssignment({
+          type: 'outlet_move',
+          skuCode: sku.sku,
+          productName: sku.product_name,
+          assignedTo: manager.id,
+          assignedBy: activeUser?.id || '',
+          shop: sourceShop,
+          status: 'pending',
+          note: `Move ${quantity} units from ${sourceShop} to Outlet`,
+        })
+      }
+      setAssignPanel(null)
+      setAssignDone(`Added to ${sourceShop} → Outlet`)
+      setTimeout(() => setAssignDone(null), 1800)
+    } catch (err) {
+      setOutletMoveError(err?.message || 'The product could not be added to the Outlet transfer.')
+    } finally {
+      setOutletMoveSaving(false)
+    }
+  }
+
+  const openOutletMove = () => {
+    setAssignDone(null)
+    setOutletMoveError('')
+    if (activeUser?.shop && SHOPS.includes(activeUser.shop)) {
+      handleOutletMove(activeUser.shop)
+      return
+    }
+    setOutletSourceShop(SHOPS[0])
+    setAssignPanel('outlet_transfer')
+  }
   const pct = getSellThrough(netSoldQty, sku.quantity)
   const lifecycleArrivalDate = getEffectiveLifecycleImportDate(displaySku)
   const days = getDaysInStore(lifecycleArrivalDate)
@@ -881,8 +924,8 @@ export default function ProductDetailModal({ sku, status, statusData, onClose, s
               </button>
             )}
             {(status === 'Clearance' || status === 'Outlet') && (
-              <button type="button" onClick={handleOutletMove} style={{ ...ACTION_BTN, background: '#fbbf24', color: '#09090e' }}>
-                Move to Outlet
+              <button type="button" onClick={openOutletMove} disabled={outletMoveSaving} style={{ ...ACTION_BTN, background: '#fbbf24', color: '#09090e', opacity: outletMoveSaving ? 0.6 : 1 }}>
+                {outletMoveSaving ? 'Adding…' : 'Move to Outlet'}
               </button>
             )}
             <button
@@ -897,6 +940,12 @@ export default function ProductDetailModal({ sku, status, statusData, onClose, s
           {assignDone && !assignPanel && (
             <div style={{ marginTop: 10, padding: '8px 14px', borderRadius: 10, background: 'rgba(0,230,118,0.1)', border: '1px solid rgba(0,230,118,0.2)', fontSize: 12, color: '#00e676', fontWeight: 600 }}>
               {assignDone}
+            </div>
+          )}
+
+          {outletMoveError && (
+            <div style={{ marginTop: 10, padding: '8px 14px', borderRadius: 10, background: 'rgba(255,51,51,0.08)', border: '1px solid rgba(255,51,51,0.22)', fontSize: 12, color: '#ff3333', fontWeight: 600 }}>
+              {outletMoveError}
             </div>
           )}
 
@@ -994,6 +1043,34 @@ export default function ProductDetailModal({ sku, status, statusData, onClose, s
                   Transfer
                 </button>
                 <button type="button" onClick={() => setAssignPanel(null)} style={{ ...ACTION_BTN, background: 'none', color: 'var(--ro-text-muted)', border: '1px solid var(--ro-border)', padding: '7px 16px' }}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+
+          {assignPanel && assignPanel === 'outlet_transfer' && !assignDone && (
+            <div style={{ marginTop: 10, background: 'var(--ro-surface-elevated)', border: '1px solid var(--ro-border-hover)', borderRadius: 12, padding: 14 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--ro-text-dim)', textTransform: 'uppercase', letterSpacing: '0.8px', marginBottom: 10 }}>
+                Sending store → Outlet
+              </div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
+                {SHOPS.map((shop) => (
+                  <button
+                    key={shop}
+                    type="button"
+                    onClick={() => setOutletSourceShop(shop)}
+                    style={{ ...ACTION_BTN, background: outletSourceShop === shop ? '#fbbf24' : 'var(--ro-fill-soft)', color: outletSourceShop === shop ? '#09090e' : 'var(--ro-text)' }}
+                  >
+                    {shop}
+                  </button>
+                ))}
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button type="button" onClick={() => handleOutletMove(outletSourceShop)} disabled={!outletSourceShop || outletMoveSaving} style={{ ...ACTION_BTN, background: '#fbbf24', color: '#09090e', opacity: !outletSourceShop || outletMoveSaving ? 0.5 : 1 }}>
+                  {outletMoveSaving ? 'Adding…' : 'Add to Outlet transfer'}
+                </button>
+                <button type="button" onClick={() => setAssignPanel(null)} disabled={outletMoveSaving} style={{ ...ACTION_BTN, background: 'transparent', color: 'var(--ro-text-dim)', border: '1px solid var(--ro-border)' }}>
                   Cancel
                 </button>
               </div>
@@ -1100,7 +1177,7 @@ export default function ProductDetailModal({ sku, status, statusData, onClose, s
             </div>
           )}
 
-          {assignPanel && assignPanel !== 'store_transfer' && assignPanel !== 'sale_list' && assignPanel !== 'change_sale' && (
+          {assignPanel && assignPanel !== 'store_transfer' && assignPanel !== 'outlet_transfer' && assignPanel !== 'sale_list' && assignPanel !== 'change_sale' && (
             <div style={{ marginTop: 10, background: 'var(--ro-surface-elevated)', border: '1px solid var(--ro-border-hover)', borderRadius: 12, padding: 14 }}>
               {assignDone ? (
                 <div style={{ fontSize: 13, color: '#00e676', fontWeight: 600 }}>Assigned: {assignDone}</div>

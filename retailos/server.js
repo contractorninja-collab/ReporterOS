@@ -724,9 +724,16 @@ function outletTransferVisibleToUser(t, user) {
     (t.fromShop && user.shop && t.fromShop === user.shop)
 }
 
-function outletTransferAssignedToUpdateAllowed(user, nextAssignedTo) {
+function outletTransferAssignedToUpdateAllowed(user, nextAssignedTo, fromShop) {
   if (user.role === 'executive') return true
-  return nextAssignedTo == null || nextAssignedTo === '' || nextAssignedTo === user.id
+  const ids = splitIdList(nextAssignedTo)
+  if (ids.length === 0) return true
+  if (!user.shop || !strEq(user.shop, fromShop)) return false
+  const usersById = new Map(getAllUsers().map((candidate) => [candidate.id, candidate]))
+  return ids.every((id) => {
+    const target = usersById.get(id)
+    return target?.role === 'manager' && strEq(target.shop, user.shop)
+  })
 }
 
 function splitIdList(value) {
@@ -761,6 +768,19 @@ function validateOutletTransferUpdate(row, user, changes) {
   const has = (k) => Object.prototype.hasOwnProperty.call(changes || {}, k)
   const current = String(row.status || 'pending')
   const nextStatus = has('status') ? String(changes.status || '') : current
+
+  if (has('items')) {
+    if ((!roles.sender && !roles.executive) || current !== 'pending') {
+      const err = new Error('Only the sending shop can add products before verification is completed')
+      err.statusCode = 403
+      throw err
+    }
+    if (!Array.isArray(changes.items)) {
+      const err = new Error('items must be an array')
+      err.statusCode = 400
+      throw err
+    }
+  }
 
   if (has('item_statuses')) {
     if (!roles.sender && !roles.executive) {
@@ -2106,10 +2126,11 @@ app.post('/api/outlet-transfers', (req, res) => {
   try {
     const u = req.authUser
     const body = { ...req.body, createdBy: u.id }
+    if (u.role !== 'executive' && u.shop) body.fromShop = u.shop
     if (u.role !== 'executive') {
       const at = body.assignedTo
-      if (at != null && at !== '' && at !== u.id) {
-        return res.status(403).json({ error: 'Can only assign outlet transfer to yourself' })
+      if (!outletTransferAssignedToUpdateAllowed(u, at, body.fromShop)) {
+        return res.status(403).json({ error: 'Outlet transfers can only be assigned within the sending store' })
       }
     }
     const t = insertOutletTransfer(body)
@@ -2136,9 +2157,9 @@ app.put('/api/outlet-transfers/:id', (req, res) => {
     if (
       Object.prototype.hasOwnProperty.call(req.body || {}, 'assignedTo') &&
       !strEq(req.body.assignedTo, row.assignedTo) &&
-      !outletTransferAssignedToUpdateAllowed(req.authUser, req.body.assignedTo)
+      !outletTransferAssignedToUpdateAllowed(req.authUser, req.body.assignedTo, row.fromShop)
     ) {
-      return res.status(403).json({ error: 'Can only assign outlet transfer to yourself' })
+      return res.status(403).json({ error: 'Outlet transfers can only be assigned within the sending store' })
     }
     validateOutletTransferUpdate(row, req.authUser, req.body || {})
     const updated = updateOutletTransfer(req.params.id, req.body)
