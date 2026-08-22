@@ -8,6 +8,7 @@ import {
   clearOutletItemStatuses,
   findTodayPendingOutletTransfer,
   upsertOutletTransferItem,
+  upsertOutletTransferItems,
 } from '../../utils/outletTransfers.js'
 
 /** Outlet + store transfer workflows, including full batch creation. */
@@ -266,8 +267,12 @@ export function createTransfersSlice(set, get) {
      */
     createTransferBatch: (type, payload) => {
       const state = get()
-      const id = generateId()
       const createdAt = new Date().toISOString()
+      const sourceShop = String(payload.fromShop ?? state.activeUser?.shop ?? '').trim()
+      const existingOutletTransfer = type === 'outlet'
+        ? findTodayPendingOutletTransfer(state.outletTransfers, sourceShop, new Date(createdAt))
+        : null
+      const id = existingOutletTransfer?.id || generateId()
 
       const assignmentTargets = Array.from(new Set(
         Array.isArray(payload.assignedToIds)
@@ -277,8 +282,15 @@ export function createTransfersSlice(set, get) {
             : [],
       ))
 
-      const assignedToStored =
-        assignmentTargets.length > 0 ? assignmentTargets.join(',') : null
+      const existingAssignmentTargets = String(existingOutletTransfer?.assignedTo || '')
+        .split(',')
+        .map((userId) => userId.trim())
+        .filter(Boolean)
+      const allAssignmentTargets = Array.from(new Set([
+        ...existingAssignmentTargets,
+        ...assignmentTargets,
+      ]))
+      const assignedToStored = allAssignmentTargets.length > 0 ? allAssignmentTargets.join(',') : null
 
       const base = {
         id,
@@ -291,21 +303,60 @@ export function createTransfersSlice(set, get) {
         note: payload.note ?? null,
         item_statuses: {},
       }
+      let outletSavePromise = null
       if (type === 'outlet') {
-        const full = { ...base, fromShop: payload.fromShop ?? state.activeUser?.shop ?? '' }
-        set((s) => ({ outletTransfers: [full, ...s.outletTransfers] }))
-        api.postOutletTransfer(full).catch((err) => {
+        if (existingOutletTransfer) {
+          const items = upsertOutletTransferItems(existingOutletTransfer.items, payload.items)
+          const itemStatuses = (payload.items || []).reduce(
+            (statuses, item) => clearOutletItemStatuses(statuses, item.skuCode),
+            existingOutletTransfer.item_statuses,
+          )
+          const incomingNote = String(payload.note || '').trim()
+          const previousNote = String(existingOutletTransfer.note || '').trim()
+          const note = incomingNote && incomingNote !== previousNote
+            ? [previousNote, incomingNote].filter(Boolean).join('\n')
+            : (previousNote || incomingNote || null)
+          const changes = { items, item_statuses: itemStatuses, assignedTo: assignedToStored, note }
           set((s) => ({
-            outletTransfers: s.outletTransfers.filter((t) => t.id !== id),
-            assignments: s.assignments.filter((a) => a.skuCode !== id),
-            notifications: s.notifications.filter((n) => n.relatedId !== id),
-            unreadCount: s.notifications
-              .filter((n) => n.relatedId !== id ? !n.read : false)
-              .length,
+            outletTransfers: s.outletTransfers.map((transfer) => (
+              transfer.id === id ? { ...transfer, ...changes } : transfer
+            )),
           }))
-          notifyLocalWriteFailure(set, get, 'Transfer batch was not saved', err)
-          resyncAfterWriteFailure(get)
-        })
+          outletSavePromise = api.putOutletTransfer(id, changes).then((result) => {
+            const saved = result?.transfer || result
+            if (saved?.id) {
+              set((s) => ({
+                outletTransfers: s.outletTransfers.map((transfer) => (transfer.id === id ? saved : transfer)),
+              }))
+            }
+            return saved
+          }).catch((err) => {
+            set((s) => ({
+              outletTransfers: s.outletTransfers.map((transfer) => (
+                transfer.id === id ? existingOutletTransfer : transfer
+              )),
+            }))
+            notifyLocalWriteFailure(set, get, 'Transfer batch was not saved', err)
+            resyncAfterWriteFailure(get)
+            throw err
+          })
+        } else {
+          const full = { ...base, fromShop: sourceShop }
+          set((s) => ({ outletTransfers: [full, ...s.outletTransfers] }))
+          outletSavePromise = api.postOutletTransfer(full).then((saved) => {
+            if (saved?.id) {
+              set((s) => ({
+                outletTransfers: s.outletTransfers.map((transfer) => (transfer.id === id ? saved : transfer)),
+              }))
+            }
+            return saved
+          }).catch((err) => {
+            set((s) => ({ outletTransfers: s.outletTransfers.filter((transfer) => transfer.id !== id) }))
+            notifyLocalWriteFailure(set, get, 'Transfer batch was not saved', err)
+            resyncAfterWriteFailure(get)
+            throw err
+          })
+        }
       } else {
         const full = {
           ...base, fromShop: payload.fromShop ?? '', toShop: payload.toShop ?? '',
@@ -339,29 +390,32 @@ export function createTransfersSlice(set, get) {
       const fromLabel = payload.fromShop || state.activeUser?.shop || '—'
 
       if (type === 'outlet') {
-        for (const uid of assignmentTargets) {
-          get().addAssignment({
-          type: 'outlet_move',
-          skuCode: id,
-          productName: `Transfer to ${destination}: ${summary}`,
-          assignedTo: uid,
-          assignedBy: state.activeUser?.id ?? '',
-          shop: destination,
-          status: 'pending',
-          note: payload.note
-            ? `${totalUnits} units — ${payload.note}`
-            : `${totalUnits} units to ${destination}`,
-          })
-        }
+        outletSavePromise?.then(() => {
+          for (const uid of assignmentTargets) {
+            get().addAssignment({
+              type: 'outlet_move',
+              skuCode: id,
+              productName: `Transfer to ${destination}: ${summary}`,
+              assignedTo: uid,
+              assignedBy: state.activeUser?.id ?? '',
+              shop: sourceShop,
+              status: 'pending',
+              note: payload.note
+                ? `${totalUnits} units — ${payload.note}`
+                : `${totalUnits} units to ${destination}`,
+            })
+          }
 
-        const notifyMessage = `${state.activeUser?.name || 'Someone'} sent ${totalUnits} units (${summary}) from ${fromLabel} to ${destination}`
-        get().addNotification({
-          type: 'transfer_created',
-          title: 'New Transfer Created',
-          message: notifyMessage,
-          userId: 'all',
-          relatedId: id,
-        })
+          const action = existingOutletTransfer ? 'added' : 'sent'
+          const notifyMessage = `${state.activeUser?.name || 'Someone'} ${action} ${totalUnits} units (${summary}) from ${fromLabel} to ${destination}`
+          get().addNotification({
+            type: 'transfer_created',
+            title: existingOutletTransfer ? 'Transfer Updated' : 'New Transfer Created',
+            message: notifyMessage,
+            userId: 'all',
+            relatedId: id,
+          })
+        }).catch(() => {})
       }
 
       return id

@@ -5,6 +5,7 @@ import {
   findTodayPendingOutletTransfer,
   localDateKey,
   upsertOutletTransferItem,
+  upsertOutletTransferItems,
 } from './outletTransfers.js'
 
 test('finds only today pending outlet transfer for the sending store', () => {
@@ -29,6 +30,10 @@ test('re-adding a product refreshes it instead of duplicating it', () => {
   const second = { skuCode: 'SKU-2', quantity: 1 }
   assert.deepEqual(upsertOutletTransferItem([first, second], refreshed), [refreshed, second])
   assert.deepEqual(upsertOutletTransferItem([first], second), [first, second])
+  assert.deepEqual(
+    upsertOutletTransferItems([first], [refreshed, second]),
+    [refreshed, second],
+  )
 })
 
 test('clears verification only for the refreshed product', () => {

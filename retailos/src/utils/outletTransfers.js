@@ -31,6 +31,13 @@ export function upsertOutletTransferItem(items, item) {
   return rows.map((row, rowIndex) => (rowIndex === index ? item : row))
 }
 
+export function upsertOutletTransferItems(items, additions) {
+  return (Array.isArray(additions) ? additions : []).reduce(
+    (rows, item) => upsertOutletTransferItem(rows, item),
+    Array.isArray(items) ? items : [],
+  )
+}
+
 export function clearOutletItemStatuses(statuses, skuCode) {
   const prefix = `${String(skuCode ?? '').trim()}|`
   return Object.fromEntries(
