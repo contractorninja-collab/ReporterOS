@@ -44,6 +44,7 @@ import {
   createShiftCorrectionRequest, listShiftCorrectionRequests, reviewShiftCorrectionRequest,
   appendActivityLog, getActivityLog, backfillActivityLogFromLegacyIfEmpty,
   getProductTypeLabels, getProductTypeLabel, upsertProductTypeLabel, normalizeProductType,
+  correctSkuGender,
 } from './src/data/db.js'
 import * as salesEvents from './src/data/salesEvents.js'
 import { createSalesEventsRouter } from './src/server/routes/salesEventsRoutes.js'
@@ -109,6 +110,7 @@ const jwtSecretKey = new TextEncoder().encode(JWT_SECRET)
 const COOKIE_NAME = 'retailos_session'
 
 const SAFE_SKU_PARAM = /^[A-Za-z0-9._-]{1,64}$/
+const GENDER_LABELS = { M: 'Male', F: 'Female', K: 'Kids', U: 'Unisex' }
 const destructiveRequestKeys = new Map()
 const DESTRUCTIVE_KEY_TTL_MS = 15 * 60 * 1000
 
@@ -1458,6 +1460,31 @@ app.get('/api/skus', (req, res) => {
     try { purgeExpiredBinnedSkus() } catch { /* ignore */ }
     res.json(getAllSkus())
   } catch (e) { safeError(res, e) }
+})
+
+app.put('/api/skus/:code/gender', requireManagerOrExecutive, (req, res) => {
+  try {
+    assertSafeSku(req.params.code)
+    const result = correctSkuGender(req.params.code, req.body?.gender, req.authUser)
+    const previousGenderLabel = result.previous_genders.length
+      ? result.previous_genders.map((value) => GENDER_LABELS[value] || value).join(', ')
+      : 'Unspecified'
+    const nextGenderLabel = GENDER_LABELS[result.gender] || result.gender
+    act(req.authUser, {
+      category: 'inventory',
+      action: 'sku_gender_corrected',
+      entityType: 'sku',
+      entityId: req.params.code,
+      summary: `Changed gender for SKU ${req.params.code} from ${previousGenderLabel} to ${nextGenderLabel}`,
+      meta: {
+        previous_genders: result.previous_genders,
+        gender: result.gender,
+        sku_rows_updated: result.skuRowsUpdated,
+        import_line_rows_updated: result.importLineRowsUpdated,
+      },
+    })
+    res.json(result)
+  } catch (e) { safeError(res, e, e.statusCode || 500) }
 })
 
 app.get('/api/skus/bin', requireExecutive, (req, res) => {

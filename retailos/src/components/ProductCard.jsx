@@ -5,6 +5,7 @@ import useStore from '../store/useStore'
 import { IconFootwear, IconApparel, IconAccessories, IconPackage, IconHot, IconTruck, IconPlanning } from '../utils/icons.js'
 import SaleBadge from './SaleBadge.jsx'
 import StatusBadge from './StatusBadge.jsx'
+import ProductGenderEditor from './ProductGenderEditor.jsx'
 
 function ProductCard({ sku, rank, onClick, onSalesCardClick, metric, metricLabel, velocity, lowStock, rankTrend, delta, hideSalesCounts = false, className = '', showDayOverlay = false, showBrandPill = false }) {
   const photoMap = useStore((s) => s.photoMap)
@@ -189,8 +190,7 @@ function ProductCard({ sku, rank, onClick, onSalesCardClick, metric, metricLabel
             marginBottom: '7px',
           }}
         >
-          {sku.sku} · {sku.category} ·{' '}
-          {sku.gender === 'M' ? 'M' : sku.gender === 'F' ? 'F' : sku.gender === 'U' ? 'U' : 'K'}
+          {sku.sku} · {sku.category} · <ProductGenderEditor sku={sku} compact />
         </div>
 
         <div

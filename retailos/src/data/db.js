@@ -274,6 +274,16 @@ db.exec(`
     updated_at TEXT
   );
 
+  CREATE TABLE IF NOT EXISTS sku_attribute_overrides (
+    sku TEXT NOT NULL,
+    field TEXT NOT NULL,
+    value TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    updated_by_user_id TEXT,
+    updated_by_name TEXT,
+    PRIMARY KEY (sku, field)
+  );
+
   CREATE TABLE IF NOT EXISTS markdown_lists (
     id TEXT PRIMARY KEY,
     title TEXT,
@@ -1105,6 +1115,90 @@ export function getAllSkus() {
   })
 }
 
+const MANUAL_GENDER_CODES = new Set(['M', 'F', 'K', 'U'])
+
+function normalizeManualGender(value) {
+  const code = String(value ?? '').trim().toUpperCase()
+  return MANUAL_GENDER_CODES.has(code) ? code : ''
+}
+
+function manualGenderOverrides() {
+  const rows = db.prepare(`
+    SELECT sku, value
+    FROM sku_attribute_overrides
+    WHERE field = 'gender'
+  `).all()
+  return new Map(rows.map((row) => [row.sku, normalizeManualGender(row.value)]))
+}
+
+/**
+ * Correct gender for an entire SKU, including every size and historical intake
+ * line. The override is retained so future imports cannot reintroduce the old
+ * value for this SKU.
+ */
+export function correctSkuGender(skuCode, gender, actor = {}) {
+  const sku = String(skuCode ?? '').trim()
+  const normalizedGender = normalizeManualGender(gender)
+  if (!sku) {
+    const err = new Error('SKU is required')
+    err.statusCode = 400
+    throw err
+  }
+  if (!normalizedGender) {
+    const err = new Error('Gender must be M, F, K, or U')
+    err.statusCode = 400
+    throw err
+  }
+
+  const existingRows = db.prepare(`
+    SELECT DISTINCT gender
+    FROM skus
+    WHERE sku = ?
+  `).all(sku)
+  if (!existingRows.length) {
+    const err = new Error('SKU not found')
+    err.statusCode = 404
+    throw err
+  }
+
+  const previousGenders = [...new Set(existingRows
+    .map((row) => String(row.gender ?? '').trim())
+    .filter(Boolean))]
+  const updatedAt = new Date().toISOString()
+  const result = db.transaction(() => {
+    db.prepare(`
+      INSERT INTO sku_attribute_overrides (
+        sku, field, value, updated_at, updated_by_user_id, updated_by_name
+      )
+      VALUES (?, 'gender', ?, ?, ?, ?)
+      ON CONFLICT(sku, field) DO UPDATE SET
+        value = excluded.value,
+        updated_at = excluded.updated_at,
+        updated_by_user_id = excluded.updated_by_user_id,
+        updated_by_name = excluded.updated_by_name
+    `).run(
+      sku,
+      normalizedGender,
+      updatedAt,
+      actor?.id ?? null,
+      actor?.name ?? null,
+    )
+    const skuRowsUpdated = db.prepare('UPDATE skus SET gender = ? WHERE sku = ?')
+      .run(normalizedGender, sku).changes
+    const importLineRowsUpdated = db.prepare('UPDATE import_lines SET gender = ? WHERE sku = ?')
+      .run(normalizedGender, sku).changes
+    return { skuRowsUpdated, importLineRowsUpdated }
+  })()
+
+  return {
+    sku,
+    gender: normalizedGender,
+    previous_genders: previousGenders,
+    updated_at: updatedAt,
+    ...result,
+  }
+}
+
 const insertImportLine = db.prepare(`
   INSERT INTO import_lines (
     id, import_id, sku, size, barcode, product_name, gender,
@@ -1296,6 +1390,7 @@ export function getShipmentMetaBySku() {
 
 export function insertSkus(skusArray) {
   const canonicalBrands = canonicalBrandMap()
+  const genderOverrides = manualGenderOverrides()
   const insert = db.prepare(`
     INSERT INTO skus (id, barcode, sku, product_name, size, price_sold, price_tag, cost_price, quantity, sold_quantity, import_date, gender, season, category, brand, _importId)
     VALUES (@id, @barcode, @sku, @product_name, @size, @price_sold, @price_tag, @cost_price, @quantity, @sold_quantity, @import_date, @gender, @season, @category, @brand, @_importId)
@@ -1345,12 +1440,13 @@ export function insertSkus(skusArray) {
       const priceSoldParam = p == null || p === '' ? null : (() => { const n = Number(p); return Number.isNaN(n) ? null : n })()
       const categoryNorm = normalizeCategory(s.category ?? '')
       const brandNorm = canonicalizeBrand(s.brand, canonicalBrands)
+      const genderSaved = genderOverrides.get(String(s.sku ?? '').trim()) || s.gender || ''
       insert.run({
         id: rowId, barcode: normalizeBarcodeValue(s.barcode ?? '') || '', sku: s.sku ?? '', product_name: s.product_name ?? '',
         size: s.size ?? '', price_sold: priceSoldParam, price_tag: s.price_tag ?? 0,
         cost_price: s.cost_price ?? 0,
         quantity: quantitySaved, sold_quantity: soldN, import_date: importDate,
-        gender: s.gender ?? '', season: s.season ?? '', category: categoryNorm, brand: brandNorm,
+        gender: genderSaved, season: s.season ?? '', category: categoryNorm, brand: brandNorm,
         _importId: s._importId ?? null,
       })
       if (s._importId) {
@@ -1363,7 +1459,7 @@ export function insertSkus(skusArray) {
           size: s.size ?? '',
           barcode: normalizeBarcodeValue(s.barcode ?? '') || '',
           product_name: s.product_name ?? '',
-          gender: s.gender ?? '',
+          gender: genderSaved,
           unit_cost: unitCost,
           line_investment: roundMoney(qty * unitCost),
           price_tag: s.price_tag ?? 0,

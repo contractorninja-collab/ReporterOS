@@ -112,6 +112,11 @@ export async function authLogout() {
 // ── SKUs ────────────────────────────────────────────────────────────────────
 
 export const fetchSkus = () => request('/skus')
+export const updateSkuGender = (skuCode, gender) =>
+  request(`/skus/${encodeURIComponent(skuCode)}/gender`, {
+    method: 'PUT',
+    body: JSON.stringify({ gender }),
+  })
 export const postSkus = (skus) => request('/skus', { method: 'POST', body: JSON.stringify(skus) })
 export const postAssignmentsBulk = (assignments) =>
   request('/assignments/bulk', { method: 'POST', body: JSON.stringify(assignments) })

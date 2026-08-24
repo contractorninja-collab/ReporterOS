@@ -5,6 +5,7 @@ import { useState, useEffect } from 'react'
 import { IconFootwear, IconApparel, IconAccessories, IconPackage, IconHot, IconTruck, IconPlanning } from '../utils/icons.js'
 import SaleBadge from './SaleBadge.jsx'
 import StatusBadge from './StatusBadge.jsx'
+import ProductGenderEditor from './ProductGenderEditor.jsx'
 
 export default function ProductPanelCard({
   sku,
@@ -208,6 +209,7 @@ export default function ProductPanelCard({
             {salesVisible && sku.price_tag > 0 && (
               <span style={{ color: 'var(--ro-text-dim)', fontWeight: 600 }}>€{sku.price_tag}</span>
             )}
+            <ProductGenderEditor sku={sku} compact />
           </div>
           <div
             className="product-panel-card-row__lastImport"
@@ -568,6 +570,7 @@ export default function ProductPanelCard({
           {salesVisible && sku.price_tag > 0 && (
             <span style={{ color: 'var(--ro-text-dim)', fontWeight: 600 }}>€{sku.price_tag}</span>
           )}
+          <ProductGenderEditor sku={sku} compact />
         </div>
         <div
           className="product-panel-card-tile__lastImport"

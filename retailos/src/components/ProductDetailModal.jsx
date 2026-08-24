@@ -35,6 +35,16 @@ const ASSIGN_TYPES = {
 }
 
 const SHOPS = ['Ring Mall', 'Village']
+const GENDER_OPTIONS = [
+  { value: 'M', label: 'Male' },
+  { value: 'F', label: 'Female' },
+  { value: 'K', label: 'Kids' },
+  { value: 'U', label: 'Unisex' },
+]
+
+function genderFullLabel(value) {
+  return GENDER_OPTIONS.find((option) => option.value === genderShortLabel(value))?.label || '—'
+}
 
 function suggestMarkdownTier(days) {
   if (days <= 120) return 20
@@ -59,6 +69,7 @@ export default function ProductDetailModal({ sku, status, statusData, onClose, s
   const removeSaleListItem = useStore((s) => s.removeSaleListItem)
   const addItemToTodayTransfer = useStore((s) => s.addItemToTodayTransfer)
   const addItemToStoreTransfer = useStore((s) => s.addItemToStoreTransfer)
+  const saveSkuGender = useStore((s) => s.saveSkuGender)
   const activeShifts = useStore((s) => s.activeShifts)
   const displaySku = mergeShipmentMeta(sku, shipmentMeta, activeSeason)
 
@@ -84,10 +95,26 @@ export default function ProductDetailModal({ sku, status, statusData, onClose, s
   const [saleListLookupRefreshing, setSaleListLookupRefreshing] = useState(false)
   const [saleListLookupAttempted, setSaleListLookupAttempted] = useState(false)
   const [summaryBySku, setSummaryBySku] = useState(() => ({}))
+  const [savedGender, setSavedGender] = useState(() => genderShortLabel(sku.gender))
+  const [genderDraft, setGenderDraft] = useState(() => genderShortLabel(sku.gender))
+  const [genderEditing, setGenderEditing] = useState(false)
+  const [genderSaving, setGenderSaving] = useState(false)
+  const [genderMessage, setGenderMessage] = useState('')
+  const [genderError, setGenderError] = useState('')
 
   const skuCode = String(sku.sku ?? '')
   const skuSaleListId = String(sku.sale_list_id ?? '')
   const skuHasActiveSaleList = Boolean(sku.sale_active && skuSaleListId)
+
+  useEffect(() => {
+    const current = genderShortLabel(sku.gender)
+    setSavedGender(current)
+    setGenderDraft(current)
+    setGenderEditing(false)
+    setGenderSaving(false)
+    setGenderMessage('')
+    setGenderError('')
+  }, [skuCode, sku.gender])
 
   const activeSaleLists = useMemo(
     () => markdownLists.filter((l) => l.kind !== 'removal' && l.status !== 'ended'),
@@ -206,7 +233,7 @@ export default function ProductDetailModal({ sku, status, statusData, onClose, s
       productName: sku.product_name || '',
       brand: sku.brand || '',
       category: sku.category || '',
-      gender: sku.gender || '',
+      gender: savedGender || sku.gender || '',
       season: sku.season || '',
       priceTag: Number(sku.price_tag) || 0,
       salePct,
@@ -253,6 +280,24 @@ export default function ProductDetailModal({ sku, status, statusData, onClose, s
       setQuickSaleError(err?.message || 'Failed to remove sale')
     } finally {
       setQuickSaleSaving(false)
+    }
+  }
+
+  const handleGenderSave = async () => {
+    if (!canManage || genderSaving || !genderDraft) return
+    setGenderSaving(true)
+    setGenderError('')
+    setGenderMessage('')
+    try {
+      const result = await saveSkuGender(skuCode, genderDraft)
+      setSavedGender(result.gender)
+      setGenderDraft(result.gender)
+      setGenderEditing(false)
+      setGenderMessage('Saved')
+    } catch (err) {
+      setGenderError(err?.message || 'Failed to update gender')
+    } finally {
+      setGenderSaving(false)
     }
   }
 
@@ -779,7 +824,7 @@ export default function ProductDetailModal({ sku, status, statusData, onClose, s
             {[
               ['Brand', sku.brand ?? '—'],
               ['Category', sku.category ?? '—'],
-              ['Gender', genderShortLabel(sku.gender)],
+              ['Gender', savedGender],
               ['Arrival Date', lifecycleArrivalDate ? new Date(lifecycleArrivalDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'],
               ['Days in store', String(days)],
               ['Season', sku.season ?? '—'],
@@ -796,7 +841,108 @@ export default function ProductDetailModal({ sku, status, statusData, onClose, s
                 }}
               >
                 <span style={{ fontSize: 11, color: 'var(--ro-text-muted)', flexShrink: 0 }}>{key}</span>
-                <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--ro-text)', textAlign: 'right' }}>{val}</span>
+                {key === 'Gender' ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6, minWidth: 0 }}>
+                    {genderEditing ? (
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', flexWrap: 'wrap', gap: 6 }}>
+                        <select
+                          value={genderDraft}
+                          onChange={(event) => setGenderDraft(event.target.value)}
+                          disabled={genderSaving}
+                          aria-label="Gender"
+                          autoFocus
+                          style={{
+                            minHeight: 32,
+                            padding: '5px 28px 5px 9px',
+                            borderRadius: 8,
+                            border: '1px solid var(--ro-border-hover)',
+                            background: 'var(--ro-surface)',
+                            color: 'var(--ro-text)',
+                            fontSize: 12,
+                            fontWeight: 700,
+                          }}
+                        >
+                          {GENDER_OPTIONS.map((option) => (
+                            <option key={option.value} value={option.value}>{option.label}</option>
+                          ))}
+                        </select>
+                        <button
+                          type="button"
+                          onClick={handleGenderSave}
+                          disabled={genderSaving}
+                          style={{
+                            ...ACTION_BTN,
+                            padding: '7px 10px',
+                            border: '1px solid rgba(34,197,94,0.28)',
+                            background: 'rgba(34,197,94,0.12)',
+                            color: '#22c55e',
+                            opacity: genderSaving ? 0.65 : 1,
+                          }}
+                        >
+                          {genderSaving ? 'Saving…' : 'Save'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setGenderDraft(savedGender)
+                            setGenderEditing(false)
+                            setGenderError('')
+                          }}
+                          disabled={genderSaving}
+                          style={{
+                            ...ACTION_BTN,
+                            padding: '7px 9px',
+                            border: '1px solid var(--ro-border)',
+                            background: 'transparent',
+                            color: 'var(--ro-text-muted)',
+                          }}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (!canManage) return
+                          setGenderDraft(savedGender)
+                          setGenderEditing(true)
+                          setGenderMessage('')
+                          setGenderError('')
+                        }}
+                        disabled={!canManage}
+                        title={canManage ? 'Edit gender' : undefined}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 7,
+                          padding: canManage ? '4px 7px' : 0,
+                          margin: canManage ? '-4px -7px' : 0,
+                          border: 'none',
+                          borderRadius: 7,
+                          background: 'transparent',
+                          color: 'var(--ro-text)',
+                          fontSize: 12,
+                          fontWeight: 700,
+                          cursor: canManage ? 'pointer' : 'default',
+                        }}
+                      >
+                        <span>{genderFullLabel(val)}</span>
+                        {canManage && (
+                          <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--ro-accent, #60a5fa)' }}>Edit</span>
+                        )}
+                      </button>
+                    )}
+                    {genderMessage && (
+                      <span role="status" style={{ fontSize: 10, fontWeight: 700, color: '#22c55e' }}>{genderMessage}</span>
+                    )}
+                    {genderError && (
+                      <span role="alert" style={{ maxWidth: 260, fontSize: 10, fontWeight: 700, color: '#ef4444', textAlign: 'right' }}>{genderError}</span>
+                    )}
+                  </div>
+                ) : (
+                  <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--ro-text)', textAlign: 'right' }}>{val}</span>
+                )}
               </div>
             ))}
           </div>

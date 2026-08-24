@@ -17,6 +17,16 @@ export function createCatalogSlice(set, get) {
         skus: state.skus.map((sku) => (sku.sku === skuCode ? { ...sku, ...changes } : sku)),
       })),
 
+    saveSkuGender: async (skuCode, gender) => {
+      const result = await api.updateSkuGender(skuCode, gender)
+      set((state) => ({
+        skus: state.skus.map((sku) => (
+          sku.sku === skuCode ? { ...sku, gender: result.gender } : sku
+        )),
+      }))
+      return result
+    },
+
     clearSkus: () => set({ skus: [] }),
 
     setActiveSeason: (season) => set({ activeSeason: season }),
