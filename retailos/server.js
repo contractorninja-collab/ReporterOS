@@ -70,6 +70,7 @@ import {
   isPhaseComplete,
   verificationTotals,
 } from './src/utils/storeTransferVerification.js'
+import { outletVerificationEntryError } from './src/utils/outletTransfers.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -760,9 +761,38 @@ function outletTransferAllVerified(row, statuses) {
   const expected = flattenStoreTransferItems(row.items)
   if (!expected.length) return false
   return expected.every((line) => {
-    const st = statuses?.[line.key]
-    return st?.status === 'done' || st?.status === 'missing' || st?.status === 'partial'
+    return !outletVerificationEntryError(statuses?.[line.key], line.qty)
   })
+}
+
+function validateOutletTransferItemStatuses(row, statuses) {
+  validateStoreTransferItemStatuses(row, statuses)
+  const expected = new Map(flattenStoreTransferItems(row.items).map((line) => [line.key, line.qty]))
+  for (const [key, entry] of Object.entries(statuses)) {
+    const lineQty = Math.max(0, Number(expected.get(key)) || 0)
+    const status = entry.status == null ? '' : String(entry.status)
+    const received = entry.received == null ? lineQty : Number(entry.received)
+    const missing = entry.missing == null ? 0 : Number(entry.missing)
+    if (!Number.isInteger(received) || !Number.isInteger(missing)) {
+      const err = new Error('Outlet receipt quantities must be whole numbers')
+      err.statusCode = 400
+      throw err
+    }
+    if (status && received + missing !== lineQty) {
+      const err = new Error('Confirmed and missing quantities must account for the full transfer quantity')
+      err.statusCode = 400
+      throw err
+    }
+    if (
+      (status === 'done' && (received !== lineQty || missing !== 0)) ||
+      (status === 'partial' && (received <= 0 || missing <= 0)) ||
+      (status === 'missing' && (received !== 0 || missing !== lineQty))
+    ) {
+      const err = new Error('Outlet item status does not match its confirmed and missing quantities')
+      err.statusCode = 400
+      throw err
+    }
+  }
 }
 
 function validateOutletTransferUpdate(row, user, changes) {
@@ -790,12 +820,12 @@ function validateOutletTransferUpdate(row, user, changes) {
       err.statusCode = 403
       throw err
     }
-    if (current !== 'pending' && nextStatus !== 'completed') {
+    if (current !== 'pending') {
       const err = new Error('Outlet transfer items can only be verified before Outlet receipt')
       err.statusCode = 403
       throw err
     }
-    validateStoreTransferItemStatuses(row, changes.item_statuses)
+    validateOutletTransferItemStatuses(row, changes.item_statuses)
   }
 
   if (has('status') && !strEq(changes.status, row.status)) {
@@ -820,7 +850,7 @@ function validateOutletTransferUpdate(row, user, changes) {
         err.statusCode = 403
         throw err
       }
-      if (current !== 'completed' && !roles.executive) {
+      if (current !== 'completed') {
         const err = new Error('Outlet transfer must be completed before receipt')
         err.statusCode = 403
         throw err
@@ -2213,9 +2243,8 @@ app.delete('/api/outlet-transfers/:id', (req, res) => {
     if (!outletTransferVisibleToUser(row, req.authUser)) {
       return res.status(403).json({ error: 'Forbidden' })
     }
-    const roles = outletTransferUserRole(row, req.authUser)
-    if (!roles.executive && !roles.sender) {
-      return res.status(403).json({ error: 'Only the sending shop or an executive can delete this transfer' })
+    if (req.authUser.role !== 'executive') {
+      return res.status(403).json({ error: 'Only an executive can delete this transfer' })
     }
     const n = Array.isArray(row.items) ? row.items.length : 0
     const status = row.status || 'pending'

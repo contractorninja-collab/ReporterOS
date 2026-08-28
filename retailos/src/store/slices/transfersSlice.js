@@ -38,7 +38,7 @@ export function createTransfersSlice(set, get) {
       set((state) => ({
         outletTransfers: state.outletTransfers.map((t) => (t.id === transferId ? { ...t, ...changes } : t)),
       }))
-      api.putOutletTransfer(transferId, changes)
+      return api.putOutletTransfer(transferId, changes)
         .then((result) => {
           const updatedTransfer = result?.transfer || result
           const ecommerceSale = result?.ecommerceSale
@@ -77,6 +77,7 @@ export function createTransfersSlice(set, get) {
           }
           notifyLocalWriteFailure(set, get, 'Outlet transfer update was not saved', err)
           resyncAfterWriteFailure(get)
+          throw err
         })
     },
 

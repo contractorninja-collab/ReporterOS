@@ -1,19 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { AlertTriangle, Check } from 'lucide-react'
+import { AlertTriangle, Check, ImageOff, X } from 'lucide-react'
 import useStore from '../store/useStore.js'
 import { toTitleCase } from '../utils/textFormat.js'
 import { IconPlus, IconDownload, IconPrint } from '../utils/icons.js'
-
-const BTN = {
-  padding: '7px 14px',
-  borderRadius: 8,
-  fontSize: 11,
-  fontWeight: 600,
-  cursor: 'pointer',
-  fontFamily: '"DM Sans"',
-  border: 'none',
-}
+import {
+  buildOutletVerificationEntry,
+  outletShortageDraftError,
+  outletVerificationEntryError,
+} from '../utils/outletTransfers.js'
 
 function formatDate(iso) {
   if (!iso) return '—'
@@ -63,10 +58,25 @@ function printBatch(batch, userName) {
   setTimeout(() => w.print(), 400)
 }
 
-function renderItemRow(it, idx) {
+function OutletThumb({ src, size = 38 }) {
+  const [failed, setFailed] = useState(false)
+  useEffect(() => setFailed(false), [src])
+  const style = { width: size, height: size }
+  if (!src || failed) {
+    return (
+      <div className="ot-product-thumb ot-product-thumb--empty" style={style} aria-label="No product image">
+        <ImageOff size={Math.max(14, Math.round(size * 0.42))} />
+      </div>
+    )
+  }
+  return <img className="ot-product-thumb" style={style} src={src} alt="" loading="lazy" onError={() => setFailed(true)} />
+}
+
+function renderItemRow(it, idx, photoMap) {
   if (it.sizeBreakdown && it.sizeBreakdown.length > 0) {
     return (
       <tr key={idx} className="ot-batch-table__row">
+        <td className="ot-batch-table__photo"><OutletThumb src={photoMap?.[it.skuCode] || null} /></td>
         <td className="ot-batch-table__sku">{it.skuCode}</td>
         <td className="ot-batch-table__product">{toTitleCase(it.productName)}</td>
         <td className="ot-batch-table__qty">{it.totalQty ?? it.quantity}</td>
@@ -84,6 +94,7 @@ function renderItemRow(it, idx) {
   }
   return (
     <tr key={idx} className="ot-batch-table__row">
+      <td className="ot-batch-table__photo"><OutletThumb src={photoMap?.[it.skuCode] || null} /></td>
       <td className="ot-batch-table__sku">{it.skuCode}</td>
       <td className="ot-batch-table__product">{toTitleCase(it.productName)}</td>
       <td className="ot-batch-table__qty">{it.quantity}</td>
@@ -116,144 +127,217 @@ function flattenItems(items) {
   return lines
 }
 
-function QtyCounter({ value, max, onChange, disabled }) {
+function ShortageDialog({ line, entry, photoUrl, saving, onClose, onSave }) {
+  const [missing, setMissing] = useState(entry?.missing > 0 ? String(entry.missing) : '1')
+  const [comment, setComment] = useState(entry?.missing > 0 ? String(entry.comment || '') : '')
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape' && !saving) onClose()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [onClose, saving])
+
+  const submit = async (event) => {
+    event.preventDefault()
+    const validationError = outletShortageDraftError({ expected: line.qty, missing, comment })
+    if (validationError) {
+      setError(validationError)
+      return
+    }
+    try {
+      await onSave({ missing: Number(missing), comment: comment.trim() })
+    } catch (saveError) {
+      setError(saveError?.message || 'Could not save this shortage. Try again.')
+    }
+  }
+
+  const received = Number.isInteger(Number(missing))
+    ? Math.max(0, line.qty - Number(missing))
+    : line.qty
+
   return (
-    <input
-      type="number"
-      min="0"
-      max={max}
-      value={value}
-      disabled={disabled}
-      onChange={(e) => onChange(Math.max(0, Math.min(max, Number(e.target.value) || 0)))}
-      style={{
-        width: 56,
-        border: '1px solid var(--ro-border)',
-        borderRadius: 7,
-        padding: '5px 6px',
-        fontSize: 11,
-        color: 'var(--ro-text)',
-        background: disabled ? 'var(--ro-fill-soft)' : 'var(--ro-surface)',
-      }}
-    />
+    <div className="ot-shortage-backdrop" role="presentation" onMouseDown={() => !saving && onClose()}>
+      <form className="ot-shortage-dialog" role="dialog" aria-modal="true" aria-labelledby="ot-shortage-title" onSubmit={submit} onMouseDown={(event) => event.stopPropagation()}>
+        <div className="ot-shortage-dialog__head">
+          <div>
+            <span className="ot-shortage-dialog__eyebrow">Report shortage</span>
+            <h2 id="ot-shortage-title">How many are missing?</h2>
+          </div>
+          <button type="button" className="ot-shortage-dialog__close" aria-label="Close" disabled={saving} onClick={onClose}><X size={17} /></button>
+        </div>
+
+        <div className="ot-shortage-dialog__product">
+          <OutletThumb src={photoUrl} size={46} />
+          <div>
+            <strong>{toTitleCase(line.productName)}</strong>
+            <span>{line.skuCode} · {line.size} · {line.qty} expected</span>
+          </div>
+        </div>
+
+        <label className="ot-shortage-field">
+          <span>Missing quantity</span>
+          <input autoFocus type="number" min="1" max={line.qty} step="1" inputMode="numeric" value={missing} disabled={saving} onChange={(event) => { setMissing(event.target.value); setError('') }} />
+        </label>
+
+        <div className="ot-shortage-dialog__accounting" aria-live="polite">
+          <span><strong>{received}</strong> confirmed</span>
+          <span><strong>{missing || '—'}</strong> missing</span>
+        </div>
+
+        <label className="ot-shortage-field">
+          <span>Why is it missing? <em>Required</em></span>
+          <textarea rows="3" maxLength="1000" placeholder="Briefly explain what happened…" value={comment} disabled={saving} onChange={(event) => { setComment(event.target.value); setError('') }} />
+        </label>
+
+        {error && <p className="ot-shortage-dialog__error" role="alert">{error}</p>}
+
+        <div className="ot-shortage-dialog__actions">
+          <button type="button" className="ot-shortage-dialog__cancel" disabled={saving} onClick={onClose}>Cancel</button>
+          <button type="submit" className="ot-shortage-dialog__save" disabled={saving}>{saving ? 'Saving…' : 'Save shortage'}</button>
+        </div>
+      </form>
+    </div>
   )
 }
 
-function OutletVerificationPanel({ batch, onUpdate }) {
+function OutletVerificationPanel({ batch, onUpdate, photoMap }) {
   const lines = useMemo(() => flattenItems(batch.items), [batch.items])
-  const savedStatuses = batch.item_statuses || {}
-  const [localStatuses, setLocalStatuses] = useState(() => {
-    const init = {}
-    for (const line of lines) {
-      const key = `${line.skuCode}|${line.size}`
-      init[key] = savedStatuses[key] || { status: '', received: line.qty, missing: 0, expected: line.qty, comment: '' }
-    }
-    return init
-  })
+  const savedStatuses = useMemo(() => batch.item_statuses || {}, [batch.item_statuses])
+  const [localStatuses, setLocalStatuses] = useState(savedStatuses)
+  const [shortageLine, setShortageLine] = useState(null)
+  const [savingKey, setSavingKey] = useState('')
+  const [completing, setCompleting] = useState(false)
+  const [panelError, setPanelError] = useState('')
 
   const statusesRef = useRef(localStatuses)
   useEffect(() => { statusesRef.current = localStatuses }, [localStatuses])
+  useEffect(() => {
+    setLocalStatuses(savedStatuses)
+    statusesRef.current = savedStatuses
+  }, [batch.id, savedStatuses])
 
-  const persist = useCallback((next) => {
+  const persist = useCallback(async (next, previous) => {
     statusesRef.current = next
-    onUpdate(batch.id, { item_statuses: next })
+    setLocalStatuses(next)
+    try {
+      await onUpdate(batch.id, { item_statuses: next })
+    } catch (error) {
+      statusesRef.current = previous
+      setLocalStatuses(previous)
+      throw error
+    }
   }, [batch.id, onUpdate])
 
-  const setReceived = useCallback((key, qty) => {
-    setLocalStatuses((prev) => {
-      const next = { ...prev, [key]: { ...prev[key], received: qty } }
-      persist(next)
-      return next
-    })
+  const confirmLine = useCallback(async (line) => {
+    const key = `${line.skuCode}|${line.size}`
+    const previous = statusesRef.current
+    const next = { ...previous, [key]: buildOutletVerificationEntry({ expected: line.qty }) }
+    setSavingKey(key)
+    setPanelError('')
+    try {
+      await persist(next, previous)
+    } catch (error) {
+      setPanelError(error?.message || 'Could not save this line. Try again.')
+    } finally {
+      setSavingKey('')
+    }
   }, [persist])
 
-  const confirmLine = useCallback((key, expectedQty) => {
-    setLocalStatuses((prev) => {
-      const entry = prev[key] || {}
-      const received = entry.received ?? expectedQty
-      const missing = Math.max(0, expectedQty - received)
-      const next = {
-        ...prev,
-        [key]: {
-          ...entry,
-          status: missing > 0 ? 'partial' : 'done',
-          received,
-          missing,
-          expected: expectedQty,
-          comment: '',
-        },
-      }
-      persist(next)
-      return next
-    })
-  }, [persist])
-
-  const markFullMissing = useCallback((key, expectedQty) => {
-    setLocalStatuses((prev) => {
-      const next = {
-        ...prev,
-        [key]: { ...prev[key], status: 'missing', received: 0, missing: expectedQty, expected: expectedQty, comment: '' },
-      }
-      persist(next)
-      return next
-    })
-  }, [persist])
+  const saveShortage = useCallback(async ({ missing, comment }) => {
+    if (!shortageLine) return
+    const key = `${shortageLine.skuCode}|${shortageLine.size}`
+    const previous = statusesRef.current
+    const next = {
+      ...previous,
+      [key]: buildOutletVerificationEntry({ expected: shortageLine.qty, missing, comment }),
+    }
+    setSavingKey(key)
+    setPanelError('')
+    try {
+      await persist(next, previous)
+      setShortageLine(null)
+    } finally {
+      setSavingKey('')
+    }
+  }, [persist, shortageLine])
 
   const allVerified = lines.length > 0 && lines.every((line) => {
-    const st = localStatuses[`${line.skuCode}|${line.size}`]
-    return st?.status === 'done' || st?.status === 'missing' || st?.status === 'partial'
+    const entry = localStatuses[`${line.skuCode}|${line.size}`]
+    return !outletVerificationEntryError(entry, line.qty)
   })
 
-  const handleComplete = () => {
+  const handleComplete = async () => {
     const current = statusesRef.current
-    const unverified = lines.filter((line) => !current[`${line.skuCode}|${line.size}`]?.status)
-    if (unverified.length > 0) {
-      const ok = window.confirm('Some outlet transfer lines are not verified. Mark them missing and complete?')
-      if (!ok) return
-      const finalStatuses = { ...current }
-      for (const line of unverified) {
-        finalStatuses[`${line.skuCode}|${line.size}`] = {
-          status: 'missing',
-          received: 0,
-          missing: line.qty,
-          expected: line.qty,
-          comment: '',
-        }
-      }
-      setLocalStatuses(finalStatuses)
-      onUpdate(batch.id, { item_statuses: finalStatuses, status: 'completed' })
-      return
+    if (!allVerified || completing) return
+    setCompleting(true)
+    setPanelError('')
+    try {
+      await onUpdate(batch.id, { item_statuses: current, status: 'completed' })
+    } catch (error) {
+      setPanelError(error?.message || 'Could not complete this transfer. Try again.')
+    } finally {
+      setCompleting(false)
     }
-    onUpdate(batch.id, { item_statuses: current, status: 'completed' })
   }
 
   return (
-    <div style={{ padding: '12px 18px', borderTop: '1px solid var(--ro-border)' }}>
+    <section className="ot-verification" aria-label="Outlet transfer verification">
+      <div className="ot-verification__intro">
+        <div><strong>Verify transfer</strong><span>Confirm each size or report a shortage.</span></div>
+        <span>{lines.filter((line) => !outletVerificationEntryError(localStatuses[`${line.skuCode}|${line.size}`], line.qty)).length}/{lines.length} resolved</span>
+      </div>
       {lines.map((line) => {
         const key = `${line.skuCode}|${line.size}`
-        const entry = localStatuses[key] || { received: line.qty }
-        const isConfirmed = !!entry.status
+        const entry = localStatuses[key]
+        const isDone = entry?.status === 'done'
+        const hasShortage = entry?.status === 'partial' || entry?.status === 'missing'
+        const isSaving = savingKey === key
+        const result = entry?.status
+          ? `${Number(entry.received) || 0} confirmed · ${Number(entry.missing) || 0} missing`
+          : 'Not verified'
         return (
-          <div key={key} style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto auto auto', gap: 8, alignItems: 'center', padding: '8px 0', borderBottom: '1px solid var(--ro-border)' }}>
-            <div style={{ minWidth: 0 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--ro-text)' }}>{toTitleCase(line.productName)}</div>
-              <div style={{ fontSize: 10, color: 'var(--ro-text-dim)' }}>{line.skuCode} · {line.size} · expected {line.qty}</div>
+          <div key={key} className={`ot-verification-line${isDone ? ' is-done' : ''}${hasShortage ? ' has-shortage' : ''}`}>
+            <div className="ot-verification-line__identity">
+              <OutletThumb src={photoMap?.[line.skuCode] || null} />
+              <div>
+                <strong>{toTitleCase(line.productName)}</strong>
+                <span>{line.skuCode} · {line.size} · {line.qty} expected</span>
+              </div>
             </div>
-            <QtyCounter value={entry.received ?? line.qty} max={line.qty} disabled={isConfirmed} onChange={(v) => setReceived(key, v)} />
-            <button type="button" onClick={() => confirmLine(key, line.qty)} disabled={isConfirmed} style={{ ...BTN, background: isConfirmed ? 'var(--ro-fill-soft)' : '#16a34a', color: isConfirmed ? 'var(--ro-text-muted)' : '#fff' }}>
-              <Check size={13} /> {isConfirmed ? 'Confirmed' : 'Done'}
-            </button>
-            <button type="button" onClick={() => markFullMissing(key, line.qty)} disabled={isConfirmed} style={{ ...BTN, background: isConfirmed ? 'var(--ro-fill-soft)' : '#fef2f2', color: isConfirmed ? 'var(--ro-text-muted)' : '#dc2626', border: '1px solid #fecaca' }}>
-              <AlertTriangle size={13} /> Missing
-            </button>
+            <div className={`ot-verification-line__result${hasShortage ? ' has-shortage' : ''}`}>{result}</div>
+            <div className="ot-verification-line__actions">
+              <button type="button" className={`ot-line-action ot-line-action--done${isDone ? ' is-active' : ''}`} disabled={isSaving || completing} onClick={() => confirmLine(line)}>
+                <Check size={13} /> {isSaving && !hasShortage ? 'Saving…' : 'Done'}
+              </button>
+              <button type="button" className={`ot-line-action ot-line-action--missing${hasShortage ? ' is-active' : ''}`} disabled={isSaving || completing} onClick={() => setShortageLine(line)}>
+                <AlertTriangle size={13} /> Missing
+              </button>
+            </div>
           </div>
         )
       })}
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 12 }}>
-        <button type="button" className="ot-mark-received-btn" disabled={!allVerified} onClick={handleComplete} style={!allVerified ? { opacity: 0.5, cursor: 'not-allowed' } : undefined}>
-          Complete transfer verification
+      {panelError && <p className="ot-verification__error" role="alert">{panelError}</p>}
+      <div className="ot-verification__finish">
+        {!allVerified && <span>Resolve every size and explain each shortage.</span>}
+        <button type="button" className="ot-mark-received-btn" disabled={!allVerified || completing} onClick={handleComplete}>
+          {completing ? 'Completing…' : 'Complete transfer verification'}
         </button>
       </div>
-    </div>
+      {shortageLine && (
+        <ShortageDialog
+          key={`${shortageLine.skuCode}|${shortageLine.size}`}
+          line={shortageLine}
+          entry={localStatuses[`${shortageLine.skuCode}|${shortageLine.size}`]}
+          photoUrl={photoMap?.[shortageLine.skuCode] || null}
+          saving={savingKey === `${shortageLine.skuCode}|${shortageLine.size}`}
+          onClose={() => setShortageLine(null)}
+          onSave={saveShortage}
+        />
+      )}
+    </section>
   )
 }
 
@@ -266,6 +350,7 @@ export function OutletTransfers() {
   const deleteOutletTransfer = useStore((s) => s.deleteOutletTransfer)
   const users = useStore((s) => s.users)
   const activeUser = useStore((s) => s.activeUser)
+  const photoMap = useStore((s) => s.photoMap)
   const [expanded, setExpanded] = useState(null)
 
   useEffect(() => {
@@ -287,7 +372,7 @@ export function OutletTransfers() {
   }
 
   const handleReceive = (id) => {
-    updateOutletTransfer(id, { status: 'received', receivedAt: new Date().toISOString() })
+    updateOutletTransfer(id, { status: 'received', receivedAt: new Date().toISOString() }).catch(() => {})
   }
 
   const handleDeleteTransfer = (batch) => {
@@ -312,12 +397,7 @@ export function OutletTransfers() {
     return batch.status === 'completed' && (activeUser?.role === 'outlet' || activeUser?.role === 'executive')
   }
 
-  const canDeleteOutletTransfer = (batch) => {
-    if (activeUser?.role === 'executive') return true
-    return batch.createdBy === activeUser?.id ||
-      String(batch.assignedTo || '').split(',').map((id) => id.trim()).includes(activeUser?.id) ||
-      Boolean(batch.fromShop && batch.fromShop === activeUser?.shop)
-  }
+  const canDeleteOutletTransfer = () => activeUser?.role === 'executive'
 
   return (
     <div className="outlet-transfers-page store-transfers-page">
@@ -383,6 +463,7 @@ export function OutletTransfers() {
                     <table className="ot-batch-table">
                       <thead>
                         <tr>
+                          <th aria-label="Product image" />
                           <th>SKU</th>
                           <th>Product</th>
                           <th>Qty</th>
@@ -390,13 +471,13 @@ export function OutletTransfers() {
                         </tr>
                       </thead>
                       <tbody>
-                        {batch.items.map((it, idx) => renderItemRow(it, idx))}
+                        {batch.items.map((it, idx) => renderItemRow(it, idx, photoMap))}
                       </tbody>
                     </table>
                   </div>
 
                   {canVerifyOutletTransfer(batch) && (
-                    <OutletVerificationPanel batch={batch} onUpdate={updateOutletTransfer} />
+                    <OutletVerificationPanel batch={batch} onUpdate={updateOutletTransfer} photoMap={photoMap} />
                   )}
 
                   <div className="ot-batch-card__footer">

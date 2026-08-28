@@ -1,9 +1,12 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
+  buildOutletVerificationEntry,
   clearOutletItemStatuses,
   findTodayPendingOutletTransfer,
   localDateKey,
+  outletShortageDraftError,
+  outletVerificationEntryError,
   upsertOutletTransferItem,
   upsertOutletTransferItems,
 } from './outletTransfers.js'
@@ -45,4 +48,35 @@ test('clears verification only for the refreshed product', () => {
   assert.deepEqual(clearOutletItemStatuses(statuses, 'SKU-1'), {
     'SKU-2|One Size': { status: 'done' },
   })
+})
+
+test('builds full, partial, and fully missing outlet verification entries', () => {
+  assert.deepEqual(buildOutletVerificationEntry({ expected: 5 }), {
+    status: 'done', received: 5, missing: 0, expected: 5, comment: '',
+  })
+  assert.deepEqual(buildOutletVerificationEntry({ expected: 5, missing: 1, comment: '  Not on shelf  ' }), {
+    status: 'partial', received: 4, missing: 1, expected: 5, comment: 'Not on shelf',
+  })
+  assert.deepEqual(buildOutletVerificationEntry({ expected: 5, missing: 5, comment: 'Box not delivered' }), {
+    status: 'missing', received: 0, missing: 5, expected: 5, comment: 'Box not delivered',
+  })
+})
+
+test('validates outlet shortage drafts', () => {
+  assert.equal(outletShortageDraftError({ expected: 5, missing: '', comment: 'Lost' }), 'Enter how many units are missing.')
+  assert.match(outletShortageDraftError({ expected: 5, missing: 0, comment: 'Lost' }), /1 to 5/)
+  assert.match(outletShortageDraftError({ expected: 5, missing: 1.5, comment: 'Lost' }), /whole number/)
+  assert.match(outletShortageDraftError({ expected: 5, missing: 6, comment: 'Lost' }), /1 to 5/)
+  assert.equal(outletShortageDraftError({ expected: 5, missing: 1, comment: ' ' }), 'Explain why the units are missing.')
+  assert.equal(outletShortageDraftError({ expected: 5, missing: 1, comment: 'Not found' }), '')
+})
+
+test('requires exact quantities, matching statuses, and shortage reasons', () => {
+  assert.equal(outletVerificationEntryError(
+    buildOutletVerificationEntry({ expected: 5, missing: 1, comment: 'Not found' }), 5,
+  ), '')
+  assert.match(outletVerificationEntryError({ status: 'partial', received: 4, missing: 0, comment: 'Not found' }, 5), /account/)
+  assert.match(outletVerificationEntryError({ status: 'done', received: 4, missing: 1, comment: '' }, 5), /confirmed line/)
+  assert.match(outletVerificationEntryError({ status: 'partial', received: 4, missing: 1, comment: '' }, 5), /Explain/)
+  assert.match(outletVerificationEntryError({ status: 'missing', received: 1, missing: 4, comment: 'Lost' }, 5), /missing line/)
 })

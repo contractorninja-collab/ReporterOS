@@ -4968,6 +4968,27 @@ small,
   vertical-align: top;
 }
 
+.ot-batch-table__photo {
+  width: 50px;
+  padding-right: 12px !important;
+}
+
+.ot-product-thumb {
+  display: block;
+  flex-shrink: 0;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #f8fafc;
+  object-fit: cover;
+}
+
+.ot-product-thumb--empty {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #a1a1aa;
+}
+
 .ot-batch-table__sku {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
   font-size: 11px;
@@ -5064,6 +5085,422 @@ small,
   border: none;
   background: #dcfce7;
   color: #15803d;
+}
+
+.ot-mark-received-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.ot-verification {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid #e5e7eb;
+  font-family: "DM Sans", sans-serif;
+}
+
+.ot-verification__intro {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 8px;
+}
+
+.ot-verification__intro > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ot-verification__intro strong {
+  color: #111827;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.ot-verification__intro span {
+  color: #9ca3af;
+  font-size: 11px;
+}
+
+.ot-verification-line {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto auto;
+  align-items: center;
+  gap: 14px;
+  min-height: 62px;
+  padding: 10px 12px;
+  border-top: 1px solid #f1f5f9;
+  transition: background-color 0.15s ease;
+}
+
+.ot-verification-line.is-done {
+  background: #fbfefc;
+}
+
+.ot-verification-line.has-shortage {
+  background: #fffcfa;
+}
+
+.ot-verification-line__identity {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.ot-verification-line__identity > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.ot-verification-line__identity strong {
+  overflow: hidden;
+  color: #111827;
+  font-size: 12px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ot-verification-line__identity span {
+  overflow: hidden;
+  color: #9ca3af;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ot-verification-line__result {
+  color: #6b7280;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.ot-verification-line__result.has-shortage {
+  color: #b45309;
+}
+
+.ot-verification-line__actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ot-line-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 32px;
+  padding: 6px 11px;
+  border: 1px solid #e5e7eb;
+  border-radius: 7px;
+  background: #fff;
+  color: #52525b;
+  font: 600 11px/1 "DM Sans", sans-serif;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.ot-line-action:hover:not(:disabled) {
+  border-color: #cbd5e1;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+}
+
+.ot-line-action:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+
+.ot-line-action--done.is-active {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+  color: #15803d;
+}
+
+.ot-line-action--missing.is-active {
+  border-color: #fed7aa;
+  background: #fff7ed;
+  color: #c2410c;
+}
+
+.ot-verification__error,
+.ot-shortage-dialog__error {
+  margin: 10px 0 0;
+  color: #b91c1c;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.ot-verification__finish {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  padding-top: 14px;
+}
+
+.ot-verification__finish > span {
+  color: #9ca3af;
+  font-size: 10px;
+}
+
+.ot-shortage-backdrop {
+  position: fixed;
+  z-index: 1200;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(15, 23, 42, 0.36);
+  backdrop-filter: blur(2px);
+}
+
+.ot-shortage-dialog {
+  width: min(100%, 420px);
+  max-height: calc(100vh - 40px);
+  overflow-y: auto;
+  padding: 22px;
+  border: 1px solid rgba(15, 23, 42, 0.1);
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.2), 0 2px 8px rgba(15, 23, 42, 0.08);
+  font-family: "DM Sans", sans-serif;
+}
+
+.ot-shortage-dialog__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.ot-shortage-dialog__eyebrow {
+  display: block;
+  margin-bottom: 4px;
+  color: #6b7280;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.ot-shortage-dialog h2 {
+  margin: 0;
+  color: #111827;
+  font-size: 19px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.ot-shortage-dialog__close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: #9ca3af;
+  cursor: pointer;
+}
+
+.ot-shortage-dialog__close:hover:not(:disabled) {
+  background: #f4f4f5;
+  color: #374151;
+}
+
+.ot-shortage-dialog__product {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  margin: 18px 0;
+  padding: 10px;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  background: #fafafa;
+}
+
+.ot-shortage-dialog__product > div:last-child {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.ot-shortage-dialog__product strong {
+  overflow: hidden;
+  color: #111827;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ot-shortage-dialog__product span {
+  color: #71717a;
+  font-size: 10px;
+}
+
+.ot-shortage-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: #374151;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.ot-shortage-field + .ot-shortage-field {
+  margin-top: 14px;
+}
+
+.ot-shortage-field em {
+  color: #9ca3af;
+  font-size: 9px;
+  font-style: normal;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.ot-shortage-field input,
+.ot-shortage-field textarea {
+  width: 100%;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  outline: none;
+  background: #fff;
+  color: #111827;
+  font: 400 13px/1.4 "DM Sans", sans-serif;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.ot-shortage-field input {
+  height: 38px;
+  padding: 0 10px;
+}
+
+.ot-shortage-field textarea {
+  min-height: 76px;
+  padding: 9px 10px;
+  resize: vertical;
+}
+
+.ot-shortage-field input:focus,
+.ot-shortage-field textarea:focus {
+  border-color: #635bff;
+  box-shadow: 0 0 0 3px rgba(99, 91, 255, 0.12);
+}
+
+.ot-shortage-dialog__accounting {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.ot-shortage-dialog__accounting span {
+  padding: 8px 10px;
+  border-radius: 7px;
+  background: #f8fafc;
+  color: #64748b;
+  font-size: 10px;
+}
+
+.ot-shortage-dialog__accounting strong {
+  color: #111827;
+  font-size: 12px;
+}
+
+.ot-shortage-dialog__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid #f1f5f9;
+}
+
+.ot-shortage-dialog__cancel,
+.ot-shortage-dialog__save {
+  min-height: 36px;
+  padding: 7px 13px;
+  border-radius: 8px;
+  font: 600 11px/1 "DM Sans", sans-serif;
+  cursor: pointer;
+}
+
+.ot-shortage-dialog__cancel {
+  border: 1px solid #d1d5db;
+  background: #fff;
+  color: #374151;
+}
+
+.ot-shortage-dialog__save {
+  border: 1px solid #635bff;
+  background: #635bff;
+  color: #fff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.12);
+}
+
+.ot-shortage-dialog__cancel:disabled,
+.ot-shortage-dialog__save:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+
+@media (max-width: 640px) {
+  .ot-verification-line {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+    padding: 12px 4px;
+  }
+
+  .ot-verification-line__result {
+    padding-left: 48px;
+  }
+
+  .ot-verification-line__actions {
+    padding-left: 48px;
+  }
+
+  .ot-line-action {
+    flex: 1;
+    min-height: 40px;
+  }
+
+  .ot-verification__finish {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .ot-verification__finish .ot-mark-received-btn {
+    width: 100%;
+    min-height: 44px;
+  }
+
+  .ot-shortage-backdrop {
+    align-items: flex-end;
+    padding: 12px;
+  }
+
+  .ot-shortage-dialog {
+    max-height: calc(100vh - 24px);
+    padding: 20px;
+    border-radius: 14px;
+  }
+
+  .ot-shortage-dialog__cancel,
+  .ot-shortage-dialog__save {
+    min-height: 42px;
+  }
 }
 
 .ot-batch-card__received {
