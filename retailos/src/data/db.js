@@ -3016,6 +3016,91 @@ export function backfillMarkdownListTimestamps(fallbackNow = new Date().toISOStr
 
 backfillMarkdownListTimestamps()
 
+/**
+ * Add a per-SKU addedAt timestamp to historical sale-list item JSON. The old
+ * activity log recorded running totals, so appended products can be matched to
+ * their timestamps in the same stable order in which they were added.
+ */
+export function backfillMarkdownListItemAddedAt(fallbackNow = new Date().toISOString()) {
+  const fallbackDate = new Date(fallbackNow)
+  const safeFallback = Number.isNaN(fallbackDate.getTime()) ? new Date().toISOString() : fallbackDate.toISOString()
+  const rows = db.prepare(`
+    SELECT id, createdAt, items
+    FROM markdown_lists
+    WHERE COALESCE(kind, 'sale') IN ('sale', 'ecommerce_sale')
+  `).all()
+  const activityForList = db.prepare(`
+    SELECT created_at, action, meta_json
+    FROM activity_log
+    WHERE entity_type = 'markdown_list'
+      AND entity_id = ?
+      AND action IN ('created', 'items_added')
+    ORDER BY created_at ASC
+  `)
+  const update = db.prepare('UPDATE markdown_lists SET items = ? WHERE id = ?')
+  const tx = db.transaction((targets) => {
+    let changed = 0
+    for (const row of targets) {
+      const items = safeJsonArray(row.items, { table: 'markdown_lists', column: 'items', id: row.id })
+      if (!items.some((item) => !String(item?.addedAt || '').trim())) continue
+
+      const createdDate = new Date(row.createdAt)
+      const createdAt = Number.isNaN(createdDate.getTime()) ? safeFallback : createdDate.toISOString()
+      const inferred = new Map()
+      const activities = activityForList.all(row.id).map((activity) => ({
+        ...activity,
+        meta: safeJsonObject(activity.meta_json, {
+          table: 'activity_log', column: 'meta_json', id: row.id,
+        }),
+      }))
+      const createdActivity = activities.find((activity) => activity.action === 'created')
+      const additionActivities = activities.filter((activity) => activity.action === 'items_added')
+      const firstAddition = additionActivities[0]
+      const explicitInitialCount = Number(createdActivity?.meta?.products)
+      const inferredInitialCount = firstAddition
+        ? Math.max(0, Number(firstAddition.meta?.total) - Number(firstAddition.meta?.added))
+        : items.length
+      let knownTotal = Number.isInteger(explicitInitialCount) && explicitInitialCount >= 0
+        ? explicitInitialCount
+        : (Number.isFinite(inferredInitialCount) ? inferredInitialCount : items.length)
+      for (let index = 0; index < Math.min(knownTotal, items.length); index += 1) {
+        inferred.set(String(items[index]?.skuCode || ''), createdAt)
+      }
+
+      for (const activity of additionActivities) {
+        const activityDate = new Date(activity.created_at)
+        const activityAt = Number.isNaN(activityDate.getTime()) ? createdAt : activityDate.toISOString()
+        const skuCodes = Array.isArray(activity.meta?.skuCodesAdded)
+          ? activity.meta.skuCodesAdded.map((value) => String(value || '').trim()).filter(Boolean)
+          : []
+        for (const skuCode of skuCodes) inferred.set(skuCode, activityAt)
+
+        const total = Number(activity.meta?.total)
+        if (Number.isInteger(total) && total > knownTotal) {
+          for (let index = knownTotal; index < Math.min(total, items.length); index += 1) {
+            const skuCode = String(items[index]?.skuCode || '')
+            if (skuCode && !inferred.has(skuCode)) inferred.set(skuCode, activityAt)
+          }
+          knownTotal = total
+        }
+      }
+
+      const nextItems = items.map((item) => {
+        if (String(item?.addedAt || '').trim()) return item
+        return {
+          ...item,
+          addedAt: inferred.get(String(item?.skuCode || '')) || createdAt,
+        }
+      })
+      changed += update.run(JSON.stringify(nextItems), row.id).changes
+    }
+    return changed
+  })
+  return tx(rows)
+}
+
+backfillMarkdownListItemAddedAt()
+
 export function getAllMarkdownLists() {
   return db.prepare('SELECT * FROM markdown_lists ORDER BY createdAt DESC').all().map(toMarkdownList)
 }
@@ -3027,10 +3112,14 @@ export function getMarkdownListById(id) {
 export function insertMarkdownList(l) {
   const id = l.id || uid()
   const createdAt = l.createdAt || new Date().toISOString()
+  const items = (Array.isArray(l.items) ? l.items : []).map((item) => ({
+    ...item,
+    addedAt: createdAt,
+  }))
   db.prepare(`INSERT INTO markdown_lists (id, title, items, item_statuses, shop, createdBy, assignedTo, createdAt, status, completedAt, note, kind, sourceTransferId)
     VALUES (@id, @title, @items, @item_statuses, @shop, @createdBy, @assignedTo, @createdAt, @status, @completedAt, @note, @kind, @sourceTransferId)`)
     .run({
-      id, title: l.title ?? '', items: JSON.stringify(l.items || []),
+      id, title: l.title ?? '', items: JSON.stringify(items),
       item_statuses: JSON.stringify(l.item_statuses || {}),
       shop: l.shop ?? '', createdBy: l.createdBy ?? '', assignedTo: l.assignedTo ?? null,
       createdAt, status: l.status ?? 'pending', completedAt: l.completedAt ?? null, note: l.note ?? null,
@@ -3198,11 +3287,18 @@ export function appendItemsToMarkdownList(listId, newItems) {
   const byCode = new Map(existing.map((i) => [i.skuCode, i]))
   const affected = []
   let hasNewSku = false
+  const addedAt = new Date().toISOString()
   for (const it of newItems || []) {
     if (!it?.skuCode) continue
-    if (!byCode.has(it.skuCode)) hasNewSku = true
-    byCode.set(it.skuCode, it)
-    affected.push(it)
+    const previous = byCode.get(it.skuCode)
+    if (!previous) hasNewSku = true
+    const nextItem = {
+      ...previous,
+      ...it,
+      addedAt: previous?.addedAt || addedAt,
+    }
+    byCode.set(it.skuCode, nextItem)
+    affected.push(nextItem)
   }
   if (!affected.length) return list
 

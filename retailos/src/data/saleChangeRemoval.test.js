@@ -69,7 +69,7 @@ test('removing a sale item records its prior sale and actor, and discard restore
     changedBy: 'u-coo',
     removedFromListId: list.id,
     removedFromListTitle: 'SS26 Weekend Sale',
-    previousItem: saleItem,
+    previousItem: { ...saleItem, addedAt: list.createdAt },
   })
 
   const removedSku = db.getAllSkus().find((row) => row.sku === skuCode)

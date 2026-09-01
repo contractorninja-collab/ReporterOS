@@ -23,7 +23,7 @@ export function buildMarkdownListCSV(list) {
   const doneLabel = list?.kind === 'removal' ? 'Removed' : 'Tagged'
   const headers = [
     'List Created At (UTC)', 'List Completed At (UTC)',
-    'SKU', 'Product', 'Brand', 'Category', 'Gender', 'Season', 'Price Tag', 'Sale %', 'Extra Sale %', 'Sale Price', 'Sizes',
+    'SKU', 'SKU Added At (UTC)', 'Product', 'Brand', 'Category', 'Gender', 'Season', 'Price Tag', 'Sale %', 'Extra Sale %', 'Sale Price', 'Sizes',
     ...MARKDOWN_LANES.flatMap((lane) => [`${lane} ${doneLabel}`, `${lane} ${doneLabel} At (UTC)`]),
     'Legacy Marked', 'Legacy Marked At (UTC)',
   ]
@@ -32,7 +32,7 @@ export function buildMarkdownListCSV(list) {
   const completedAt = isoTimestamp(list?.completedAt)
   const rows = (list?.items || []).map((item) => [
     createdAt, completedAt,
-    item.skuCode, item.productName, item.brand, item.category, item.gender, item.season,
+    item.skuCode, isoTimestamp(item.addedAt || list?.createdAt), item.productName, item.brand, item.category, item.gender, item.season,
     item.priceTag, item.salePct, item.extraSalePct || 0, item.salePrice, item.sizes,
     ...MARKDOWN_LANES.flatMap((lane) => {
       const status = laneStatus(statuses, item.skuCode, lane)

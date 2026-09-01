@@ -43,7 +43,7 @@ import {
   listShiftPlans, getShiftPlanById, createShiftPlan, updateShiftPlan, removeShiftPlan,
   copyShiftPlanWeek, publishShiftPlanWeek, getShiftAttendanceOverview, getMonthlyAttendanceReport, evaluateShiftAttendance,
   createShiftCorrectionRequest, listShiftCorrectionRequests, reviewShiftCorrectionRequest,
-  appendActivityLog, getActivityLog, backfillActivityLogFromLegacyIfEmpty,
+  appendActivityLog, getActivityLog, backfillActivityLogFromLegacyIfEmpty, backfillMarkdownListItemAddedAt,
   getProductTypeLabels, getProductTypeLabel, upsertProductTypeLabel, normalizeProductType,
   correctSkuGender,
 } from './src/data/db.js'
@@ -2689,6 +2689,10 @@ app.put('/api/markdown-lists/:id', (req, res) => {
       }
       const incoming = Array.isArray(req.body.items) ? req.body.items : []
       const existing = row.items || []
+      const existingSkuCodes = new Set(existing.map((item) => String(item?.skuCode || '')))
+      const skuCodesAdded = incoming
+        .map((item) => String(item?.skuCode || '').trim())
+        .filter((skuCode) => skuCode && !existingSkuCodes.has(skuCode))
       const newOrUpdated = incoming.filter((it) => {
         const prev = existing.find((e) => e.skuCode === it.skuCode)
         return !prev ||
@@ -2703,7 +2707,12 @@ app.put('/api/markdown-lists/:id', (req, res) => {
         entityType: 'markdown_list',
         entityId: req.params.id,
         summary: `Added ${newOrUpdated.length} product(s) to sale list "${row.title || 'Untitled'}"`,
-        meta: { added: newOrUpdated.length, total: (updated.items || []).length },
+        meta: {
+          added: skuCodesAdded.length,
+          updated: Math.max(0, newOrUpdated.length - skuCodesAdded.length),
+          total: (updated.items || []).length,
+          skuCodesAdded,
+        },
       })
       res.json(updated)
       return
@@ -3466,6 +3475,8 @@ const server = app.listen(PORT, LISTEN_HOST, () => {
   try {
     const bf = backfillActivityLogFromLegacyIfEmpty()
     if (!bf.skipped) console.log(`[activity-log] Backfilled ${bf.inserted} legacy event(s)`)
+    const itemTimestampCount = backfillMarkdownListItemAddedAt()
+    if (itemTimestampCount) console.log(`[markdown] Backfilled SKU added timestamps on ${itemTimestampCount} list(s)`)
   } catch (e) {
     console.error('[activity-log] Backfill failed:', e.message)
   }

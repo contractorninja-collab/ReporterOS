@@ -26,7 +26,10 @@ export function createMarkdownsSlice(set, get) {
       const state = get()
       const id = generateId()
       const createdAt = new Date().toISOString()
-      const items = payload.items || []
+      const items = (payload.items || []).map((item) => ({
+        ...item,
+        addedAt: item.addedAt || createdAt,
+      }))
       const isRemoval = payload.kind === 'removal'
       const assignmentTargets = Array.isArray(payload.assignedToIds)
         ? payload.assignedToIds.filter(Boolean)
@@ -49,7 +52,12 @@ export function createMarkdownsSlice(set, get) {
         kind: isRemoval ? 'removal' : 'sale',
       }
       set((s) => ({ markdownLists: [full, ...s.markdownLists] }))
-      api.postMarkdownList(full).catch((err) => {
+      api.postMarkdownList(full).then((saved) => {
+        if (!saved?.id) return
+        set((s) => ({
+          markdownLists: s.markdownLists.map((list) => (list.id === id ? saved : list)),
+        }))
+      }).catch((err) => {
         set((s) => ({
           markdownLists: s.markdownLists.filter((l) => l.id !== id),
           assignments: s.assignments.filter((a) => a.skuCode !== id),
@@ -205,8 +213,13 @@ export function createMarkdownsSlice(set, get) {
 
       const existing = list.items || []
       const byCode = new Map(existing.map((i) => [i.skuCode, i]))
-      const hasNewSku = !byCode.has(item.skuCode)
-      byCode.set(item.skuCode, item)
+      const previousItem = byCode.get(item.skuCode)
+      const hasNewSku = !previousItem
+      byCode.set(item.skuCode, {
+        ...previousItem,
+        ...item,
+        addedAt: previousItem?.addedAt || new Date().toISOString(),
+      })
       const merged = Array.from(byCode.values())
 
       set((s) => ({
@@ -229,7 +242,12 @@ export function createMarkdownsSlice(set, get) {
             }
           : row)),
       }))
-      api.putMarkdownList(listId, { items: merged }).catch((err) => {
+      api.putMarkdownList(listId, { items: merged }).then((updated) => {
+        if (!updated?.id) return
+        set((s) => ({
+          markdownLists: s.markdownLists.map((candidate) => (candidate.id === listId ? updated : candidate)),
+        }))
+      }).catch((err) => {
         set({ markdownLists: prevLists, skus: prevSkus })
         notifyLocalWriteFailure(set, get, 'Sale list item was not saved', err)
         resyncAfterWriteFailure(get)
