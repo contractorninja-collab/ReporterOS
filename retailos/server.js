@@ -1785,7 +1785,11 @@ app.get('/api/product-report', (req, res) => {
   try {
     const q = typeof req.query.q === 'string' ? req.query.q : ''
     const season = typeof req.query.season === 'string' && req.query.season ? req.query.season : undefined
-    res.json(getProductNameReport(q, { season }))
+    const outletSkuCodes = [...outletSkuLocationOwnership(
+      getAllOutletTransfers(),
+      getAllMarkdownLists(),
+    ).keys()]
+    res.json(getProductNameReport(q, { season, excludeSkuCodes: outletSkuCodes }))
   } catch (e) { safeError(res, e) }
 })
 

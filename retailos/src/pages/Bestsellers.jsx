@@ -13,6 +13,7 @@ import StatusChip from '../components/StatusChip'
 import BrandSelect from '../components/BrandSelect.jsx'
 import { fetchSalesBySeasonSku } from '../api/client.js'
 import { enrichBestsellerProducts, indexBestsellerSalesRows } from '../utils/bestsellerMetrics.js'
+import { excludeOutletOwnedProducts } from '../utils/outletHub.js'
 import {
   IconFootwear,
   IconApparel,
@@ -316,7 +317,9 @@ export function Bestsellers() {
   }, [timeRange, categoryFilter, genderFilter, brandFilter, activeSeason, rankMode, limit])
 
   const products = useMemo(
-    () => aggregateSkus(skus, shipmentMeta, activeSeason).filter((p) => productMatchesActiveSeason(p, activeSeason)),
+    () => excludeOutletOwnedProducts(
+      aggregateSkus(skus, shipmentMeta, activeSeason),
+    ).filter((p) => productMatchesActiveSeason(p, activeSeason)),
     [skus, shipmentMeta, activeSeason],
   )
 

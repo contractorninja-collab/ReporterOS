@@ -5,6 +5,12 @@ function skuCode(value) {
   return String(value ?? '').trim()
 }
 
+export function excludeOutletOwnedProducts(products) {
+  return (Array.isArray(products) ? products : []).filter((product) => (
+    String(product?.stock_location || '').trim().toLocaleLowerCase() !== 'outlet'
+  ))
+}
+
 function itemExpectedQuantity(item) {
   if (Array.isArray(item?.sizeBreakdown) && item.sizeBreakdown.length) {
     return item.sizeBreakdown.reduce((sum, line) => sum + (Number(line?.qty) || 0), 0)

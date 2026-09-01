@@ -22,6 +22,7 @@ import {
 } from '../utils/gender.js'
 import { DISCOUNTS, salePriceOf } from '../utils/saleList.js'
 import { isSeasonFilterActive, productMatchesActiveSeason } from '../utils/seasons.js'
+import { excludeOutletOwnedProducts } from '../utils/outletHub.js'
 
 const DM = '"DM Sans", sans-serif'
 
@@ -617,6 +618,7 @@ export function ProductLookup() {
   const qParam = (searchParams.get('q') || '').trim()
   const qForApi = tab === 'all' ? '' : qParam
   const shouldFetch = tab === 'all' || qParam.length > 0
+  const standardSkus = useMemo(() => excludeOutletOwnedProducts(skus), [skus])
 
   const load = useCallback(async () => {
     setLoadError(null)
@@ -647,9 +649,9 @@ export function ProductLookup() {
         .catch(() => {})
     } catch (e) {
       setLoadError(e?.message || 'Offline or API unavailable')
-      setReport(buildClientReport(qForApi, skus, shipmentMeta, activeSeason))
+      setReport(buildClientReport(qForApi, standardSkus, shipmentMeta, activeSeason))
     }
-  }, [shouldFetch, qForApi, activeSeason, skus, shipmentMeta])
+  }, [shouldFetch, qForApi, activeSeason, standardSkus, shipmentMeta])
 
   useEffect(() => {
     load()

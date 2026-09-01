@@ -1,6 +1,11 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { buildOutletInventory, outletWebChecklistProgress, receivedTransferUnitsBySku } from './outletHub.js'
+import {
+  buildOutletInventory,
+  excludeOutletOwnedProducts,
+  outletWebChecklistProgress,
+  receivedTransferUnitsBySku,
+} from './outletHub.js'
 
 const transfers = [{
   id: 'received-1',
@@ -53,4 +58,15 @@ test('summarizes Change Location Web work', () => {
   assert.equal(progress.markedItems, 1)
   assert.equal(progress.remainingItems, 1)
   assert.equal(progress.pendingLists, 1)
+})
+
+test('excludes only officially Outlet-owned products from standard reporting views', () => {
+  const visible = excludeOutletOwnedProducts([
+    { sku: 'NORMAL' },
+    { sku: 'MOVING', outlet_transfer_reserved: true, stock_location: 'Ring Mall' },
+    { sku: 'OUTLET', stock_location: 'Outlet' },
+    { sku: 'OUTLET-CASE', stock_location: ' outlet ' },
+  ])
+
+  assert.deepEqual(visible.map((product) => product.sku), ['NORMAL', 'MOVING'])
 })

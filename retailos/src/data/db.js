@@ -2172,6 +2172,7 @@ export function getDistinctSkuBrands() {
 /**
  * Product / SKU substring report: aggregated rows per SKU code + timeline + totals.
  * @param {string} q — trimmed search; empty returns structure for "all" from client overview
+ * @param {{season?: string, excludeSkuCodes?: string[]}} options
  */
 export function getProductNameReport(searchQuery = '', options = {}) {
   const query = String(searchQuery || '').trim()
@@ -2209,7 +2210,12 @@ export function getProductNameReport(searchQuery = '', options = {}) {
             AND ${importSeasonWhere}
         `).all(...seasonValues)
       : db.prepare('SELECT DISTINCT sku FROM skus WHERE deleted_at IS NULL').all()
-  const skuCodes = skuRows.map((r) => r.sku).filter(Boolean)
+  const excludedSkuCodes = new Set(
+    (Array.isArray(options.excludeSkuCodes) ? options.excludeSkuCodes : [])
+      .map((code) => String(code || '').trim())
+      .filter(Boolean),
+  )
+  const skuCodes = skuRows.map((r) => r.sku).filter((code) => code && !excludedSkuCodes.has(code))
   const emptyTotals = { stock: 0, remaining: 0, sold: 0, cogs: 0, totalRevenue: 0, totalProfit: 0, avgRoi: 0, totalInvestment: 0 }
   const emptyGender = () => ({
     stock: 0,

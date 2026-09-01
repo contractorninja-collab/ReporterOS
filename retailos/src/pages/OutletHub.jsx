@@ -88,7 +88,6 @@ export function OutletHub() {
 
   const pendingVerification = transfers.filter((transfer) => transfer.status === 'pending').length
   const awaitingOutlet = transfers.filter((transfer) => transfer.status === 'completed').length
-  const receivedTransfers = transfers.filter((transfer) => transfer.status === 'received').length
   const outletUnits = inventory.reduce((sum, product) => sum + (Number(product.outletUnits) || 0), 0)
   const tabs = [
     { id: 'overview', label: 'Overview' },
