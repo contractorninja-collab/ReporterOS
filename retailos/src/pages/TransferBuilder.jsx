@@ -5,7 +5,7 @@ import { aggregateSkus } from '../utils/aggregateSkus.js'
 import { normalizeGenderCodeForFilter } from '../utils/gender.js'
 import { toTitleCase } from '../utils/textFormat.js'
 import { IconSearch, IconClose, IconWarning, IconCart, IconChevronDown } from '../utils/icons.js'
-import { outletSkuOwnership } from '../utils/outletTransfers.js'
+import { outletSkuLocationOwnership, outletSkuOwnership } from '../utils/outletTransfers.js'
 
 const DM = '"DM Sans", sans-serif'
 const SHOPS = ['Ring Mall', 'Village']
@@ -94,16 +94,18 @@ export function TransferBuilder() {
   const activeUser = useStore((s) => s.activeUser)
   const activeShifts = useStore((s) => s.activeShifts)
   const outletTransfers = useStore((s) => s.outletTransfers)
+  const markdownLists = useStore((s) => s.markdownLists)
   const createTransferBatch = useStore((s) => s.createTransferBatch)
 
   const products = useMemo(() => aggregateSkus(skus), [skus])
   const outletOwnedSkuCodes = useMemo(() => {
     const codes = new Set(outletSkuOwnership(outletTransfers).keys())
+    for (const skuCode of outletSkuLocationOwnership(outletTransfers, markdownLists).keys()) codes.add(skuCode)
     for (const row of skus) {
-      if (row?.stock_location === 'Outlet' && row?.sku) codes.add(String(row.sku))
+      if ((row?.stock_location === 'Outlet' || row?.outlet_transfer_reserved) && row?.sku) codes.add(String(row.sku))
     }
     return codes
-  }, [outletTransfers, skus])
+  }, [outletTransfers, markdownLists, skus])
 
   const rawSkusByProduct = useMemo(() => {
     const map = {}

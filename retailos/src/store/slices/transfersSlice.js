@@ -7,7 +7,7 @@ import {
 import {
   clearOutletItemStatuses,
   findTodayPendingOutletTransfer,
-  outletSkuConflictCodes,
+  unavailableOutletSkuCodes,
   upsertOutletTransferItem,
   upsertOutletTransferItems,
 } from '../../utils/outletTransfers.js'
@@ -117,8 +117,8 @@ export function createTransfersSlice(set, get) {
 
     addItemToTodayTransfer: async (item, createdBy, fromShop) => {
       const state = get()
-      const conflicts = outletSkuConflictCodes([item], state.outletTransfers)
-      if (conflicts.length) throw new Error(`${conflicts[0]} already belongs to Outlet and cannot be transferred again`)
+      const conflicts = unavailableOutletSkuCodes([item], state.outletTransfers, state.markdownLists)
+      if (conflicts.length) throw new Error(`${conflicts[0]} is already assigned to Outlet or an active Outlet transfer`)
       const sourceShop = String(fromShop ?? state.activeUser?.shop ?? '').trim()
       if (!sourceShop) throw new Error('Choose the store sending this product to Outlet')
       const existing = findTodayPendingOutletTransfer(state.outletTransfers, sourceShop)
@@ -182,8 +182,8 @@ export function createTransfersSlice(set, get) {
     addItemToStoreTransfer: (item, fromShop, toShop, createdBy) => {
       const today = new Date().toISOString().slice(0, 10)
       const state = get()
-      const conflicts = outletSkuConflictCodes([item], state.outletTransfers)
-      if (conflicts.length) throw new Error(`${conflicts[0]} already belongs to Outlet and cannot be transferred again`)
+      const conflicts = unavailableOutletSkuCodes([item], state.outletTransfers, state.markdownLists)
+      if (conflicts.length) throw new Error(`${conflicts[0]} is already assigned to Outlet or an active Outlet transfer`)
       const existing = state.storeTransfers.find(
         (t) => t.status === 'pending' && t.createdAt.slice(0, 10) === today && t.fromShop === fromShop && t.toShop === toShop
       )
@@ -292,11 +292,11 @@ export function createTransfersSlice(set, get) {
      */
     createTransferBatch: (type, payload) => {
       const state = get()
-      const conflicts = outletSkuConflictCodes(payload.items, state.outletTransfers)
+      const conflicts = unavailableOutletSkuCodes(payload.items, state.outletTransfers, state.markdownLists)
       if (conflicts.length) {
         const shown = conflicts.slice(0, 3).join(', ')
         const extra = conflicts.length > 3 ? ` and ${conflicts.length - 3} more` : ''
-        throw new Error(`${shown}${extra} already belong to Outlet and cannot be transferred again`)
+        throw new Error(`${shown}${extra} already belong to Outlet or an active Outlet transfer`)
       }
       const createdAt = new Date().toISOString()
       const sourceShop = String(payload.fromShop ?? state.activeUser?.shop ?? '').trim()

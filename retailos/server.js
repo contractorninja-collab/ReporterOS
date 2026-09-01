@@ -73,7 +73,8 @@ import {
   verificationTotals,
 } from './src/utils/storeTransferVerification.js'
 import {
-  outletSkuConflictCodes,
+  unavailableOutletSkuCodes,
+  outletSkuLocationOwnership,
   outletSkuOwnership,
   outletVerificationEntryError,
 } from './src/utils/outletTransfers.js'
@@ -717,26 +718,40 @@ function filterOutletTransfers(rows, user) {
 }
 
 function assertSkusAvailableOutsideOutlet(items, excludeOutletTransferId = null) {
-  const conflicts = outletSkuConflictCodes(items, getAllOutletTransfers(), excludeOutletTransferId)
+  const conflicts = unavailableOutletSkuCodes(
+    items,
+    getAllOutletTransfers(),
+    getAllMarkdownLists(),
+    excludeOutletTransferId,
+  )
   if (conflicts.length === 0) return
   const shown = conflicts.slice(0, 5).join(', ')
   const extra = conflicts.length > 5 ? ` and ${conflicts.length - 5} more` : ''
-  const error = new Error(`${shown}${extra} already belong${conflicts.length === 1 ? 's' : ''} to Outlet and cannot be transferred again`)
+  const error = new Error(`${shown}${extra} ${conflicts.length === 1 ? 'is' : 'are'} already assigned to Outlet or an active Outlet transfer`)
   error.statusCode = 409
   throw error
 }
 
 function withOutletStockLocation(rows) {
-  const ownership = outletSkuOwnership(getAllOutletTransfers())
+  const transfers = getAllOutletTransfers()
+  const reservations = outletSkuOwnership(transfers)
+  const locations = outletSkuLocationOwnership(transfers, getAllMarkdownLists())
   return (Array.isArray(rows) ? rows : []).map((row) => {
-    const owner = ownership.get(String(row?.sku ?? '').trim())
-    if (!owner) return row
-    return {
+    const skuCode = String(row?.sku ?? '').trim()
+    const reservation = reservations.get(skuCode)
+    const location = locations.get(skuCode)
+    if (!reservation && !location) return row
+    const enriched = {
       ...row,
-      stock_location: 'Outlet',
-      outlet_transfer_id: owner.transferId,
-      outlet_transfer_status: owner.status,
+      outlet_transfer_reserved: Boolean(reservation),
+      outlet_transfer_id: reservation?.transferId || location?.transferId || null,
+      outlet_transfer_status: reservation?.status || null,
     }
+    if (location) {
+      enriched.stock_location = 'Outlet'
+      enriched.outlet_location_source = location.source
+    }
+    return enriched
   })
 }
 

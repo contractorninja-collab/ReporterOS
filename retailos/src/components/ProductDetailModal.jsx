@@ -15,7 +15,7 @@ import {
   IconClose,
 } from '../utils/icons.js'
 import { genderShortLabel } from '../utils/gender.js'
-import { outletSkuOwnership } from '../utils/outletTransfers.js'
+import { outletSkuLocationOwnership, outletSkuOwnership } from '../utils/outletTransfers.js'
 
 const ACTION_BTN = {
   padding: '8px 14px',
@@ -105,14 +105,26 @@ export default function ProductDetailModal({ sku, status, statusData, onClose, s
   const [genderError, setGenderError] = useState('')
 
   const skuCode = String(sku.sku ?? '')
-  const outletOwnership = useMemo(
+  const outletReservation = useMemo(
     () => outletSkuOwnership(outletTransfers).get(skuCode) || null,
     [outletTransfers, skuCode],
+  )
+  const confirmedOutletLocation = useMemo(
+    () => outletSkuLocationOwnership(outletTransfers, markdownLists).get(skuCode) || null,
+    [outletTransfers, markdownLists, skuCode],
   )
   const hasOutletLocationField = sku.stock_location === 'Outlet' || rawSkus.some((row) => (
     String(row?.sku ?? '') === skuCode && row?.stock_location === 'Outlet'
   ))
-  const isOutletOwned = Boolean(outletOwnership || hasOutletLocationField)
+  const hasOutletReservationField = Boolean(sku.outlet_transfer_reserved) || rawSkus.some((row) => (
+    String(row?.sku ?? '') === skuCode && Boolean(row?.outlet_transfer_reserved)
+  ))
+  const isOutletOwned = Boolean(confirmedOutletLocation || hasOutletLocationField)
+  const isMovingToOutlet = !isOutletOwned && Boolean(outletReservation || hasOutletReservationField)
+  const isOutletUnavailable = isOutletOwned || isMovingToOutlet
+  const outletUnavailableMessage = isOutletOwned
+    ? `${sku.sku} belongs to Outlet and cannot be transferred again.`
+    : `${sku.sku} is already moving to Outlet and cannot be added to another transfer.`
   const skuSaleListId = String(sku.sale_list_id ?? '')
   const skuHasActiveSaleList = Boolean(sku.sale_active && skuSaleListId)
 
@@ -214,8 +226,8 @@ export default function ProductDetailModal({ sku, status, statusData, onClose, s
   const returnsCount = summaryData?.returnsCount ?? 0
 
   const openAssignPanel = (actionType) => {
-    if (isOutletOwned && ['store_transfer', 'outlet_transfer'].includes(actionType)) {
-      setOutletMoveError(`${sku.sku} already belongs to Outlet and cannot be transferred again.`)
+    if (isOutletUnavailable && ['store_transfer', 'outlet_transfer'].includes(actionType)) {
+      setOutletMoveError(outletUnavailableMessage)
       return
     }
     setAssignPanel(actionType)
@@ -340,8 +352,8 @@ export default function ProductDetailModal({ sku, status, statusData, onClose, s
 
   const handleStoreTransfer = () => {
     if (!transferShop) return
-    if (isOutletOwned) {
-      setOutletMoveError(`${sku.sku} already belongs to Outlet and cannot be transferred again.`)
+    if (isOutletUnavailable) {
+      setOutletMoveError(outletUnavailableMessage)
       setAssignPanel(null)
       return
     }
@@ -390,8 +402,8 @@ export default function ProductDetailModal({ sku, status, statusData, onClose, s
   }, [rawSkus, sku.sku])
 
   const handleOutletMove = async (requestedSourceShop = activeUser?.shop) => {
-    if (isOutletOwned) {
-      setOutletMoveError(`${sku.sku} already belongs to Outlet and cannot be transferred again.`)
+    if (isOutletUnavailable) {
+      setOutletMoveError(outletUnavailableMessage)
       setAssignPanel(null)
       return
     }
@@ -459,8 +471,8 @@ export default function ProductDetailModal({ sku, status, statusData, onClose, s
   const openOutletMove = () => {
     setAssignDone(null)
     setOutletMoveError('')
-    if (isOutletOwned) {
-      setOutletMoveError(`${sku.sku} already belongs to Outlet and cannot be transferred again.`)
+    if (isOutletUnavailable) {
+      setOutletMoveError(outletUnavailableMessage)
       return
     }
     if (activeUser?.shop && SHOPS.includes(activeUser.shop)) {
@@ -853,7 +865,7 @@ export default function ProductDetailModal({ sku, status, statusData, onClose, s
               ['Brand', sku.brand ?? '—'],
               ['Category', sku.category ?? '—'],
               ['Gender', savedGender],
-              ['Location', isOutletOwned ? 'Outlet' : '—'],
+              ['Location', isOutletOwned ? 'Outlet' : isMovingToOutlet ? 'Moving to Outlet' : '—'],
               ['Arrival Date', lifecycleArrivalDate ? new Date(lifecycleArrivalDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'],
               ['Days in store', String(days)],
               ['Season', sku.season ?? '—'],
@@ -969,14 +981,16 @@ export default function ProductDetailModal({ sku, status, statusData, onClose, s
                       <span role="alert" style={{ maxWidth: 260, fontSize: 10, fontWeight: 700, color: '#ef4444', textAlign: 'right' }}>{genderError}</span>
                     )}
                   </div>
-                ) : key === 'Location' && isOutletOwned ? (
+                ) : key === 'Location' && isOutletUnavailable ? (
                   <span style={{
                     display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 9px',
-                    borderRadius: 999, background: 'rgba(251,191,36,0.12)',
-                    border: '1px solid rgba(251,191,36,0.24)', color: '#fbbf24',
+                    borderRadius: 999,
+                    background: isOutletOwned ? 'rgba(251,191,36,0.12)' : 'rgba(56,189,248,0.12)',
+                    border: `1px solid ${isOutletOwned ? 'rgba(251,191,36,0.24)' : 'rgba(56,189,248,0.24)'}`,
+                    color: isOutletOwned ? '#fbbf24' : '#38bdf8',
                     fontSize: 11, fontWeight: 700,
                   }}>
-                    Outlet
+                    {isOutletOwned ? 'Outlet' : 'Moving to Outlet'}
                   </span>
                 ) : (
                   <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--ro-text)', textAlign: 'right' }}>{val}</span>
@@ -1102,12 +1116,12 @@ export default function ProductDetailModal({ sku, status, statusData, onClose, s
                 Assign Sale
               </button>
             )}
-            {!isOutletOwned && (status === 'Aging' || status === 'Risk' || status === 'Clearance') && (
+            {!isOutletUnavailable && (status === 'Aging' || status === 'Risk' || status === 'Clearance') && (
               <button type="button" onClick={() => openAssignPanel('store_transfer')} style={{ ...ACTION_BTN, background: '#38bdf8', color: '#09090e' }}>
                 Transfer to Shop
               </button>
             )}
-            {!isOutletOwned && (status === 'Clearance' || status === 'Outlet') && (
+            {!isOutletUnavailable && (status === 'Clearance' || status === 'Outlet') && (
               <button type="button" onClick={openOutletMove} disabled={outletMoveSaving} style={{ ...ACTION_BTN, background: '#fbbf24', color: '#09090e', opacity: outletMoveSaving ? 0.6 : 1 }}>
                 {outletMoveSaving ? 'Adding…' : 'Move to Outlet'}
               </button>

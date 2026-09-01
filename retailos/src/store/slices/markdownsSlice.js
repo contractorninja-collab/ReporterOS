@@ -183,6 +183,7 @@ export function createMarkdownsSlice(set, get) {
         set((s) => ({
           markdownLists: s.markdownLists.map((l) => (l.id === listId ? updated : l)),
         }))
+        get().syncOperationalData?.().catch(() => {})
         return updated
       } catch (err) {
         set({ markdownLists: prevLists })

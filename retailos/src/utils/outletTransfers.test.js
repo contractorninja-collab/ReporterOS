@@ -5,15 +5,18 @@ import {
   clearOutletItemStatuses,
   findTodayPendingOutletTransfer,
   localDateKey,
+  markdownListHasAllOutletConfirmations,
   outletShortageDraftError,
   outletSkuConflictCodes,
+  outletSkuLocationOwnership,
   outletSkuOwnership,
   outletVerificationEntryError,
   upsertOutletTransferItem,
   upsertOutletTransferItems,
+  unavailableOutletSkuCodes,
 } from './outletTransfers.js'
 
-test('treats every SKU in an Outlet transfer as Outlet-owned at every stage', () => {
+test('reserves every SKU in an Outlet transfer at every stage', () => {
   const transfers = [
     { id: 'pending', status: 'pending', fromShop: 'Ring Mall', items: [{ skuCode: 'SKU-1' }] },
     { id: 'completed', status: 'completed', fromShop: 'Village', items: [{ skuCode: 'SKU-2' }] },
@@ -28,6 +31,56 @@ test('treats every SKU in an Outlet transfer as Outlet-owned at every stage', ()
     [{ skuCode: 'SKU-1' }, { skuCode: 'SKU-1' }, { skuCode: 'SKU-4' }],
     transfers,
   ), ['SKU-1'])
+})
+
+test('marks stock as Outlet only after receipt or all three Markdown confirmations', () => {
+  const transfers = [
+    { id: 'pending', status: 'pending', items: [{ skuCode: 'SKU-PENDING' }] },
+    { id: 'completed', status: 'completed', items: [{ skuCode: 'SKU-SENDER-DONE' }] },
+    { id: 'received', status: 'received', items: [{ skuCode: 'SKU-RECEIVED' }] },
+  ]
+  const fullyConfirmedList = {
+    id: 'sale-complete',
+    kind: 'sale',
+    status: 'completed',
+    items: [{ skuCode: 'SKU-THREE-LANES' }],
+    item_statuses: {
+      'SKU-THREE-LANES': {
+        'Ring Mall': { status: 'tagged' },
+        Village: { status: 'tagged' },
+        'E-commerce': { status: 'tagged' },
+      },
+    },
+  }
+  const incompleteList = {
+    id: 'sale-incomplete',
+    kind: 'sale',
+    status: 'pending',
+    items: [{ skuCode: 'SKU-TWO-LANES' }],
+    item_statuses: {
+      'SKU-TWO-LANES': {
+        'Ring Mall': { status: 'tagged' },
+        Village: { status: 'tagged' },
+      },
+    },
+  }
+  const ownership = outletSkuLocationOwnership(transfers, [fullyConfirmedList, incompleteList])
+
+  assert.equal(ownership.has('SKU-PENDING'), false)
+  assert.equal(ownership.has('SKU-SENDER-DONE'), false)
+  assert.equal(ownership.get('SKU-RECEIVED')?.source, 'outlet_transfer')
+  assert.equal(ownership.get('SKU-THREE-LANES')?.source, 'markdown_list')
+  assert.equal(ownership.has('SKU-TWO-LANES'), false)
+  assert.equal(markdownListHasAllOutletConfirmations(fullyConfirmedList), true)
+  assert.equal(markdownListHasAllOutletConfirmations(incompleteList), false)
+  assert.deepEqual(
+    unavailableOutletSkuCodes(
+      [{ skuCode: 'SKU-PENDING' }, { skuCode: 'SKU-THREE-LANES' }, { skuCode: 'SKU-FREE' }],
+      transfers,
+      [fullyConfirmedList],
+    ),
+    ['SKU-PENDING', 'SKU-THREE-LANES'],
+  )
 })
 
 test('can exclude the transfer being edited while still detecting other Outlet ownership', () => {
