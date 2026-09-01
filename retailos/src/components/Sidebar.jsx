@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { NavLink } from 'react-router-dom'
+import { NavLink, useLocation } from 'react-router-dom'
 import {
   IconDashboard,
   IconLifecycle,
@@ -60,6 +60,7 @@ function SectionCard({ label, children, catalog = false }) {
 }
 
 export function Sidebar({ onNavigate }) {
+  const location = useLocation()
   const skus = useStore((s) => s.skus)
   const activeSeason = useStore((s) => s.activeSeason)
   const setActiveSeason = useStore((s) => s.setActiveSeason)
@@ -132,6 +133,12 @@ export function Sidebar({ onNavigate }) {
   const activeSeasonUpper = String(activeSeason || '').toUpperCase()
   const seasonWidgetSun = activeSeasonUpper === 'ALL' || activeSeasonUpper.startsWith('SS')
   const execUser = isExecutive(activeUser)
+  const outletHubActive = location.pathname === '/outlet-hub'
+  const pendingWebItems = useMemo(() => markdownLists
+    .filter((list) => list.kind === 'location_change')
+    .reduce((sum, list) => sum + (list.items || []).filter((item) => (
+      list.item_statuses?.[item.skuCode]?.['E-commerce']?.status !== 'tagged'
+    )).length, 0), [markdownLists])
 
   const handleAddSeason = () => {
     if (!normalizeSeasonInput(seasonDraft)) return
@@ -168,6 +175,16 @@ export function Sidebar({ onNavigate }) {
             onNavigate={onNavigate}
           />
           <NavRow to="/bestsellers" icon={<IconHot size={16} strokeWidth={1.75} />} label="Bestsellers" onNavigate={onNavigate} />
+        </SectionCard>
+
+        <SectionCard label="Outlet">
+          <NavRow
+            to="/outlet-hub"
+            icon={<IconPackage size={16} strokeWidth={1.75} />}
+            label="Outlet"
+            badge={execUser && pendingWebItems > 0 ? { type: 'green', text: String(pendingWebItems) } : undefined}
+            onNavigate={onNavigate}
+          />
         </SectionCard>
 
         {execUser && (
@@ -250,7 +267,7 @@ export function Sidebar({ onNavigate }) {
       </div>
 
       <div className="ro-sidebar-footer">
-        <div className="ro-season-card">
+        {!outletHubActive && <div className="ro-season-card">
           <div className="ro-season-card__copy">
             <span className="ro-season-card__label">Active season</span>
             {!seasonAddOpen ? (
@@ -321,7 +338,7 @@ export function Sidebar({ onNavigate }) {
           <div className="ro-season-card__icon">
             {seasonWidgetSun ? <IconSun size={16} strokeWidth={1.75} /> : <IconLeaf size={16} strokeWidth={1.75} />}
           </div>
-        </div>
+        </div>}
       </div>
     </>
   )

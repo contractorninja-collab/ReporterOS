@@ -22,6 +22,7 @@ const Footwear = lazyNamed(() => import('./pages/Footwear.jsx'), 'Footwear')
 const Apparel = lazyNamed(() => import('./pages/Apparel.jsx'), 'Apparel')
 const Accessories = lazyNamed(() => import('./pages/Accessories.jsx'), 'Accessories')
 const MyTasks = lazyNamed(() => import('./pages/MyTasks.jsx'), 'MyTasks')
+const OutletHub = lazyNamed(() => import('./pages/OutletHub.jsx'), 'OutletHub')
 const OutletTransfers = lazyNamed(() => import('./pages/OutletTransfers.jsx'), 'OutletTransfers')
 const StoreTransfers = lazyNamed(() => import('./pages/StoreTransfers.jsx'), 'StoreTransfers')
 const UserManagement = lazyNamed(() => import('./pages/UserManagement.jsx'), 'UserManagement')
@@ -489,6 +490,7 @@ function App() {
   const closeSidebar = () => setSidebarOpen(false)
   const exec = isExecutive(activeUser)
   const hideFooterImport = location.pathname === '/bin'
+  const outletHubActive = location.pathname === '/outlet-hub'
 
   return (
     <AppErrorBoundary>
@@ -574,7 +576,7 @@ function App() {
             minHeight: 0,
           }}
         >
-          <SaleSeasonExperience />
+          {!outletHubActive && <SaleSeasonExperience />}
           <div style={{ flex: 1, minHeight: 0 }}>
             <Suspense fallback={<RouteLoading />}>
               <Routes>
@@ -593,6 +595,7 @@ function App() {
                 <Route path="/catalog/apparel" element={<Apparel />} />
                 <Route path="/catalog/accessories" element={<Accessories />} />
                 <Route path="/tasks" element={<MyTasks />} />
+                <Route path="/outlet-hub" element={<OutletHub />} />
                 <Route path="/new-transfer" element={<TransferBuilder />} />
                 <Route path="/outlet" element={<OutletTransfers />} />
                 <Route path="/transfers" element={<StoreTransfers />} />
@@ -616,7 +619,7 @@ function App() {
                 </NavLink>
               )}
               <div className="app-footer__meta">
-                Last sync: Today · {skus.length} SKUs · {activeSeason} Active ·{' '}
+                Last sync: Today · {skus.length} SKUs · {outletHubActive ? 'Outlet · All seasons' : `${activeSeason} Active`} ·{' '}
                 {connectivityLive ? (
                   <span className="app-footer__live">● Live</span>
                 ) : (

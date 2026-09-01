@@ -370,6 +370,7 @@ export function Topbar() {
     '/catalog/accessories': { title: 'Accessories Catalog', titleVariant: 'sentence' },
     '/tasks': { title: 'My Tasks', titleVariant: 'sentence' },
     '/new-transfer': { title: 'New Transfer', titleVariant: 'sentence' },
+    '/outlet-hub': { title: 'Outlet', titleVariant: 'sentence' },
     '/outlet': { title: 'Outlet Transfers', titleVariant: 'sentence' },
     '/transfers': { title: 'Store Transfers', titleVariant: 'sentence' },
     '/markdown': { title: 'Sale Lists', titleVariant: 'sentence' },
@@ -481,7 +482,7 @@ export function Topbar() {
       )}
 
       <div className="topbar-actions" style={{ display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0 }}>
-        <div className="topbar-season-switcher">
+        {location.pathname !== '/outlet-hub' && <div className="topbar-season-switcher">
           {seasonSwitcherList.map((s) => (
             <div
               key={s}
@@ -572,7 +573,7 @@ export function Topbar() {
               )}
             </>
           )}
-        </div>
+        </div>}
 
         <ShiftButton />
         <NotificationBell />
