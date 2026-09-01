@@ -6,10 +6,41 @@ import {
   findTodayPendingOutletTransfer,
   localDateKey,
   outletShortageDraftError,
+  outletSkuConflictCodes,
+  outletSkuOwnership,
   outletVerificationEntryError,
   upsertOutletTransferItem,
   upsertOutletTransferItems,
 } from './outletTransfers.js'
+
+test('treats every SKU in an Outlet transfer as Outlet-owned at every stage', () => {
+  const transfers = [
+    { id: 'pending', status: 'pending', fromShop: 'Ring Mall', items: [{ skuCode: 'SKU-1' }] },
+    { id: 'completed', status: 'completed', fromShop: 'Village', items: [{ skuCode: 'SKU-2' }] },
+    { id: 'received', status: 'received', fromShop: 'Ring Mall', items: [{ skuCode: 'SKU-3' }] },
+  ]
+  const ownership = outletSkuOwnership(transfers)
+
+  assert.equal(ownership.get('SKU-1')?.status, 'pending')
+  assert.equal(ownership.get('SKU-2')?.status, 'completed')
+  assert.equal(ownership.get('SKU-3')?.status, 'received')
+  assert.deepEqual(outletSkuConflictCodes(
+    [{ skuCode: 'SKU-1' }, { skuCode: 'SKU-1' }, { skuCode: 'SKU-4' }],
+    transfers,
+  ), ['SKU-1'])
+})
+
+test('can exclude the transfer being edited while still detecting other Outlet ownership', () => {
+  const transfers = [
+    { id: 'current', status: 'pending', items: [{ skuCode: 'SKU-1' }, { skuCode: 'SKU-2' }] },
+    { id: 'other', status: 'received', items: [{ skuCode: 'SKU-2' }] },
+  ]
+
+  assert.deepEqual(
+    outletSkuConflictCodes([{ skuCode: 'SKU-1' }, { skuCode: 'SKU-2' }], transfers, 'current'),
+    ['SKU-2'],
+  )
+})
 
 test('finds only today pending outlet transfer for the sending store', () => {
   const now = new Date(2026, 7, 22, 10, 0, 0)

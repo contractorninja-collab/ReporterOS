@@ -2758,6 +2758,9 @@ export function updateOutletTransfer(id, changes) {
 export function deleteOutletTransfer(id) {
   const linkedSale = getEcommerceSaleListBySourceTransfer(id)
   if (linkedSale?.id) deleteMarkdownList(linkedSale.id)
+  const linkedLocationChange = getLocationChangeListBySourceTransfer(id)
+  if (linkedLocationChange?.id) deleteMarkdownList(linkedLocationChange.id)
+  db.prepare("DELETE FROM notifications WHERE relatedId = ? AND type = 'outlet_web_location_ready'").run(id)
   return db.prepare('DELETE FROM outlet_transfers WHERE id = ?').run(id).changes
 }
 
@@ -2953,6 +2956,66 @@ function normalizeMarkdownListItemStatuses(raw, listShop) {
   return out
 }
 
+function markdownMarkedTimestamps(rawStatuses) {
+  const timestamps = []
+  const add = (value) => {
+    if (!value) return
+    const time = new Date(value).getTime()
+    if (!Number.isNaN(time)) timestamps.push(new Date(time).toISOString())
+  }
+  for (const entry of Object.values(rawStatuses || {})) {
+    if (!entry || typeof entry !== 'object') continue
+    add(entry.markedAt || entry.taggedAt)
+    for (const laneEntry of Object.values(entry)) {
+      if (!laneEntry || typeof laneEntry !== 'object') continue
+      add(laneEntry.markedAt || laneEntry.taggedAt)
+    }
+  }
+  return [...new Set(timestamps)].sort()
+}
+
+/** Fill timestamps missing from historical sale lists using their recorded mark activity. */
+export function backfillMarkdownListTimestamps(fallbackNow = new Date().toISOString()) {
+  const fallbackDate = new Date(fallbackNow)
+  const safeFallback = Number.isNaN(fallbackDate.getTime()) ? new Date().toISOString() : fallbackDate.toISOString()
+  const rows = db.prepare(`
+    SELECT id, status, createdAt, completedAt, item_statuses
+    FROM markdown_lists
+    WHERE COALESCE(kind, 'sale') IN ('sale', 'ecommerce_sale')
+      AND (
+        TRIM(COALESCE(createdAt, '')) = ''
+        OR (
+          status IN ('completed', 'ended')
+          AND TRIM(COALESCE(completedAt, '')) = ''
+        )
+      )
+  `).all()
+  if (!rows.length) return 0
+
+  const update = db.prepare('UPDATE markdown_lists SET createdAt = ?, completedAt = ? WHERE id = ?')
+  const tx = db.transaction((targets) => {
+    let changed = 0
+    for (const row of targets) {
+      const timestamps = markdownMarkedTimestamps(safeJsonObject(
+        row.item_statuses,
+        { table: 'markdown_lists', column: 'item_statuses', id: row.id },
+      ))
+      const existingCreatedAt = String(row.createdAt || '').trim()
+      const existingCompletedAt = String(row.completedAt || '').trim()
+      const createdAt = existingCreatedAt || timestamps[0] || existingCompletedAt || safeFallback
+      const shouldHaveCompletedAt = row.status === 'completed' || row.status === 'ended'
+      const completedAt = existingCompletedAt || (
+        shouldHaveCompletedAt ? (timestamps.at(-1) || createdAt) : null
+      )
+      changed += update.run(createdAt, completedAt, row.id).changes
+    }
+    return changed
+  })
+  return tx(rows)
+}
+
+backfillMarkdownListTimestamps()
+
 export function getAllMarkdownLists() {
   return db.prepare('SELECT * FROM markdown_lists ORDER BY createdAt DESC').all().map(toMarkdownList)
 }
@@ -2971,7 +3034,7 @@ export function insertMarkdownList(l) {
       item_statuses: JSON.stringify(l.item_statuses || {}),
       shop: l.shop ?? '', createdBy: l.createdBy ?? '', assignedTo: l.assignedTo ?? null,
       createdAt, status: l.status ?? 'pending', completedAt: l.completedAt ?? null, note: l.note ?? null,
-      kind: ['removal', 'ecommerce_sale'].includes(l.kind) ? l.kind : 'sale',
+      kind: ['removal', 'ecommerce_sale', 'location_change'].includes(l.kind) ? l.kind : 'sale',
       sourceTransferId: l.sourceTransferId ?? null,
     })
   return getMarkdownListById(id)
@@ -3031,7 +3094,9 @@ export function toggleMarkdownListItemTagged(listId, skuCode, lane, userId) {
   if (Object.keys(byLane).length) statuses[skuCode] = byLane
   else delete statuses[skuCode]
 
-  const requiredLanes = list.kind === 'ecommerce_sale' ? ['E-commerce'] : MARKDOWN_LANES
+  const requiredLanes = (list.kind === 'ecommerce_sale' || list.kind === 'location_change')
+    ? ['E-commerce']
+    : MARKDOWN_LANES
   const allComplete = items.length > 0 && requiredLanes.every((ln) =>
     items.every((it) => statuses[it.skuCode]?.[ln]?.status === 'tagged'),
   )
@@ -3050,6 +3115,7 @@ export function assignPendingUnassignedMarkdownListsForShift(user) {
     SELECT *
     FROM markdown_lists
     WHERE status = 'pending'
+      AND COALESCE(kind, 'sale') <> 'location_change'
       AND TRIM(COALESCE(assignedTo, '')) = ''
       AND TRIM(COALESCE(shop, '')) = ?
     ORDER BY createdAt ASC
@@ -3513,6 +3579,43 @@ function outletSaleTitle(iso) {
 
 export function getEcommerceSaleListBySourceTransfer(sourceTransferId) {
   return toMarkdownList(db.prepare("SELECT * FROM markdown_lists WHERE sourceTransferId = ? AND kind = 'ecommerce_sale' ORDER BY createdAt DESC LIMIT 1").get(sourceTransferId))
+}
+
+export function getLocationChangeListBySourceTransfer(sourceTransferId) {
+  return toMarkdownList(db.prepare("SELECT * FROM markdown_lists WHERE sourceTransferId = ? AND kind = 'location_change' ORDER BY createdAt DESC LIMIT 1").get(sourceTransferId))
+}
+
+export function createLocationChangeListForOutletTransfer(transferId, actorUserId = '', assignedTo = null) {
+  const existing = getLocationChangeListBySourceTransfer(transferId)
+  if (existing) return { list: existing, created: false, items: existing.items || [] }
+
+  const transfer = getOutletTransferById(transferId)
+  if (!transfer) throw new Error('Outlet transfer not found')
+
+  const bySku = new Map()
+  for (const item of Array.isArray(transfer.items) ? transfer.items : []) {
+    const skuCode = String(item?.skuCode || '').trim()
+    if (!skuCode || bySku.has(skuCode)) continue
+    bySku.set(skuCode, {
+      skuCode,
+      productName: item?.productName || '',
+    })
+  }
+  const items = [...bySku.values()]
+  if (!items.length) return { list: null, created: false, items: [] }
+
+  const list = insertMarkdownList({
+    kind: 'location_change',
+    title: 'Change Location Web',
+    items,
+    item_statuses: {},
+    shop: 'E-commerce',
+    createdBy: actorUserId || '',
+    assignedTo,
+    note: `Auto-created from outlet transfer ${transferId}`,
+    sourceTransferId: transferId,
+  })
+  return { list, created: true, items }
 }
 
 export function createEcommerceSaleListForOutletTransfer(transferId, actorUserId = '', assignedTo = null) {

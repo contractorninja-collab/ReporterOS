@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { Bell, PackageCheck, AlertTriangle, CheckCircle, Truck, Clock, LogIn, LogOut, UserCheck, Plus, ChevronDown, Tag, X } from 'lucide-react'
+import { Bell, PackageCheck, AlertTriangle, CheckCircle, Truck, Clock, Globe2, LogIn, LogOut, UserCheck, Plus, ChevronDown, Tag, X } from 'lucide-react'
 import { IconSearch } from '../utils/icons.js'
 import useStore from '../store/useStore.js'
 import { localDateKey } from '../utils/saleList.js'
@@ -25,6 +25,7 @@ const NOTIF_ICONS = {
   shift_correction: UserCheck,
   alert_assigned: UserCheck,
   sale_pct_changed: Tag,
+  outlet_web_location_ready: Globe2,
 }
 const NOTIF_COLORS = {
   transfer_created: '#c084fc',
@@ -38,6 +39,7 @@ const NOTIF_COLORS = {
   shift_correction: '#38bdf8',
   alert_assigned: '#ff3333',
   sale_pct_changed: '#c084fc',
+  outlet_web_location_ready: '#7c3aed',
 }
 
 function timeAgo(iso) {
@@ -85,6 +87,11 @@ function NotificationDropdown({ onClose }) {
       const report = saleChangeReports.find((r) => r.id === n.relatedId)
       const date = report ? localDateKey(report.createdAt) : null
       navigate(date ? `/markdown?tab=changes&date=${encodeURIComponent(date)}` : '/markdown?tab=changes')
+      onClose?.()
+      return
+    }
+    if (n.type === 'outlet_web_location_ready' && n.relatedId) {
+      navigate(`/outlet?transfer=${encodeURIComponent(n.relatedId)}`)
       onClose?.()
     }
   }

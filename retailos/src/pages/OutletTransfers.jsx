@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { AlertTriangle, Check, ImageOff, X } from 'lucide-react'
+import { AlertTriangle, Check, Globe2, ImageOff, X } from 'lucide-react'
 import useStore from '../store/useStore.js'
 import { toTitleCase } from '../utils/textFormat.js'
 import { IconPlus, IconDownload, IconPrint } from '../utils/icons.js'
@@ -341,6 +341,99 @@ function OutletVerificationPanel({ batch, onUpdate, photoMap }) {
   )
 }
 
+function WebLocationPhoto({ src, skuCode }) {
+  const [failed, setFailed] = useState(false)
+  useEffect(() => setFailed(false), [src])
+  if (!src || failed) {
+    return (
+      <div className="md-sale-card__img-empty" aria-label={`No product image for ${skuCode}`}>
+        <ImageOff size={28} strokeWidth={1.25} />
+      </div>
+    )
+  }
+  return (
+    <img
+      src={src}
+      alt={`Product ${skuCode}`}
+      loading="lazy"
+      className="md-sale-card__img"
+      onError={() => setFailed(true)}
+    />
+  )
+}
+
+function WebLocationChecklist({ list, photoMap, onToggle }) {
+  const [markingSku, setMarkingSku] = useState('')
+  const [error, setError] = useState('')
+  const items = list.items || []
+  const statuses = list.item_statuses || {}
+  const markedCount = items.filter(
+    (item) => statuses[item.skuCode]?.['E-commerce']?.status === 'tagged',
+  ).length
+  const isComplete = list.status === 'completed' && items.length > 0 && markedCount === items.length
+
+  const toggleItem = async (skuCode) => {
+    if (markingSku) return
+    setMarkingSku(skuCode)
+    setError('')
+    try {
+      await onToggle(list.id, skuCode, 'E-commerce')
+    } catch (saveError) {
+      setError(saveError?.message || 'Could not save this website location update. Try again.')
+    } finally {
+      setMarkingSku('')
+    }
+  }
+
+  return (
+    <section className="ot-web-location" aria-label="Change Location Web checklist">
+      <div className="ot-web-location__head">
+        <div>
+          <span className="ot-web-location__eyebrow">E-commerce handoff</span>
+          <h3>Change Location Web</h3>
+          <p>Mark each SKU after its website location has been changed to Outlet.</p>
+        </div>
+        <span className={`ot-web-location__progress${isComplete ? ' is-complete' : ''}`}>
+          {isComplete ? 'Completed' : `${markedCount}/${items.length} marked`}
+        </span>
+      </div>
+      <div className="ot-web-location__track" aria-hidden="true">
+        <span style={{ width: `${items.length ? (markedCount / items.length) * 100 : 0}%` }} />
+      </div>
+      {error && <p className="ot-web-location__error" role="alert">{error}</p>}
+      <div className="md-sale-list-grid ot-web-location__grid">
+        {items.map((item) => {
+          const marked = statuses[item.skuCode]?.['E-commerce']?.status === 'tagged'
+          const saving = markingSku === item.skuCode
+          return (
+            <article key={item.skuCode} className={`md-sale-card ot-web-location-card${marked ? ' is-marked' : ''}`}>
+              <div className="md-sale-card__media">
+                <WebLocationPhoto src={photoMap?.[item.skuCode] || null} skuCode={item.skuCode} />
+              </div>
+              <div className="md-sale-card__body">
+                <div className="md-sale-card__info ot-web-location-card__info">
+                  {marked && <span className="md-sale-card__tagged-pill">✓ Marked</span>}
+                  <h3 className="ot-web-location-card__sku">{item.skuCode}</h3>
+                </div>
+                <div className="md-sale-card__footer">
+                  <button
+                    type="button"
+                    className={`md-sale-card__mark-btn${marked ? ' md-sale-card__mark-btn--done' : ''}`}
+                    disabled={Boolean(markingSku)}
+                    onClick={() => toggleItem(item.skuCode)}
+                  >
+                    {saving ? 'Saving…' : marked ? '✓ Marked' : 'Mark'}
+                  </button>
+                </div>
+              </div>
+            </article>
+          )
+        })}
+      </div>
+    </section>
+  )
+}
+
 export function OutletTransfers() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
@@ -351,7 +444,10 @@ export function OutletTransfers() {
   const users = useStore((s) => s.users)
   const activeUser = useStore((s) => s.activeUser)
   const photoMap = useStore((s) => s.photoMap)
+  const markdownLists = useStore((s) => s.markdownLists)
+  const toggleMarkdownListItemTagged = useStore((s) => s.toggleMarkdownListItemTagged)
   const [expanded, setExpanded] = useState(null)
+  const [webLocationOpen, setWebLocationOpen] = useState(null)
 
   useEffect(() => {
     if (requestedTransferId && transfers.some((transfer) => transfer.id === requestedTransferId)) {
@@ -378,7 +474,7 @@ export function OutletTransfers() {
   const handleDeleteTransfer = (batch) => {
     const isFinal = batch.status === 'completed' || batch.status === 'received'
     const ok = window.confirm(
-      `${isFinal ? 'Delete confirmed' : 'Discard'} outlet transfer?\nThis removes the transfer list for everyone${batch.status === 'received' ? ' and clears its linked E-commerce sale list.' : '.'}`,
+      `${isFinal ? 'Delete confirmed' : 'Discard'} outlet transfer?\nThis removes the transfer list for everyone${batch.status === 'received' ? ' and clears its linked E-commerce sale and Change Location Web lists.' : '.'}`,
     )
     if (!ok) return
     deleteOutletTransfer(batch.id).catch(() => {})
@@ -424,13 +520,22 @@ export function OutletTransfers() {
           const isReceived = batch.status === 'received'
           const totalUnits = batch.items.reduce((s, i) => s + (i.totalQty ?? i.quantity ?? 0), 0)
           const statusLabel = isPending ? 'Pending verification' : isCompleted ? 'Awaiting Outlet' : 'Received'
+          const locationChange = activeUser?.role === 'executive' && isReceived
+            ? markdownLists.find((list) => list.kind === 'location_change' && list.sourceTransferId === batch.id)
+            : null
+          const locationItems = locationChange?.items || []
+          const locationMarked = locationItems.filter(
+            (item) => locationChange?.item_statuses?.[item.skuCode]?.['E-commerce']?.status === 'tagged',
+          ).length
+          const locationComplete = locationChange?.status === 'completed' && locationItems.length > 0 && locationMarked === locationItems.length
+          const isWebLocationOpen = webLocationOpen === batch.id
           return (
             <div key={batch.id} className="ot-batch-card">
               <div
                 className="ot-batch-card__head"
                 onClick={() => setExpanded(isExpanded ? null : batch.id)}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
+                  if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
                     e.preventDefault()
                     setExpanded(isExpanded ? null : batch.id)
                   }
@@ -448,6 +553,20 @@ export function OutletTransfers() {
                     )}
                   </div>
                   {batch.note && <div className="ot-batch-card__note">{batch.note}</div>}
+                  {locationChange && (
+                    <button
+                      type="button"
+                      className={`ot-web-location-chip${locationComplete ? ' is-complete' : ''}`}
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        setExpanded(batch.id)
+                        setWebLocationOpen(isWebLocationOpen ? null : batch.id)
+                      }}
+                    >
+                      <Globe2 size={13} strokeWidth={1.8} />
+                      Change Location Web · {locationComplete ? 'Completed' : `${locationMarked}/${locationItems.length}`}
+                    </button>
+                  )}
                 </div>
                 <span className={`ot-status-badge${isReceived ? ' ot-status-badge--received' : ' ot-status-badge--pending'}`}>
                   {statusLabel}
@@ -478,6 +597,14 @@ export function OutletTransfers() {
 
                   {canVerifyOutletTransfer(batch) && (
                     <OutletVerificationPanel batch={batch} onUpdate={updateOutletTransfer} photoMap={photoMap} />
+                  )}
+
+                  {locationChange && isWebLocationOpen && (
+                    <WebLocationChecklist
+                      list={locationChange}
+                      photoMap={photoMap}
+                      onToggle={toggleMarkdownListItemTagged}
+                    />
                   )}
 
                   <div className="ot-batch-card__footer">

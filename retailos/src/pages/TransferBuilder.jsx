@@ -5,6 +5,7 @@ import { aggregateSkus } from '../utils/aggregateSkus.js'
 import { normalizeGenderCodeForFilter } from '../utils/gender.js'
 import { toTitleCase } from '../utils/textFormat.js'
 import { IconSearch, IconClose, IconWarning, IconCart, IconChevronDown } from '../utils/icons.js'
+import { outletSkuOwnership } from '../utils/outletTransfers.js'
 
 const DM = '"DM Sans", sans-serif'
 const SHOPS = ['Ring Mall', 'Village']
@@ -92,9 +93,17 @@ export function TransferBuilder() {
   const users = useStore((s) => s.users)
   const activeUser = useStore((s) => s.activeUser)
   const activeShifts = useStore((s) => s.activeShifts)
+  const outletTransfers = useStore((s) => s.outletTransfers)
   const createTransferBatch = useStore((s) => s.createTransferBatch)
 
   const products = useMemo(() => aggregateSkus(skus), [skus])
+  const outletOwnedSkuCodes = useMemo(() => {
+    const codes = new Set(outletSkuOwnership(outletTransfers).keys())
+    for (const row of skus) {
+      if (row?.stock_location === 'Outlet' && row?.sku) codes.add(String(row.sku))
+    }
+    return codes
+  }, [outletTransfers, skus])
 
   const rawSkusByProduct = useMemo(() => {
     const map = {}
@@ -125,6 +134,7 @@ export function TransferBuilder() {
   // staging: per-size picks before adding to cart
   const [staging, setStaging] = useState({})
   const [expandedSku, setExpandedSku] = useState(null)
+  const [submitError, setSubmitError] = useState('')
 
   const [showAllUsers, setShowAllUsers] = useState(false)
   const isExec = activeUser?.role === 'executive'
@@ -173,7 +183,9 @@ export function TransferBuilder() {
   }
 
   const filtered = useMemo(() => {
-    let list = products.filter((p) => (p.quantity - p.sold_quantity) > 0)
+    let list = products.filter((p) => (
+      (p.quantity - p.sold_quantity) > 0 && !outletOwnedSkuCodes.has(String(p.sku))
+    ))
     if (search.trim()) {
       const q = search.toLowerCase()
       list = list.filter(
@@ -192,7 +204,17 @@ export function TransferBuilder() {
       list = list.filter((p) => (p.category || '').toLowerCase() === categoryFilter.toLowerCase())
     }
     return list
-  }, [products, search, genderFilter, categoryFilter])
+  }, [products, outletOwnedSkuCodes, search, genderFilter, categoryFilter])
+
+  useEffect(() => {
+    setCart((previous) => {
+      const next = Object.fromEntries(
+        Object.entries(previous).filter(([skuCode]) => !outletOwnedSkuCodes.has(String(skuCode))),
+      )
+      return Object.keys(next).length === Object.keys(previous).length ? previous : next
+    })
+    if (expandedSku && outletOwnedSkuCodes.has(String(expandedSku))) setExpandedSku(null)
+  }, [expandedSku, outletOwnedSkuCodes])
 
   function getSizeRows(skuCode) {
     return (rawSkusByProduct[skuCode] || []).filter((r) => (r.quantity - r.sold_quantity) > 0)
@@ -274,6 +296,7 @@ export function TransferBuilder() {
 
   function handleSubmit() {
     if (cartItems.length === 0) return
+    setSubmitError('')
     const items = cartItems.map((c) => ({
       skuCode: c.skuCode,
       productName: c.productName,
@@ -295,8 +318,12 @@ export function TransferBuilder() {
       payload.fromShop = fromShop
       payload.toShop = toShop
     }
-    createTransferBatch(transferType, payload)
-    navigate(transferType === 'outlet' ? '/outlet' : '/transfers')
+    try {
+      createTransferBatch(transferType, payload)
+      navigate(transferType === 'outlet' ? '/outlet' : '/transfers')
+    } catch (err) {
+      setSubmitError(err?.message || 'This transfer could not be created.')
+    }
   }
 
   const stagingTotal = (skuCode) => {
@@ -501,6 +528,12 @@ export function TransferBuilder() {
 
       <div className="transfer-layout">
         <div className="transfer-products">
+          {submitError && (
+            <div className="tb-form-alert" role="alert" style={{ marginBottom: 12 }}>
+              <IconWarning size={14} strokeWidth={1.75} className="tb-form-alert__icon" />
+              <div className="tb-form-alert__text">{submitError}</div>
+            </div>
+          )}
           <div className="tb-filters">
             <div className="tb-search">
               <IconSearch size={14} strokeWidth={1.75} className="tb-search__icon" />

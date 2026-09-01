@@ -7,6 +7,7 @@ import {
 import {
   clearOutletItemStatuses,
   findTodayPendingOutletTransfer,
+  outletSkuConflictCodes,
   upsertOutletTransferItem,
   upsertOutletTransferItems,
 } from '../../utils/outletTransfers.js'
@@ -26,7 +27,14 @@ export function createTransfersSlice(set, get) {
         item_statuses: transfer.item_statuses || {},
       }
       set((state) => ({ outletTransfers: [full, ...state.outletTransfers] }))
-      api.postOutletTransfer(full).catch((err) => {
+      api.postOutletTransfer(full).then((saved) => {
+        if (saved?.id) {
+          set((state) => ({
+            outletTransfers: state.outletTransfers.map((t) => (t.id === full.id ? saved : t)),
+          }))
+        }
+        get().syncOperationalData?.().catch(() => {})
+      }).catch((err) => {
         set((state) => ({ outletTransfers: state.outletTransfers.filter((t) => t.id !== full.id) }))
         notifyLocalWriteFailure(set, get, 'Outlet transfer was not saved', err)
         resyncAfterWriteFailure(get)
@@ -42,6 +50,7 @@ export function createTransfersSlice(set, get) {
         .then((result) => {
           const updatedTransfer = result?.transfer || result
           const ecommerceSale = result?.ecommerceSale
+          const locationChange = result?.locationChange
           if (updatedTransfer?.id) {
             set((state) => ({
               outletTransfers: state.outletTransfers.map((t) => (t.id === transferId ? updatedTransfer : t)),
@@ -65,6 +74,15 @@ export function createTransfersSlice(set, get) {
                     }
                   : row
               }),
+            }))
+            get().syncOperationalData?.().catch(() => {})
+          }
+          if (locationChange?.list) {
+            set((state) => ({
+              markdownLists: [
+                locationChange.list,
+                ...state.markdownLists.filter((l) => l.id !== locationChange.list.id),
+              ],
             }))
             get().syncOperationalData?.().catch(() => {})
           }
@@ -99,6 +117,8 @@ export function createTransfersSlice(set, get) {
 
     addItemToTodayTransfer: async (item, createdBy, fromShop) => {
       const state = get()
+      const conflicts = outletSkuConflictCodes([item], state.outletTransfers)
+      if (conflicts.length) throw new Error(`${conflicts[0]} already belongs to Outlet and cannot be transferred again`)
       const sourceShop = String(fromShop ?? state.activeUser?.shop ?? '').trim()
       if (!sourceShop) throw new Error('Choose the store sending this product to Outlet')
       const existing = findTodayPendingOutletTransfer(state.outletTransfers, sourceShop)
@@ -117,6 +137,7 @@ export function createTransfersSlice(set, get) {
               outletTransfers: s.outletTransfers.map((t) => (t.id === existing.id ? saved : t)),
             }))
           }
+          get().syncOperationalData?.().catch(() => {})
           return saved
         } catch (err) {
           set((s) => ({
@@ -145,6 +166,7 @@ export function createTransfersSlice(set, get) {
               outletTransfers: s.outletTransfers.map((t) => (t.id === full.id ? saved : t)),
             }))
           }
+          get().syncOperationalData?.().catch(() => {})
           return saved
         } catch (err) {
           set((s) => ({ outletTransfers: s.outletTransfers.filter((t) => t.id !== full.id) }))
@@ -160,6 +182,8 @@ export function createTransfersSlice(set, get) {
     addItemToStoreTransfer: (item, fromShop, toShop, createdBy) => {
       const today = new Date().toISOString().slice(0, 10)
       const state = get()
+      const conflicts = outletSkuConflictCodes([item], state.outletTransfers)
+      if (conflicts.length) throw new Error(`${conflicts[0]} already belongs to Outlet and cannot be transferred again`)
       const existing = state.storeTransfers.find(
         (t) => t.status === 'pending' && t.createdAt.slice(0, 10) === today && t.fromShop === fromShop && t.toShop === toShop
       )
@@ -268,6 +292,12 @@ export function createTransfersSlice(set, get) {
      */
     createTransferBatch: (type, payload) => {
       const state = get()
+      const conflicts = outletSkuConflictCodes(payload.items, state.outletTransfers)
+      if (conflicts.length) {
+        const shown = conflicts.slice(0, 3).join(', ')
+        const extra = conflicts.length > 3 ? ` and ${conflicts.length - 3} more` : ''
+        throw new Error(`${shown}${extra} already belong to Outlet and cannot be transferred again`)
+      }
       const createdAt = new Date().toISOString()
       const sourceShop = String(payload.fromShop ?? state.activeUser?.shop ?? '').trim()
       const existingOutletTransfer = type === 'outlet'
@@ -330,6 +360,7 @@ export function createTransfersSlice(set, get) {
                 outletTransfers: s.outletTransfers.map((transfer) => (transfer.id === id ? saved : transfer)),
               }))
             }
+            get().syncOperationalData?.().catch(() => {})
             return saved
           }).catch((err) => {
             set((s) => ({
@@ -350,6 +381,7 @@ export function createTransfersSlice(set, get) {
                 outletTransfers: s.outletTransfers.map((transfer) => (transfer.id === id ? saved : transfer)),
               }))
             }
+            get().syncOperationalData?.().catch(() => {})
             return saved
           }).catch((err) => {
             set((s) => ({ outletTransfers: s.outletTransfers.filter((transfer) => transfer.id !== id) }))

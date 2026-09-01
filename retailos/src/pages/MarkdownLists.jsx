@@ -5,6 +5,7 @@ import { DISCOUNTS, salePriceOf, localDateKey } from '../utils/saleList.js'
 import { isExecutive } from '../utils/roles.js'
 import { toTitleCase } from '../utils/textFormat.js'
 import { IconTag, IconDownload } from '../utils/icons.js'
+import { buildMarkdownListCSV } from '../utils/markdownCsv.js'
 
 const MARKDOWN_LANES = ['Ring Mall', 'Village', 'E-commerce']
 const ECOMMERCE_LANES = ['E-commerce']
@@ -23,26 +24,8 @@ const S = {
   orange: '#fbbf24',
 }
 
-function csvEscape(v) {
-  const s = String(v ?? '')
-  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
-}
-
 function downloadListCSV(list) {
-  const doneLabel = list.kind === 'removal' ? 'Removed' : 'Tagged'
-  const headers = [
-    'SKU', 'Product', 'Brand', 'Category', 'Gender', 'Season', 'Price Tag', 'Sale %', 'Extra Sale %', 'Sale Price', 'Sizes',
-    ...MARKDOWN_LANES.map((lane) => `${lane} ${doneLabel}`),
-    'Legacy Marked',
-  ]
-  const statuses = list.item_statuses || {}
-  const rows = (list.items || []).map((it) => [
-    it.skuCode, it.productName, it.brand, it.category, it.gender, it.season,
-    it.priceTag, it.salePct, it.extraSalePct || 0, it.salePrice, it.sizes,
-    ...MARKDOWN_LANES.map((lane) => laneStatus(statuses, it.skuCode, lane)?.status === 'tagged' ? 'Yes' : 'No'),
-    legacyMarked(statuses, it.skuCode) ? 'Yes' : 'No',
-  ])
-  const csv = [headers, ...rows].map((r) => r.map(csvEscape).join(',')).join('\n')
+  const csv = buildMarkdownListCSV(list)
   const blob = new Blob([`\ufeff${csv}`], { type: 'text/csv;charset=utf-8' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
@@ -364,7 +347,7 @@ function PageTabs({ activeTab, onTabChange }) {
 
 export default function MarkdownLists() {
   const [searchParams, setSearchParams] = useSearchParams()
-  const markdownLists = useStore((s) => s.markdownLists)
+  const allMarkdownLists = useStore((s) => s.markdownLists)
   const saleChangeReports = useStore((s) => s.saleChangeReports)
   const fetchSaleChangeReports = useStore((s) => s.fetchSaleChangeReports)
   const changeSaleListItemPct = useStore((s) => s.changeSaleListItemPct)
@@ -395,6 +378,10 @@ export default function MarkdownLists() {
   const isExec = isExecutive(activeUser)
   const myLane = userMarkdownLane(activeUser)
   const viewLanes = userMarkableLanes(activeUser)
+  const markdownLists = useMemo(
+    () => allMarkdownLists.filter((list) => list.kind !== 'location_change'),
+    [allMarkdownLists],
+  )
 
   const activeTab = searchParams.get('tab') === 'changes' ? 'changes' : 'lists'
   const reportId = searchParams.get('report') || null

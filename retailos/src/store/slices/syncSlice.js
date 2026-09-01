@@ -154,7 +154,7 @@ export function createSyncSlice(set, get) {
         return
       }
       if (!get()._apiOnline) set({ _apiOnline: true })
-      const [assignments, outletTransfers, storeTransfers, markdownLists, saleChangeReports, notifs, shifts] = await Promise.all([
+      const [assignments, outletTransfers, storeTransfers, markdownLists, saleChangeReports, notifs, shifts, freshSkus] = await Promise.all([
         api.fetchAssignments().catch(() => null),
         api.fetchOutletTransfers().catch(() => null),
         api.fetchStoreTransfers().catch(() => null),
@@ -162,11 +162,13 @@ export function createSyncSlice(set, get) {
         api.fetchSaleChangeReports().catch(() => null),
         api.fetchNotifications().catch(() => null),
         api.fetchActiveShifts().catch(() => null),
+        api.fetchSkus().catch(() => null),
       ])
       const updates = {}
       if (Array.isArray(assignments)) updates.assignments = assignments
       if (Array.isArray(outletTransfers)) updates.outletTransfers = outletTransfers
       if (Array.isArray(storeTransfers)) updates.storeTransfers = storeTransfers
+      if (Array.isArray(freshSkus)) updates.skus = freshSkus
       if (Array.isArray(markdownLists)) updates.markdownLists = markdownLists
       if (Array.isArray(saleChangeReports)) updates.saleChangeReports = saleChangeReports
       if (Array.isArray(notifs)) {

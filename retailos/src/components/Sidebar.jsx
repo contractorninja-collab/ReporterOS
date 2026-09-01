@@ -102,7 +102,7 @@ export function Sidebar({ onNavigate }) {
   }, [storeTransfers, activeUser])
 
   const pendingMarkdownLists = useMemo(
-    () => markdownLists.filter((l) => l.status === 'pending').length,
+    () => markdownLists.filter((l) => l.kind !== 'location_change' && l.status === 'pending').length,
     [markdownLists],
   )
 

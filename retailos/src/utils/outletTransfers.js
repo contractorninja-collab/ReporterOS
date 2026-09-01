@@ -2,6 +2,50 @@ function normalizedShop(value) {
   return String(value ?? '').trim().toLocaleLowerCase()
 }
 
+function normalizedSku(value) {
+  return String(value ?? '').trim()
+}
+
+const OUTLET_STATUS_PRIORITY = {
+  pending: 1,
+  completed: 2,
+  received: 3,
+}
+
+/**
+ * Outlet transfers are the stock-location ledger: as soon as a SKU is placed in
+ * one, it belongs to Outlet until that transfer is deleted.
+ */
+export function outletSkuOwnership(transfers, excludeTransferId = null) {
+  const ownership = new Map()
+  for (const transfer of Array.isArray(transfers) ? transfers : []) {
+    if (!transfer || String(transfer.id) === String(excludeTransferId ?? '')) continue
+    for (const item of Array.isArray(transfer.items) ? transfer.items : []) {
+      const skuCode = normalizedSku(item?.skuCode ?? item?.sku)
+      if (!skuCode) continue
+      const current = ownership.get(skuCode)
+      const nextPriority = OUTLET_STATUS_PRIORITY[transfer.status] || 0
+      const currentPriority = OUTLET_STATUS_PRIORITY[current?.status] || 0
+      if (!current || nextPriority >= currentPriority) {
+        ownership.set(skuCode, {
+          skuCode,
+          transferId: transfer.id,
+          status: transfer.status || 'pending',
+          fromShop: transfer.fromShop || '',
+        })
+      }
+    }
+  }
+  return ownership
+}
+
+export function outletSkuConflictCodes(items, transfers, excludeTransferId = null) {
+  const ownership = outletSkuOwnership(transfers, excludeTransferId)
+  return [...new Set((Array.isArray(items) ? items : [])
+    .map((item) => normalizedSku(item?.skuCode ?? item?.sku))
+    .filter((skuCode) => skuCode && ownership.has(skuCode)))]
+}
+
 export function localDateKey(value = new Date()) {
   const date = value instanceof Date ? value : new Date(value)
   if (Number.isNaN(date.getTime())) return ''

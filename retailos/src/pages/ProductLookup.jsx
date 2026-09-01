@@ -911,7 +911,7 @@ export function ProductLookup() {
   }, [skus, shipmentMeta, activeSeason])
 
   const activeSaleLists = useMemo(
-    () => markdownLists.filter((l) => l.kind !== 'removal' && l.status !== 'ended'),
+    () => markdownLists.filter((l) => !['removal', 'location_change'].includes(l.kind) && l.status !== 'ended'),
     [markdownLists],
   )
 

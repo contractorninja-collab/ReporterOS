@@ -15,6 +15,7 @@ import {
   IconClose,
 } from '../utils/icons.js'
 import { genderShortLabel } from '../utils/gender.js'
+import { outletSkuOwnership } from '../utils/outletTransfers.js'
 
 const ACTION_BTN = {
   padding: '8px 14px',
@@ -61,6 +62,7 @@ export default function ProductDetailModal({ sku, status, statusData, onClose, s
   const activeSeason = useStore((s) => s.activeSeason)
   const shipmentMeta = useStore((s) => s.shipmentMeta)
   const markdownLists = useStore((s) => s.markdownLists)
+  const outletTransfers = useStore((s) => s.outletTransfers)
   const syncOperationalData = useStore((s) => s.syncOperationalData)
   const showSalesMetrics = isExecutive(activeUser)
   const addAssignment = useStore((s) => s.addAssignment)
@@ -103,6 +105,14 @@ export default function ProductDetailModal({ sku, status, statusData, onClose, s
   const [genderError, setGenderError] = useState('')
 
   const skuCode = String(sku.sku ?? '')
+  const outletOwnership = useMemo(
+    () => outletSkuOwnership(outletTransfers).get(skuCode) || null,
+    [outletTransfers, skuCode],
+  )
+  const hasOutletLocationField = sku.stock_location === 'Outlet' || rawSkus.some((row) => (
+    String(row?.sku ?? '') === skuCode && row?.stock_location === 'Outlet'
+  ))
+  const isOutletOwned = Boolean(outletOwnership || hasOutletLocationField)
   const skuSaleListId = String(sku.sale_list_id ?? '')
   const skuHasActiveSaleList = Boolean(sku.sale_active && skuSaleListId)
 
@@ -117,7 +127,7 @@ export default function ProductDetailModal({ sku, status, statusData, onClose, s
   }, [skuCode, sku.gender])
 
   const activeSaleLists = useMemo(
-    () => markdownLists.filter((l) => l.kind !== 'removal' && l.status !== 'ended'),
+    () => markdownLists.filter((l) => !['removal', 'location_change'].includes(l.kind) && l.status !== 'ended'),
     [markdownLists],
   )
   const referencedSaleList = useMemo(() => {
@@ -129,7 +139,7 @@ export default function ProductDetailModal({ sku, status, statusData, onClose, s
   const activeSaleList = useMemo(() => {
     if (!referencedSaleList) return null
     const hasItem = (referencedSaleList.items || []).some((it) => String(it.skuCode) === String(sku.sku))
-    if (referencedSaleList.kind === 'removal' || referencedSaleList.status === 'ended' || !hasItem) return null
+    if (['removal', 'location_change'].includes(referencedSaleList.kind) || referencedSaleList.status === 'ended' || !hasItem) return null
     return referencedSaleList
   }, [referencedSaleList, sku.sku])
   const activeSaleItem = useMemo(
@@ -204,6 +214,10 @@ export default function ProductDetailModal({ sku, status, statusData, onClose, s
   const returnsCount = summaryData?.returnsCount ?? 0
 
   const openAssignPanel = (actionType) => {
+    if (isOutletOwned && ['store_transfer', 'outlet_transfer'].includes(actionType)) {
+      setOutletMoveError(`${sku.sku} already belongs to Outlet and cannot be transferred again.`)
+      return
+    }
     setAssignPanel(actionType)
     setAssignTo(users[0]?.id || '')
     setAssignNote('')
@@ -326,6 +340,11 @@ export default function ProductDetailModal({ sku, status, statusData, onClose, s
 
   const handleStoreTransfer = () => {
     if (!transferShop) return
+    if (isOutletOwned) {
+      setOutletMoveError(`${sku.sku} already belongs to Outlet and cannot be transferred again.`)
+      setAssignPanel(null)
+      return
+    }
     const remaining = Math.max(0, sku.quantity - netSoldQty)
     addItemToStoreTransfer(
       { skuCode: sku.sku, productName: sku.product_name, quantity: remaining, sizes: (sku.sizes || []).join(', ') },
@@ -371,6 +390,11 @@ export default function ProductDetailModal({ sku, status, statusData, onClose, s
   }, [rawSkus, sku.sku])
 
   const handleOutletMove = async (requestedSourceShop = activeUser?.shop) => {
+    if (isOutletOwned) {
+      setOutletMoveError(`${sku.sku} already belongs to Outlet and cannot be transferred again.`)
+      setAssignPanel(null)
+      return
+    }
     const sourceShop = String(requestedSourceShop || '').trim()
     if (!sourceShop) {
       setOutletMoveError('Choose the store sending this product.')
@@ -435,6 +459,10 @@ export default function ProductDetailModal({ sku, status, statusData, onClose, s
   const openOutletMove = () => {
     setAssignDone(null)
     setOutletMoveError('')
+    if (isOutletOwned) {
+      setOutletMoveError(`${sku.sku} already belongs to Outlet and cannot be transferred again.`)
+      return
+    }
     if (activeUser?.shop && SHOPS.includes(activeUser.shop)) {
       handleOutletMove(activeUser.shop)
       return
@@ -825,6 +853,7 @@ export default function ProductDetailModal({ sku, status, statusData, onClose, s
               ['Brand', sku.brand ?? '—'],
               ['Category', sku.category ?? '—'],
               ['Gender', savedGender],
+              ['Location', isOutletOwned ? 'Outlet' : '—'],
               ['Arrival Date', lifecycleArrivalDate ? new Date(lifecycleArrivalDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'],
               ['Days in store', String(days)],
               ['Season', sku.season ?? '—'],
@@ -940,6 +969,15 @@ export default function ProductDetailModal({ sku, status, statusData, onClose, s
                       <span role="alert" style={{ maxWidth: 260, fontSize: 10, fontWeight: 700, color: '#ef4444', textAlign: 'right' }}>{genderError}</span>
                     )}
                   </div>
+                ) : key === 'Location' && isOutletOwned ? (
+                  <span style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 9px',
+                    borderRadius: 999, background: 'rgba(251,191,36,0.12)',
+                    border: '1px solid rgba(251,191,36,0.24)', color: '#fbbf24',
+                    fontSize: 11, fontWeight: 700,
+                  }}>
+                    Outlet
+                  </span>
                 ) : (
                   <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--ro-text)', textAlign: 'right' }}>{val}</span>
                 )}
@@ -1064,12 +1102,12 @@ export default function ProductDetailModal({ sku, status, statusData, onClose, s
                 Assign Sale
               </button>
             )}
-            {(status === 'Aging' || status === 'Risk' || status === 'Clearance') && (
+            {!isOutletOwned && (status === 'Aging' || status === 'Risk' || status === 'Clearance') && (
               <button type="button" onClick={() => openAssignPanel('store_transfer')} style={{ ...ACTION_BTN, background: '#38bdf8', color: '#09090e' }}>
                 Transfer to Shop
               </button>
             )}
-            {(status === 'Clearance' || status === 'Outlet') && (
+            {!isOutletOwned && (status === 'Clearance' || status === 'Outlet') && (
               <button type="button" onClick={openOutletMove} disabled={outletMoveSaving} style={{ ...ACTION_BTN, background: '#fbbf24', color: '#09090e', opacity: outletMoveSaving ? 0.6 : 1 }}>
                 {outletMoveSaving ? 'Adding…' : 'Move to Outlet'}
               </button>

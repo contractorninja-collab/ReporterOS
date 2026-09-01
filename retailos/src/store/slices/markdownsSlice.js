@@ -178,9 +178,16 @@ export function createMarkdownsSlice(set, get) {
         return updated
       } catch (err) {
         set({ markdownLists: prevLists })
-        notifyLocalWriteFailure(set, get, 'Sale list progress was not saved', err)
+        notifyLocalWriteFailure(
+          set,
+          get,
+          list.kind === 'location_change'
+            ? 'Website location progress was not saved'
+            : 'Sale list progress was not saved',
+          err,
+        )
         resyncAfterWriteFailure(get)
-        return null
+        throw err
       }
     },
 

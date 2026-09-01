@@ -28,6 +28,7 @@ import {
   changeMarkdownListItemSalePct,
   removeMarkdownListItemFromSale,
   createEcommerceSaleListForOutletTransfer,
+  createLocationChangeListForOutletTransfer,
   getAllSaleChangeReports, getSaleChangeReportById, saleChangeReportVisibleToUser,
   toggleSaleChangeItemMarked, discardSaleChangeReport, discardSaleChangeReportProduct,
   getAllSnapshots, insertSnapshot,
@@ -47,6 +48,7 @@ import {
   correctSkuGender,
 } from './src/data/db.js'
 import * as salesEvents from './src/data/salesEvents.js'
+import { markdownListVisibleToUser } from './src/utils/markdownAccess.js'
 import { createSalesEventsRouter } from './src/server/routes/salesEventsRoutes.js'
 import { pickPrimaryLanIp } from './pickLanIp.mjs'
 import {
@@ -70,7 +72,11 @@ import {
   isPhaseComplete,
   verificationTotals,
 } from './src/utils/storeTransferVerification.js'
-import { outletVerificationEntryError } from './src/utils/outletTransfers.js'
+import {
+  outletSkuConflictCodes,
+  outletSkuOwnership,
+  outletVerificationEntryError,
+} from './src/utils/outletTransfers.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -710,6 +716,30 @@ function filterOutletTransfers(rows, user) {
   )
 }
 
+function assertSkusAvailableOutsideOutlet(items, excludeOutletTransferId = null) {
+  const conflicts = outletSkuConflictCodes(items, getAllOutletTransfers(), excludeOutletTransferId)
+  if (conflicts.length === 0) return
+  const shown = conflicts.slice(0, 5).join(', ')
+  const extra = conflicts.length > 5 ? ` and ${conflicts.length - 5} more` : ''
+  const error = new Error(`${shown}${extra} already belong${conflicts.length === 1 ? 's' : ''} to Outlet and cannot be transferred again`)
+  error.statusCode = 409
+  throw error
+}
+
+function withOutletStockLocation(rows) {
+  const ownership = outletSkuOwnership(getAllOutletTransfers())
+  return (Array.isArray(rows) ? rows : []).map((row) => {
+    const owner = ownership.get(String(row?.sku ?? '').trim())
+    if (!owner) return row
+    return {
+      ...row,
+      stock_location: 'Outlet',
+      outlet_transfer_id: owner.transferId,
+      outlet_transfer_status: owner.status,
+    }
+  })
+}
+
 function assignmentVisibleToUser(row, user) {
   if (user.role === 'executive') return true
   return (
@@ -910,6 +940,42 @@ function createOutletEcommerceSaleIfNeeded(transferId, actor) {
     entityId: result.list.id,
     summary,
     meta: { sourceTransferId: transferId, products: result.items.length, units: totalUnits },
+  })
+  return result
+}
+
+function outletWebLocationTargets() {
+  return getAllUsers()
+    .filter((u) => u.role === 'executive')
+    .map((u) => u.id)
+    .filter(Boolean)
+}
+
+function createOutletWebLocationIfNeeded(transferId, actor) {
+  const targets = outletWebLocationTargets()
+  const result = createLocationChangeListForOutletTransfer(
+    transferId,
+    actor?.id || '',
+    targets.length ? targets.join(',') : null,
+  )
+  if (!result?.created || !result.list) return result
+
+  for (const userId of targets) {
+    insertNotification({
+      type: 'outlet_web_location_ready',
+      title: 'Change Location Web',
+      message: `${actor?.name || 'Outlet'} confirmed an Outlet transfer. ${result.items.length} product${result.items.length === 1 ? '' : 's'} need a website location update.`,
+      userId,
+      relatedId: transferId,
+    })
+  }
+  act(actor, {
+    category: 'transfer_outlet',
+    action: 'web_location_checklist_created',
+    entityType: 'markdown_list',
+    entityId: result.list.id,
+    summary: `Change Location Web checklist created (${result.items.length} products)`,
+    meta: { sourceTransferId: transferId, products: result.items.length },
   })
   return result
 }
@@ -1488,7 +1554,7 @@ app.post('/api/auth/logout', (req, res) => {
 app.get('/api/skus', (req, res) => {
   try {
     try { purgeExpiredBinnedSkus() } catch { /* ignore */ }
-    res.json(getAllSkus())
+    res.json(withOutletStockLocation(getAllSkus()))
   } catch (e) { safeError(res, e) }
 })
 
@@ -2190,6 +2256,7 @@ app.post('/api/outlet-transfers', (req, res) => {
         return res.status(403).json({ error: 'Outlet transfers can only be assigned within the sending store' })
       }
     }
+    assertSkusAvailableOutsideOutlet(body.items)
     const t = insertOutletTransfer(body)
     const n = Array.isArray(t.items) ? t.items.length : 0
     act(u, {
@@ -2219,10 +2286,17 @@ app.put('/api/outlet-transfers/:id', (req, res) => {
       return res.status(403).json({ error: 'Outlet transfers can only be assigned within the sending store' })
     }
     validateOutletTransferUpdate(row, req.authUser, req.body || {})
+    if (Object.prototype.hasOwnProperty.call(req.body || {}, 'items')) {
+      assertSkusAvailableOutsideOutlet(req.body.items, row.id)
+    }
     const updated = updateOutletTransfer(req.params.id, req.body)
     if (!updated) return res.status(404).json({ error: 'Not found' })
-    const ecommerceSale = req.body?.status === 'received' && row.status !== 'received'
+    const ensureReceiptArtifacts = req.body?.status === 'received' && (row.status === 'completed' || row.status === 'received')
+    const ecommerceSale = ensureReceiptArtifacts
       ? createOutletEcommerceSaleIfNeeded(req.params.id, req.authUser)
+      : null
+    const locationChange = ensureReceiptArtifacts
+      ? createOutletWebLocationIfNeeded(req.params.id, req.authUser)
       : null
     act(req.authUser, {
       category: 'transfer_outlet',
@@ -2232,7 +2306,10 @@ app.put('/api/outlet-transfers/:id', (req, res) => {
       summary: `Outlet transfer updated — ${updated.status || row.status}`,
       meta: { patch: req.body, status: updated.status },
     })
-    res.json(ecommerceSale ? { transfer: updated, ecommerceSale } : updated)
+    const visibleLocationChange = req.authUser.role === 'executive' ? locationChange : null
+    res.json(ecommerceSale || visibleLocationChange
+      ? { transfer: updated, ecommerceSale, ...(visibleLocationChange ? { locationChange: visibleLocationChange } : {}) }
+      : updated)
   } catch (e) { safeError(res, e) }
 })
 
@@ -2256,7 +2333,12 @@ app.delete('/api/outlet-transfers/:id', (req, res) => {
       entityType: 'outlet_transfer',
       entityId: req.params.id,
       summary: `${status === 'received' ? 'Deleted confirmed' : 'Discarded'} outlet transfer (${n} items)`,
-      meta: { status, products: n, removedLinkedEcommerceSale: status === 'received' },
+      meta: {
+        status,
+        products: n,
+        removedLinkedEcommerceSale: status === 'received',
+        removedLinkedWebLocationChecklist: status === 'received',
+      },
     })
     res.json({ ok: true })
   } catch (e) { safeError(res, e) }
@@ -2287,6 +2369,7 @@ app.post('/api/store-transfers', (req, res) => {
       receiverAssignedTo: null,
     }
     body.id = String(body.id || crypto.randomUUID())
+    assertSkusAvailableOutsideOutlet(body.items)
     if (u.role !== 'executive') {
       const shop = u.shop ?? ''
       if (!shop) {
@@ -2476,6 +2559,9 @@ app.put('/api/store-transfers/:id', (req, res) => {
       }
     }
     validateStoreTransferUpdate(row, req.authUser, req.body || {})
+    if (Object.prototype.hasOwnProperty.call(req.body || {}, 'items')) {
+      assertSkusAvailableOutsideOutlet(req.body.items)
+    }
     const updated = updateStoreTransfer(req.params.id, req.body)
     if (!updated) return res.status(404).json({ error: 'Not found' })
     act(req.authUser, {
@@ -2520,17 +2606,6 @@ app.delete('/api/store-transfers/:id', (req, res) => {
 
 const MARKDOWN_LANES = ['Ring Mall', 'Village', 'E-commerce']
 
-function markdownListVisibleToUser(l, user) {
-  if (user.role === 'executive') return true
-  if (user.role === 'manager' || user.role === 'marketing') return true
-  if (!String(l.assignedTo || '').trim()) return true
-  return (
-    (l.shop && l.shop === user.shop) ||
-    l.createdBy === user.id ||
-    l.assignedTo === user.id
-  )
-}
-
 function markdownLaneForUser(user, requestedLane) {
   const lane = String(requestedLane || '').trim()
   if (user.role === 'executive') {
@@ -2568,6 +2643,9 @@ app.get('/api/markdown-lists', (req, res) => {
 app.post('/api/markdown-lists', (req, res) => {
   try {
     const u = req.authUser
+    if (req.body?.kind === 'location_change') {
+      return res.status(400).json({ error: 'Change Location Web checklists are created automatically from Outlet transfers' })
+    }
     if (u.role !== 'executive' && u.role !== 'manager') {
       return res.status(403).json({ error: 'Manager or executive access required' })
     }
@@ -2596,6 +2674,9 @@ app.put('/api/markdown-lists/:id', (req, res) => {
     if (!row) return res.status(404).json({ error: 'Not found' })
     if (!markdownListVisibleToUser(row, u)) {
       return res.status(403).json({ error: 'Forbidden' })
+    }
+    if (row.kind === 'location_change') {
+      return res.status(403).json({ error: 'Use the Mark action from the Outlet transfer' })
     }
     if (Object.prototype.hasOwnProperty.call(req.body || {}, 'item_statuses') && u.role !== 'executive') {
       return res.status(403).json({ error: 'Use the lane mark endpoint to update markdown progress' })
@@ -2656,6 +2737,9 @@ app.delete('/api/markdown-lists/:id', (req, res) => {
     if (!markdownListVisibleToUser(row, u)) {
       return res.status(403).json({ error: 'Forbidden' })
     }
+    if (row.kind === 'location_change') {
+      return res.status(403).json({ error: 'Delete the linked Outlet transfer to remove this checklist' })
+    }
     deleteMarkdownList(req.params.id)
     act(u, {
       category: 'markdown',
@@ -2677,23 +2761,33 @@ app.patch('/api/markdown-lists/:id/items/:skuCode/tagged', (req, res) => {
     if (!markdownListVisibleToUser(row, u)) {
       return res.status(403).json({ error: 'Forbidden' })
     }
-    const lane = markdownLaneForUser(u, req.body?.lane)
+    if (row.kind === 'location_change' && u.role !== 'executive') {
+      return res.status(403).json({ error: 'Executive access required' })
+    }
+    const lane = row.kind === 'location_change'
+      ? 'E-commerce'
+      : markdownLaneForUser(u, req.body?.lane)
     if (!lane) return res.status(403).json({ error: 'No markdown lane available for this user' })
-    if (row.kind === 'ecommerce_sale' && lane !== 'E-commerce') {
+    if ((row.kind === 'ecommerce_sale' || row.kind === 'location_change') && lane !== 'E-commerce') {
       return res.status(403).json({ error: 'This sale list is E-commerce only' })
     }
     const skuCode = decodeURIComponent(req.params.skuCode || '')
     const updated = toggleMarkdownListItemTagged(req.params.id, skuCode, lane, u.id)
     const isTagged = updated.item_statuses?.[skuCode]?.[lane]?.status === 'tagged'
+    const isLocationChange = row.kind === 'location_change'
     act(u, {
-      category: 'markdown',
-      action: isTagged ? 'sale_item_tagged' : 'sale_item_untagged',
+      category: isLocationChange ? 'transfer_outlet' : 'markdown',
+      action: isLocationChange
+        ? (isTagged ? 'web_location_marked' : 'web_location_unmarked')
+        : (isTagged ? 'sale_item_tagged' : 'sale_item_untagged'),
       entityType: 'markdown_list',
       entityId: req.params.id,
-      summary: isTagged
-        ? `Sale tag marked at ${lane} — ${skuCode}`
-        : `Sale tag mark cleared at ${lane} — ${skuCode}`,
-      meta: { listId: req.params.id, skuCode, lane },
+      summary: isLocationChange
+        ? `${isTagged ? 'Website location changed' : 'Website location mark cleared'} — ${skuCode}`
+        : isTagged
+          ? `Sale tag marked at ${lane} — ${skuCode}`
+          : `Sale tag mark cleared at ${lane} — ${skuCode}`,
+      meta: { listId: req.params.id, sourceTransferId: row.sourceTransferId || null, skuCode, lane },
     })
     res.json(updated)
   } catch (e) { safeError(res, e, e.statusCode || 500) }
@@ -2709,6 +2803,9 @@ app.patch('/api/markdown-lists/:id/items/:skuCode/sale-pct', (req, res) => {
     if (!row) return res.status(404).json({ error: 'Not found' })
     if (!markdownListVisibleToUser(row, u)) {
       return res.status(403).json({ error: 'Forbidden' })
+    }
+    if (row.kind === 'location_change') {
+      return res.status(403).json({ error: 'Website location checklists do not support sale changes' })
     }
     const salePct = Number(req.body?.salePct)
     if (!salePct || salePct <= 0) return res.status(400).json({ error: 'salePct required' })
@@ -2744,6 +2841,9 @@ app.delete('/api/markdown-lists/:id/items/:skuCode', (req, res) => {
     if (!row) return res.status(404).json({ error: 'Not found' })
     if (!markdownListVisibleToUser(row, u)) {
       return res.status(403).json({ error: 'Forbidden' })
+    }
+    if (row.kind === 'location_change') {
+      return res.status(403).json({ error: 'Website location checklist products cannot be removed' })
     }
     const skuCode = decodeURIComponent(req.params.skuCode || '')
     const result = removeMarkdownListItemFromSale(req.params.id, skuCode, u.id)
