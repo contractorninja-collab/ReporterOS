@@ -14,6 +14,7 @@ import {
 import useStore from '../store/useStore.js'
 import { isExecutive } from '../utils/roles.js'
 import { buildOutletInventory, outletWebChecklistProgress } from '../utils/outletHub.js'
+import { outletTransferItemExpectedQuantity } from '../utils/outletTransfers.js'
 import { toTitleCase } from '../utils/textFormat.js'
 
 function formatDate(value) {
@@ -96,7 +97,9 @@ export function OutletHub() {
     ...(executive ? [{ id: 'web', label: 'Web Location', count: webProgress.remainingItems }] : []),
   ]
 
-  const openTransfer = (id) => navigate(`/outlet?transfer=${encodeURIComponent(id)}`)
+  const openTransfer = (id, options = {}) => navigate(
+    `/outlet?transfer=${encodeURIComponent(id)}${options.web ? '&web=1' : ''}`,
+  )
 
   return (
     <div className="oh-page">
@@ -122,7 +125,7 @@ export function OutletHub() {
         <div className="oh-panel-stack">
           <section className="oh-metrics" aria-label="Outlet summary">
             <MetricCard icon={<PackageCheck size={21} />} label="Outlet SKUs" value={inventory.length} detail="Officially located in Outlet" tone="violet" />
-            <MetricCard icon={<Store size={21} />} label="Tracked units" value={outletUnits} detail="Verified units received" tone="blue" />
+            <MetricCard icon={<Store size={21} />} label="Tracked units" value={outletUnits} detail="Received or current on hand, shown by source" tone="blue" />
             <MetricCard icon={<Truck size={21} />} label="Incoming" value={pendingVerification + awaitingOutlet} detail={`${pendingVerification} verifying · ${awaitingOutlet} awaiting receipt`} tone="amber" />
             {executive && (
               <MetricCard icon={<Globe2 size={21} />} label="Web updates" value={webProgress.remainingItems} detail={`${webProgress.markedItems}/${webProgress.totalItems} products marked`} tone="green" />
@@ -181,7 +184,7 @@ export function OutletHub() {
               {inventory.slice(0, 6).map((product) => (
                 <article key={product.sku}>
                   <OutletImage src={photoMap?.[product.sku]} sku={product.sku} />
-                  <div><strong>{product.sku}</strong><span>{product.outletUnits} units</span></div>
+                  <div><strong>{product.sku}</strong><span>{product.outletUnits} units · {product.unitBasisLabel.toLocaleLowerCase()}</span></div>
                 </article>
               ))}
               {!inventory.length && <div className="oh-empty-inline">Products appear here after Outlet receipt or full three-party confirmation.</div>}
@@ -203,12 +206,12 @@ export function OutletHub() {
           </div>
           <div className="oh-inventory-table-wrap">
             <table className="oh-inventory-table">
-              <thead><tr><th>Product</th><th>Outlet units</th><th>Source</th><th>Season info</th></tr></thead>
+              <thead><tr><th>Product</th><th>Recorded units</th><th>Source</th><th>Season info</th></tr></thead>
               <tbody>
                 {filteredInventory.map((product) => (
                   <tr key={product.sku}>
                     <td><div className="oh-product-cell"><OutletImage src={photoMap?.[product.sku]} sku={product.sku} /><span><strong>{product.sku}</strong><small>{toTitleCase(product.product_name)}</small></span></div></td>
-                    <td><strong className="oh-unit-count">{product.outletUnits}</strong></td>
+                    <td><strong className="oh-unit-count">{product.outletUnits}</strong><small className="oh-unit-basis">{product.unitBasisLabel}</small></td>
                     <td><span className="oh-source"><CheckCircle2 size={14} /> {product.sourceLabel}</span>{product.fromShop && <small className="oh-source-shop">From {product.fromShop}</small>}</td>
                     <td><span className="oh-season-meta">{product.season || product.current_season || 'Not recorded'}</span></td>
                   </tr>
@@ -228,7 +231,7 @@ export function OutletHub() {
           </div>
           <div className="oh-transfer-list">
             {sortedTransfers.map((transfer) => {
-              const unitCount = (transfer.items || []).reduce((sum, item) => sum + (Number(item.totalQty ?? item.quantity) || 0), 0)
+              const unitCount = (transfer.items || []).reduce((sum, item) => sum + outletTransferItemExpectedQuantity(item), 0)
               return (
                 <button key={transfer.id} type="button" onClick={() => openTransfer(transfer.id)}>
                   <span className="oh-transfer-list__route"><span><Truck size={18} /></span><span><strong>{transfer.fromShop || 'Shop'} → Outlet</strong><small>{formatDate(transfer.createdAt)}</small></span></span>
@@ -254,7 +257,7 @@ export function OutletHub() {
               const transfer = transfers.find((item) => item.id === list.sourceTransferId)
               const percent = list.itemCount ? Math.round((list.markedCount / list.itemCount) * 100) : 0
               return (
-                <button key={list.id} type="button" onClick={() => openTransfer(list.sourceTransferId)}>
+                <button key={list.id} type="button" onClick={() => openTransfer(list.sourceTransferId, { web: true })}>
                   <span className="oh-web-list__icon"><Globe2 size={20} /></span>
                   <span className="oh-web-list__copy"><strong>{transfer?.fromShop || 'Shop'} → Outlet</strong><small>Created {formatDate(list.createdAt || transfer?.receivedAt)}</small><span className="oh-progress"><i style={{ width: `${percent}%` }} /></span></span>
                   <span className="oh-web-list__number"><strong>{list.markedCount}/{list.itemCount}</strong><small>{list.remainingCount ? 'Remaining' : 'Completed'}</small></span>

@@ -76,6 +76,7 @@ import {
   unavailableOutletSkuCodes,
   outletSkuLocationOwnership,
   outletSkuOwnership,
+  receivedOutletTransferUnitsBySku,
   outletVerificationEntryError,
 } from './src/utils/outletTransfers.js'
 
@@ -736,6 +737,14 @@ function withOutletStockLocation(rows) {
   const transfers = getAllOutletTransfers()
   const reservations = outletSkuOwnership(transfers)
   const locations = outletSkuLocationOwnership(transfers, getAllMarkdownLists())
+  const receivedUnits = receivedOutletTransferUnitsBySku(transfers)
+  const catalogOnHand = new Map()
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const skuCode = String(row?.sku ?? '').trim()
+    if (!skuCode) continue
+    const netUnits = (Number(row?.quantity) || 0) - (Number(row?.sold_quantity) || 0)
+    catalogOnHand.set(skuCode, (catalogOnHand.get(skuCode) || 0) + netUnits)
+  }
   return (Array.isArray(rows) ? rows : []).map((row) => {
     const skuCode = String(row?.sku ?? '').trim()
     const reservation = reservations.get(skuCode)
@@ -750,6 +759,12 @@ function withOutletStockLocation(rows) {
     if (location) {
       enriched.stock_location = 'Outlet'
       enriched.outlet_location_source = location.source
+      enriched.outlet_from_shop = location.fromShop || ''
+      enriched.outlet_located_at = location.locatedAt || ''
+      enriched.outlet_units_basis = location.source === 'outlet_transfer' ? 'received' : 'catalog_on_hand'
+      enriched.outlet_units = location.source === 'outlet_transfer'
+        ? (receivedUnits.get(skuCode) || 0)
+        : Math.max(0, catalogOnHand.get(skuCode) || 0)
     }
     return enriched
   })

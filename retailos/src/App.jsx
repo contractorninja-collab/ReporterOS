@@ -125,7 +125,7 @@ function GlowBackground({ children }) {
 
 function LoginScreen() {
   const _apiOnline = useStore((s) => s._apiOnline)
-  const setActiveUser = useStore((s) => s.setActiveUser)
+  const waitForPendingLogout = useStore((s) => s.waitForPendingLogout)
   const initFromServer = useStore((s) => s.initFromServer)
   const [code, setCode] = useState('')
   const [pin, setPin] = useState('')
@@ -141,8 +141,8 @@ function LoginScreen() {
     if (_apiOnline) {
       setBusy(true)
       try {
-        const { user } = await api.authLogin(code, pin)
-        setActiveUser(user)
+        await waitForPendingLogout()
+        await api.authLogin(code, pin)
         setCode('')
         setPin('')
         await initFromServer()

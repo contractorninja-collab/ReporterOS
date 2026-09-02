@@ -32,6 +32,34 @@ export function asRecord(v) {
   return v != null && typeof v === 'object' && !Array.isArray(v) ? v : {}
 }
 
+/**
+ * Server data is scoped to the signed-in user. Clear every server-backed cache
+ * before another account can render so role-filtered data never crosses sessions.
+ */
+export function clearedSessionData() {
+  return {
+    activeUser: null,
+    skus: [],
+    importHistory: [],
+    users: [],
+    assignments: [],
+    outletTransfers: [],
+    storeTransfers: [],
+    markdownLists: [],
+    saleChangeReports: [],
+    salesSnapshots: [],
+    notifications: [],
+    unreadCount: 0,
+    activeShifts: [],
+    myShift: null,
+    photoMap: {},
+    photoCount: 0,
+    skuImportTotals: {},
+    shipmentMeta: {},
+    weeklySales: [],
+  }
+}
+
 export function photoPatchFromList(photoList) {
   if (!Array.isArray(photoList)) return null
   const photoMap = {}

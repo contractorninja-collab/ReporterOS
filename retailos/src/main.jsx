@@ -54,6 +54,7 @@ async function setupServiceWorker() {
     if (!isAppActive()) return
     const now = Date.now()
     const store = useStore.getState()
+    if (!store.activeUser) return
 
     store.syncOperationalData?.().catch(() => {})
 

@@ -91,7 +91,7 @@ function NotificationDropdown({ onClose }) {
       return
     }
     if (n.type === 'outlet_web_location_ready' && n.relatedId) {
-      navigate(`/outlet?transfer=${encodeURIComponent(n.relatedId)}`)
+      navigate(`/outlet?transfer=${encodeURIComponent(n.relatedId)}&web=1`)
       onClose?.()
     }
   }

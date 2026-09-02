@@ -49,6 +49,48 @@ export function markdownListHasAllOutletConfirmations(list) {
   )))
 }
 
+export function outletTransferItemExpectedQuantity(item) {
+  if (Array.isArray(item?.sizeBreakdown) && item.sizeBreakdown.length) {
+    return item.sizeBreakdown.reduce((sum, line) => sum + (Number(line?.qty) || 0), 0)
+  }
+  return Number(item?.totalQty ?? item?.quantity) || 0
+}
+
+function savedReceivedQuantity(saved, expected) {
+  if (saved?.received == null || saved.received === '') return expected
+  const value = Number(saved.received)
+  return Number.isInteger(value) && value >= 0 && value <= expected ? value : expected
+}
+
+/** Legacy lines without a saved received value are treated as fully received. */
+export function outletTransferItemReceivedQuantity(transfer, item) {
+  const statuses = transfer?.item_statuses || {}
+  const skuCode = normalizedSku(item?.skuCode ?? item?.sku)
+  if (Array.isArray(item?.sizeBreakdown) && item.sizeBreakdown.length) {
+    return item.sizeBreakdown.reduce((sum, line) => {
+      const expected = Number(line?.qty) || 0
+      const saved = statuses[`${skuCode}|${line?.size}`]
+      return sum + savedReceivedQuantity(saved, expected)
+    }, 0)
+  }
+  const expected = outletTransferItemExpectedQuantity(item)
+  const size = item?.sizes || 'One Size'
+  return savedReceivedQuantity(statuses[`${skuCode}|${size}`], expected)
+}
+
+export function receivedOutletTransferUnitsBySku(transfers) {
+  const units = new Map()
+  for (const transfer of Array.isArray(transfers) ? transfers : []) {
+    if (transfer?.status !== 'received') continue
+    for (const item of Array.isArray(transfer.items) ? transfer.items : []) {
+      const skuCode = normalizedSku(item?.skuCode ?? item?.sku)
+      if (!skuCode) continue
+      units.set(skuCode, (units.get(skuCode) || 0) + outletTransferItemReceivedQuantity(transfer, item))
+    }
+  }
+  return units
+}
+
 /** A SKU becomes Outlet stock after receipt or full three-lane Markdown confirmation. */
 export function outletSkuLocationOwnership(transfers, markdownLists = []) {
   const ownership = new Map()
@@ -63,6 +105,7 @@ export function outletSkuLocationOwnership(transfers, markdownLists = []) {
         transferId: transfer.id,
         status: 'received',
         fromShop: transfer.fromShop || '',
+        locatedAt: transfer.receivedAt || transfer.completedAt || transfer.createdAt || '',
       })
     }
   }
@@ -76,6 +119,7 @@ export function outletSkuLocationOwnership(transfers, markdownLists = []) {
         source: 'markdown_list',
         markdownListId: list.id,
         status: list.status || 'completed',
+        locatedAt: list.completedAt || list.updatedAt || list.createdAt || '',
       })
     }
   }

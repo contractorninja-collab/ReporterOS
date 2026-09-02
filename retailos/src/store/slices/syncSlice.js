@@ -9,9 +9,20 @@ import {
 
 /** Server bootstrap + background sync workflows. */
 export function createSyncSlice(set, get) {
+  const captureSession = () => ({
+    revision: Number(get()._sessionRevision) || 0,
+    userId: get().activeUser?.id || null,
+  })
+  const sessionIsCurrent = ({ revision, userId }, allowSignedOut = false) => (
+    (Number(get()._sessionRevision) || 0) === revision &&
+    (allowSignedOut ? true : Boolean(userId) && get().activeUser?.id === userId)
+  )
+
   return {
     initFromServer: async () => {
+      const session = captureSession()
       const online = await api.checkHealth()
+      if (!sessionIsCurrent(session, true)) return
       if (!online) {
         // Server unreachable: stay offline but NEVER fabricate default users.
         // Overwriting with hardcoded CEO/COO/CTO seed rows (which reuse the real
@@ -25,8 +36,10 @@ export function createSyncSlice(set, get) {
       let sessionUser = null
       try {
         const me = await api.fetchAuthMe()
+        if (!sessionIsCurrent(session, true)) return
         sessionUser = me?.user ?? null
       } catch (e) {
+        if (!sessionIsCurrent(session, true)) return
         if (e?.status === 401) {
           try { localStorage.removeItem('retailos_active_user') } catch { /* */ }
           set({
@@ -66,6 +79,7 @@ export function createSyncSlice(set, get) {
             api.fetchNotifications().catch(() => []),
             api.fetchActiveShifts().catch(() => []),
           ])
+        if (!sessionIsCurrent(session, true)) return
         const photoPatch = photoPatchFromList(photoList) || { photoMap: {}, photoCount: 0 }
         const notifsArr = asArray(notifs)
         const shiftsArr = asArray(shifts)
@@ -93,47 +107,66 @@ export function createSyncSlice(set, get) {
           _apiOnline: true,
         })
       } catch {
+        if (!sessionIsCurrent(session, true)) return
         set({ _ready: true, _apiOnline: false, activeUser })
       }
     },
 
     refreshSkuImportTotals: async () => {
+      const session = captureSession()
+      if (!session.userId) return
       try {
         const totals = await api.fetchSkuImportTotals()
+        if (!sessionIsCurrent(session)) return
         set({ skuImportTotals: asRecord(totals) })
       } catch { /* ignore */ }
     },
 
     refreshShipmentMeta: async () => {
+      const session = captureSession()
+      if (!session.userId) return
       try {
         const meta = await api.fetchShipmentMeta()
+        if (!sessionIsCurrent(session)) return
         set({ shipmentMeta: asRecord(meta) })
       } catch { /* ignore */ }
     },
 
     refreshWeeklySales: async () => {
+      const session = captureSession()
+      if (!session.userId) return
       try {
         const data = await api.fetchWeeklySales(8)
+        if (!sessionIsCurrent(session)) return
         set({ weeklySales: asArray(data) })
       } catch { /* ignore */ }
     },
 
     refreshImportHistory: async () => {
+      const session = captureSession()
+      if (!session.userId) return
       try {
         const data = await api.fetchImportHistory()
+        if (!sessionIsCurrent(session)) return
         set({ importHistory: asArray(data) })
       } catch { /* ignore */ }
     },
 
     /** Executive: delete all rows in sales_events (weekly KPI source); refetch weekly aggregates. */
     clearSalesEventHistory: async () => {
+      const session = captureSession()
+      if (!session.userId) return
       await api.deleteAllSalesEvents()
       const data = await api.fetchWeeklySales(8).catch(() => [])
+      if (!sessionIsCurrent(session)) return
       set({ weeklySales: asArray(data) })
     },
 
     syncUsers: async () => runExclusiveSync('users', async () => {
+      const session = captureSession()
+      if (!session.userId) return
       const users = await api.fetchUsers().catch(() => null)
+      if (!sessionIsCurrent(session)) return
       if (!Array.isArray(users) || !users.length) return
       const updates = { users }
       const active = get().activeUser
@@ -148,7 +181,10 @@ export function createSyncSlice(set, get) {
     }),
 
     syncOperationalData: async () => runExclusiveSync('operational', async () => {
+      const session = captureSession()
+      if (!session.userId) return
       const online = await api.checkHealth()
+      if (!sessionIsCurrent(session)) return
       if (!online) {
         if (get()._apiOnline) set({ _apiOnline: false })
         return
@@ -164,6 +200,7 @@ export function createSyncSlice(set, get) {
         api.fetchActiveShifts().catch(() => null),
         api.fetchSkus().catch(() => null),
       ])
+      if (!sessionIsCurrent(session)) return
       const updates = {}
       if (Array.isArray(assignments)) updates.assignments = assignments
       if (Array.isArray(outletTransfers)) updates.outletTransfers = outletTransfers
@@ -184,6 +221,8 @@ export function createSyncSlice(set, get) {
     }),
 
     syncCatalogData: async () => runExclusiveSync('catalog', async () => {
+      const session = captureSession()
+      if (!session.userId) return
       const [freshSkus, importHistory, photoList, skuImportTotals, shipmentMeta] = await Promise.all([
         api.fetchSkus().catch(() => null),
         api.fetchImportHistory().catch(() => null),
@@ -191,6 +230,7 @@ export function createSyncSlice(set, get) {
         api.fetchSkuImportTotals().catch(() => null),
         api.fetchShipmentMeta().catch(() => null),
       ])
+      if (!sessionIsCurrent(session)) return
       const updates = {}
       const photoPatch = photoPatchFromList(photoList)
       if (Array.isArray(freshSkus)) updates.skus = freshSkus
@@ -202,10 +242,13 @@ export function createSyncSlice(set, get) {
     }),
 
     syncReportingData: async () => runExclusiveSync('reporting', async () => {
+      const session = captureSession()
+      if (!session.userId) return
       const [weeklySales, salesSnapshots] = await Promise.all([
         api.fetchWeeklySales(8).catch(() => null),
         api.fetchSnapshots().catch(() => null),
       ])
+      if (!sessionIsCurrent(session)) return
       const updates = {}
       if (Array.isArray(weeklySales)) updates.weeklySales = weeklySales
       if (Array.isArray(salesSnapshots)) updates.salesSnapshots = salesSnapshots
@@ -213,7 +256,10 @@ export function createSyncSlice(set, get) {
     }),
 
     syncFromServer: async () => runExclusiveSync('full', async () => {
+      const session = captureSession()
+      if (!session.userId) return
       const online = await api.checkHealth()
+      if (!sessionIsCurrent(session)) return
       if (!online) {
         if (get()._apiOnline) set({ _apiOnline: false })
         return
@@ -237,6 +283,7 @@ export function createSyncSlice(set, get) {
           api.fetchNotifications().catch(() => null),
           api.fetchActiveShifts().catch(() => null),
         ])
+        if (!sessionIsCurrent(session)) return
         const updates = {}
         if (Array.isArray(users) && users.length) {
           updates.users = users

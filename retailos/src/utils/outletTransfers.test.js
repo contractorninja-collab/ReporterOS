@@ -10,6 +10,9 @@ import {
   outletSkuConflictCodes,
   outletSkuLocationOwnership,
   outletSkuOwnership,
+  outletTransferItemExpectedQuantity,
+  outletTransferItemReceivedQuantity,
+  receivedOutletTransferUnitsBySku,
   outletVerificationEntryError,
   upsertOutletTransferItem,
   upsertOutletTransferItems,
@@ -37,7 +40,7 @@ test('marks stock as Outlet only after receipt or all three Markdown confirmatio
   const transfers = [
     { id: 'pending', status: 'pending', items: [{ skuCode: 'SKU-PENDING' }] },
     { id: 'completed', status: 'completed', items: [{ skuCode: 'SKU-SENDER-DONE' }] },
-    { id: 'received', status: 'received', items: [{ skuCode: 'SKU-RECEIVED' }] },
+    { id: 'received', status: 'received', receivedAt: '2026-08-20T10:00:00.000Z', items: [{ skuCode: 'SKU-RECEIVED' }] },
   ]
   const fullyConfirmedList = {
     id: 'sale-complete',
@@ -69,6 +72,7 @@ test('marks stock as Outlet only after receipt or all three Markdown confirmatio
   assert.equal(ownership.has('SKU-PENDING'), false)
   assert.equal(ownership.has('SKU-SENDER-DONE'), false)
   assert.equal(ownership.get('SKU-RECEIVED')?.source, 'outlet_transfer')
+  assert.equal(ownership.get('SKU-RECEIVED')?.locatedAt, '2026-08-20T10:00:00.000Z')
   assert.equal(ownership.get('SKU-THREE-LANES')?.source, 'markdown_list')
   assert.equal(ownership.has('SKU-TWO-LANES'), false)
   assert.equal(markdownListHasAllOutletConfirmations(fullyConfirmedList), true)
@@ -81,6 +85,22 @@ test('marks stock as Outlet only after receipt or all three Markdown confirmatio
     ),
     ['SKU-PENDING', 'SKU-THREE-LANES'],
   )
+})
+
+test('normalizes transfer quantities and treats legacy null received values as confirmed', () => {
+  const item = { skuCode: 'SKU-1', sizeBreakdown: [{ size: 'M', qty: 3 }, { size: 'L', qty: 2 }] }
+  const transfer = {
+    status: 'received',
+    items: [item],
+    item_statuses: {
+      'SKU-1|M': { status: 'done', received: null },
+      'SKU-1|L': { status: 'partial', received: 1, missing: 1, expected: 2, comment: 'Missing' },
+    },
+  }
+
+  assert.equal(outletTransferItemExpectedQuantity(item), 5)
+  assert.equal(outletTransferItemReceivedQuantity(transfer, item), 4)
+  assert.equal(receivedOutletTransferUnitsBySku([transfer]).get('SKU-1'), 4)
 })
 
 test('can exclude the transfer being edited while still detecting other Outlet ownership', () => {

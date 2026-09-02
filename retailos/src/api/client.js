@@ -1,4 +1,5 @@
 const BASE = '/api'
+let authGeneration = 0
 
 function dispatchUnauthorized() {
   try { window.dispatchEvent(new CustomEvent('retailos:unauthorized')) } catch { /* non-browser context */ }
@@ -37,11 +38,12 @@ async function parseResponseBody(res) {
  */
 async function apiFetch(path, opts = {}) {
   const { skipAuthRedirect = false, errorMessage, ...init } = opts
+  const requestAuthGeneration = authGeneration
   const res = await fetch(`${BASE}${path}`, {
     credentials: 'include',
     ...init,
   })
-  if (res.status === 401 && !skipAuthRedirect) {
+  if (res.status === 401 && !skipAuthRedirect && requestAuthGeneration === authGeneration) {
     dispatchUnauthorized()
     const err = new Error('Unauthorized')
     err.status = 401
@@ -90,13 +92,15 @@ export async function checkHealth() {
 // ── Auth ────────────────────────────────────────────────────────────────────
 
 export async function authLogin(userCode, pin) {
-  return apiFetch('/auth/login', {
+  const result = await apiFetch('/auth/login', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ user_code: userCode, pin }),
     skipAuthRedirect: true,
     errorMessage: 'Login failed',
   })
+  authGeneration += 1
+  return result
 }
 
 export async function fetchAuthMe() {
@@ -104,8 +108,13 @@ export async function fetchAuthMe() {
 }
 
 export async function authLogout() {
+  authGeneration += 1
   try {
-    await apiFetch('/auth/logout', { method: 'POST', skipAuthRedirect: true })
+    await apiFetch('/auth/logout', {
+      method: 'POST',
+      skipAuthRedirect: true,
+      signal: AbortSignal.timeout(5000),
+    })
   } catch { /* ignore */ }
 }
 

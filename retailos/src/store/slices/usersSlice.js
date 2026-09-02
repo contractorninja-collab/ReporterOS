@@ -1,10 +1,14 @@
 import * as api from '../../api/client.js'
 import {
+  clearedSessionData,
   generateId,
   notifyLocalWriteFailure,
   publicUser,
   resyncAfterWriteFailure,
 } from '../storeHelpers.js'
+
+let pendingLogout = Promise.resolve()
+let logoutInFlight = false
 
 /** Users + active session identity. */
 export function createUsersSlice(set, get) {
@@ -33,8 +37,7 @@ export function createUsersSlice(set, get) {
         activeUser: state.activeUser?.id === userId ? null : state.activeUser,
       }))
       if (wasActive) {
-        try { localStorage.removeItem('retailos_active_user') } catch { /* */ }
-        api.authLogout().catch(() => {})
+        get().setActiveUser(null)
       }
       api.deleteUser(userId).catch((err) => {
         notifyLocalWriteFailure(set, get, 'User delete was not saved', err)
@@ -104,14 +107,24 @@ export function createUsersSlice(set, get) {
 
     setActiveUser: (user) => {
       if (!user) {
-        api.authLogout().catch(() => {})
         try { localStorage.removeItem('retailos_active_user') } catch { /* */ }
-        set({ activeUser: null })
-        return
+        set((state) => ({
+          ...clearedSessionData(),
+          _sessionRevision: (Number(state._sessionRevision) || 0) + 1,
+        }))
+        if (!logoutInFlight) {
+          logoutInFlight = true
+          pendingLogout = api.authLogout()
+            .catch(() => {})
+            .finally(() => { logoutInFlight = false })
+        }
+        return pendingLogout
       }
       const safe = publicUser(user)
       set({ activeUser: safe })
       try { localStorage.setItem('retailos_active_user', JSON.stringify(safe)) } catch { /* */ }
     },
+
+    waitForPendingLogout: () => pendingLogout.catch(() => {}),
   }
 }

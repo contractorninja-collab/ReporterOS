@@ -18,6 +18,7 @@ import { createImportsSlice } from './slices/importsSlice.js'
 const initialState = {
   _ready: false,
   _apiOnline: true,
+  _sessionRevision: 0,
 
   skus: [],
   importHistory: [],

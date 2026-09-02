@@ -218,6 +218,7 @@
 .oh-product-cell strong { color: var(--ro-heading); font-size: 11px; }
 .oh-product-cell small { overflow: hidden; max-width: 330px; margin-top: 3px; color: var(--ro-text-muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .oh-unit-count { color: var(--ro-heading); font-size: 14px; }
+.oh-unit-basis { display: block; margin-top: 2px; color: var(--ro-text-dim); font-size: 9px; white-space: nowrap; }
 .oh-source { display: flex; align-items: center; gap: 5px; color: #7ee2bd; font-size: 10px; font-weight: 650; white-space: nowrap; }
 .oh-source-shop { display: block; margin-top: 3px; color: var(--ro-text-dim); font-size: 9px; }
 .oh-season-meta { display: inline-flex; padding: 4px 7px; border-radius: 6px; background: var(--ro-fill-soft); color: var(--ro-text-muted); font-size: 9px; }
@@ -259,8 +260,8 @@
   .oh-hero h1 { font-size: 25px; }
   .oh-hero p { font-size: 11px; line-height: 1.5; }
   .oh-all-seasons { align-self: flex-start; }
-  .oh-tabs { width: 100%; overflow-x: auto; }
-  .oh-tabs button { flex: 1; justify-content: center; padding: 8px 10px; white-space: nowrap; }
+  .oh-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; overflow: visible; }
+  .oh-tabs button { justify-content: center; min-width: 0; padding: 8px 7px; white-space: nowrap; }
   .oh-metrics, .oh-grid-2 { grid-template-columns: 1fr; }
   .oh-metric { min-height: 104px; }
   .oh-card { padding: 15px; border-radius: 14px; }
@@ -272,7 +273,19 @@
   .oh-transfer-list > button { grid-template-columns: minmax(0, 1fr) auto 16px; gap: 8px; }
   .oh-transfer-list__counts { display: none; }
   .oh-transfer-list .oh-status { justify-self: end; }
-  .oh-inventory-table th:nth-child(4), .oh-inventory-table td:nth-child(4) { display: none; }
+  .oh-inventory-table-wrap { overflow: visible; }
+  .oh-inventory-table, .oh-inventory-table tbody { display: block; width: 100%; }
+  .oh-inventory-table thead { display: none; }
+  .oh-inventory-table tr { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 9px 14px; padding: 12px 0; border-bottom: 1px solid var(--ro-border); }
+  .oh-inventory-table tbody tr:last-child { border-bottom: 0; }
+  .oh-inventory-table td { display: block; padding: 0; border: 0; }
+  .oh-inventory-table td:first-child { grid-column: 1 / -1; }
+  .oh-inventory-table td:nth-child(2) { grid-column: 1; }
+  .oh-inventory-table td:nth-child(3) { grid-column: 2; grid-row: 2; text-align: right; }
+  .oh-inventory-table td:nth-child(4) { display: none; }
+  .oh-product-cell { min-width: 0; }
+  .oh-product-cell small { max-width: min(65vw, 330px); }
+  .oh-source { justify-content: flex-end; }
   .oh-web-list__number { min-width: 50px; }
 }
 

@@ -1,5 +1,8 @@
 import { aggregateSkus } from './aggregateSkus.js'
-import { outletSkuLocationOwnership } from './outletTransfers.js'
+import {
+  outletSkuLocationOwnership,
+  receivedOutletTransferUnitsBySku,
+} from './outletTransfers.js'
 
 function skuCode(value) {
   return String(value ?? '').trim()
@@ -11,66 +14,54 @@ export function excludeOutletOwnedProducts(products) {
   ))
 }
 
-function itemExpectedQuantity(item) {
-  if (Array.isArray(item?.sizeBreakdown) && item.sizeBreakdown.length) {
-    return item.sizeBreakdown.reduce((sum, line) => sum + (Number(line?.qty) || 0), 0)
-  }
-  return Number(item?.totalQty ?? item?.quantity) || 0
-}
-
-function itemReceivedQuantity(transfer, item) {
-  const statuses = transfer?.item_statuses || {}
-  const code = skuCode(item?.skuCode ?? item?.sku)
-  if (Array.isArray(item?.sizeBreakdown) && item.sizeBreakdown.length) {
-    return item.sizeBreakdown.reduce((sum, line) => {
-      const expected = Number(line?.qty) || 0
-      const saved = statuses[`${code}|${line?.size}`]
-      return sum + (Number.isInteger(Number(saved?.received)) ? Number(saved.received) : expected)
-    }, 0)
-  }
-  const expected = itemExpectedQuantity(item)
-  const size = item?.sizes || 'One Size'
-  const saved = statuses[`${code}|${size}`]
-  return Number.isInteger(Number(saved?.received)) ? Number(saved.received) : expected
-}
-
-export function receivedTransferUnitsBySku(transfers) {
-  const units = new Map()
-  for (const transfer of Array.isArray(transfers) ? transfers : []) {
-    if (transfer?.status !== 'received') continue
-    for (const item of Array.isArray(transfer.items) ? transfer.items : []) {
-      const code = skuCode(item?.skuCode ?? item?.sku)
-      if (!code) continue
-      units.set(code, (units.get(code) || 0) + itemReceivedQuantity(transfer, item))
-    }
-  }
-  return units
-}
+export const receivedTransferUnitsBySku = receivedOutletTransferUnitsBySku
 
 export function buildOutletInventory({ skus, shipmentMeta, transfers, markdownLists }) {
   const products = aggregateSkus(skus, shipmentMeta, 'All')
   const productBySku = new Map(products.map((product) => [skuCode(product.sku), product]))
   const ownership = outletSkuLocationOwnership(transfers, markdownLists)
-  const receivedUnits = receivedTransferUnitsBySku(transfers)
+  const receivedUnits = receivedOutletTransferUnitsBySku(transfers)
+  const officialOutletCodes = new Set(products
+    .filter((product) => String(product?.stock_location || '').trim().toLocaleLowerCase() === 'outlet')
+    .map((product) => skuCode(product.sku))
+    .filter(Boolean))
+  for (const code of ownership.keys()) officialOutletCodes.add(code)
 
-  return [...ownership.values()]
-    .map((owner) => {
-      const product = productBySku.get(owner.skuCode) || {}
+  return [...officialOutletCodes]
+    .map((code) => {
+      const product = productBySku.get(code) || {}
+      const owner = ownership.get(code) || null
+      const source = owner?.source || product.outlet_location_source || 'outlet_stock'
       const totalOnHand = Math.max(0, (Number(product.quantity) || 0) - (Number(product.sold_quantity) || 0))
+      const serverUnits = product.outlet_units
+      const hasServerUnits = serverUnits != null && serverUnits !== '' && Number.isFinite(Number(serverUnits))
+      const outletUnits = hasServerUnits
+        ? Math.max(0, Number(serverUnits))
+        : source === 'outlet_transfer'
+          ? (receivedUnits.get(code) || 0)
+          : totalOnHand
+      const unitBasis = product.outlet_units_basis || (source === 'outlet_transfer' ? 'received' : 'catalog_on_hand')
       return {
         ...product,
-        sku: owner.skuCode,
+        sku: code,
         product_name: product.product_name || 'Product details unavailable',
-        outletUnits: owner.source === 'outlet_transfer'
-          ? (receivedUnits.get(owner.skuCode) || 0)
-          : totalOnHand,
-        source: owner.source,
-        sourceLabel: owner.source === 'outlet_transfer' ? 'Received transfer' : 'Markdown complete',
-        transferId: owner.transferId || null,
-        fromShop: owner.fromShop || '',
+        outletUnits,
+        unitBasis,
+        unitBasisLabel: unitBasis === 'received' ? 'Received' : 'Current on hand',
+        source,
+        sourceLabel: source === 'outlet_transfer'
+          ? 'Received transfer'
+          : source === 'markdown_list' ? 'Markdown complete' : 'Outlet stock',
+        transferId: owner?.transferId || product.outlet_transfer_id || null,
+        fromShop: owner?.fromShop || product.outlet_from_shop || '',
+        locatedAt: owner?.locatedAt || product.outlet_located_at || '',
       }
     })
-    .sort((a, b) => a.sku.localeCompare(b.sku, undefined, { numeric: true }))
+    .sort((a, b) => {
+      const aTime = new Date(a.locatedAt || 0).getTime() || 0
+      const bTime = new Date(b.locatedAt || 0).getTime() || 0
+      return bTime - aTime || a.sku.localeCompare(b.sku, undefined, { numeric: true })
+    })
 }
 
 export function outletWebChecklistProgress(markdownLists) {

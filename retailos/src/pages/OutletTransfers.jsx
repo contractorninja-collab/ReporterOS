@@ -438,6 +438,7 @@ export function OutletTransfers() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const requestedTransferId = searchParams.get('transfer')
+  const requestedWebLocation = searchParams.get('web') === '1'
   const transfers = useStore((s) => s.outletTransfers)
   const updateOutletTransfer = useStore((s) => s.updateOutletTransfer)
   const deleteOutletTransfer = useStore((s) => s.deleteOutletTransfer)
@@ -448,12 +449,22 @@ export function OutletTransfers() {
   const toggleMarkdownListItemTagged = useStore((s) => s.toggleMarkdownListItemTagged)
   const [expanded, setExpanded] = useState(null)
   const [webLocationOpen, setWebLocationOpen] = useState(null)
+  const handledDeepLink = useRef('')
 
   useEffect(() => {
-    if (requestedTransferId && transfers.some((transfer) => transfer.id === requestedTransferId)) {
-      setExpanded(requestedTransferId)
+    if (!requestedTransferId) {
+      handledDeepLink.current = ''
+      return
     }
-  }, [requestedTransferId, transfers])
+    const requestKey = `${requestedTransferId}:${requestedWebLocation ? 'web' : 'transfer'}`
+    if (handledDeepLink.current === requestKey) return
+    if (!transfers.some((transfer) => transfer.id === requestedTransferId)) return
+    handledDeepLink.current = requestKey
+    setExpanded(requestedTransferId)
+    if (requestedWebLocation && activeUser?.role === 'executive') {
+      setWebLocationOpen(requestedTransferId)
+    }
+  }, [activeUser?.role, requestedTransferId, requestedWebLocation, transfers])
 
   const getUserName = (id) => users.find((u) => u.id === id)?.name || id
 
