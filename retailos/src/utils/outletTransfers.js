@@ -12,8 +12,6 @@ const OUTLET_STATUS_PRIORITY = {
   received: 3,
 }
 
-const OUTLET_MARKDOWN_LANES = ['Ring Mall', 'Village', 'E-commerce']
-
 /**
  * Every open or received Outlet transfer reserves its SKUs against another
  * transfer. Official Outlet location is calculated separately below.
@@ -39,14 +37,6 @@ export function outletSkuOwnership(transfers, excludeTransferId = null) {
     }
   }
   return ownership
-}
-
-export function markdownListHasAllOutletConfirmations(list) {
-  if ((list?.kind || 'sale') !== 'sale' || !(list?.items || []).length) return false
-  const statuses = list.item_statuses || {}
-  return list.items.every((item) => OUTLET_MARKDOWN_LANES.every((lane) => (
-    statuses?.[item?.skuCode]?.[lane]?.status === 'tagged'
-  )))
 }
 
 export function outletTransferItemExpectedQuantity(item) {
@@ -91,8 +81,8 @@ export function receivedOutletTransferUnitsBySku(transfers) {
   return units
 }
 
-/** A SKU becomes Outlet stock after receipt or full three-lane Markdown confirmation. */
-export function outletSkuLocationOwnership(transfers, markdownLists = []) {
+/** A SKU becomes Outlet stock only after Outlet confirms receipt of its transfer. */
+export function outletSkuLocationOwnership(transfers) {
   const ownership = new Map()
   for (const transfer of Array.isArray(transfers) ? transfers : []) {
     if (transfer?.status !== 'received') continue
@@ -109,20 +99,6 @@ export function outletSkuLocationOwnership(transfers, markdownLists = []) {
       })
     }
   }
-  for (const list of Array.isArray(markdownLists) ? markdownLists : []) {
-    if (!markdownListHasAllOutletConfirmations(list)) continue
-    for (const item of Array.isArray(list.items) ? list.items : []) {
-      const skuCode = normalizedSku(item?.skuCode ?? item?.sku)
-      if (!skuCode || ownership.has(skuCode)) continue
-      ownership.set(skuCode, {
-        skuCode,
-        source: 'markdown_list',
-        markdownListId: list.id,
-        status: list.status || 'completed',
-        locatedAt: list.completedAt || list.updatedAt || list.createdAt || '',
-      })
-    }
-  }
   return ownership
 }
 
@@ -134,8 +110,9 @@ export function outletSkuConflictCodes(items, transfers, excludeTransferId = nul
 }
 
 export function unavailableOutletSkuCodes(items, transfers, markdownLists = [], excludeTransferId = null) {
+  void markdownLists // Retained for call compatibility; Markdown lists do not establish physical ownership.
   const reserved = outletSkuOwnership(transfers, excludeTransferId)
-  const located = outletSkuLocationOwnership(transfers, markdownLists)
+  const located = outletSkuLocationOwnership(transfers)
   return [...new Set((Array.isArray(items) ? items : [])
     .map((item) => normalizedSku(item?.skuCode ?? item?.sku))
     .filter((skuCode) => skuCode && (reserved.has(skuCode) || located.has(skuCode))))]

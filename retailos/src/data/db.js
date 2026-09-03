@@ -6338,13 +6338,12 @@ export function backfillActivityLogFromLegacyIfEmpty() {
 // pass (e.g. in production) and instead run them in a controlled maintenance
 // window via `node scripts/run-data-backfills.mjs`.
 function purgePreLaunchOutletTestData() {
-  const migrationKey = 'purge_prelaunch_outlet_test_data_2026_09_03'
+  const migrationKey = 'purge_prelaunch_outlet_test_data_v2_2026_09_03'
   if (getSetting(migrationKey) === 'done') return
 
   const transferIds = db.prepare(`
     SELECT id FROM outlet_transfers
-    WHERE id = 'f78a0fa6-514d-4bec-9534-73098b02f180'
-       OR TRIM(COALESCE(fromShop, '')) = ''
+    WHERE createdAt IS NULL OR createdAt < '2026-09-04T00:00:00.000Z'
   `).all().map((row) => row.id)
   const markdownListIds = db.prepare(`
     SELECT id FROM markdown_lists

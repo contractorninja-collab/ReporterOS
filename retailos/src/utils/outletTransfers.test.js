@@ -5,7 +5,6 @@ import {
   clearOutletItemStatuses,
   findTodayPendingOutletTransfer,
   localDateKey,
-  markdownListHasAllOutletConfirmations,
   outletShortageDraftError,
   outletSkuConflictCodes,
   outletSkuLocationOwnership,
@@ -36,7 +35,7 @@ test('reserves every SKU in an Outlet transfer at every stage', () => {
   ), ['SKU-1'])
 })
 
-test('marks stock as Outlet only after receipt or all three Markdown confirmations', () => {
+test('marks stock as Outlet only after Outlet confirms transfer receipt', () => {
   const transfers = [
     { id: 'pending', status: 'pending', items: [{ skuCode: 'SKU-PENDING' }] },
     { id: 'completed', status: 'completed', items: [{ skuCode: 'SKU-SENDER-DONE' }] },
@@ -55,35 +54,20 @@ test('marks stock as Outlet only after receipt or all three Markdown confirmatio
       },
     },
   }
-  const incompleteList = {
-    id: 'sale-incomplete',
-    kind: 'sale',
-    status: 'pending',
-    items: [{ skuCode: 'SKU-TWO-LANES' }],
-    item_statuses: {
-      'SKU-TWO-LANES': {
-        'Ring Mall': { status: 'tagged' },
-        Village: { status: 'tagged' },
-      },
-    },
-  }
-  const ownership = outletSkuLocationOwnership(transfers, [fullyConfirmedList, incompleteList])
+  const ownership = outletSkuLocationOwnership(transfers, [fullyConfirmedList])
 
   assert.equal(ownership.has('SKU-PENDING'), false)
   assert.equal(ownership.has('SKU-SENDER-DONE'), false)
   assert.equal(ownership.get('SKU-RECEIVED')?.source, 'outlet_transfer')
   assert.equal(ownership.get('SKU-RECEIVED')?.locatedAt, '2026-08-20T10:00:00.000Z')
-  assert.equal(ownership.get('SKU-THREE-LANES')?.source, 'markdown_list')
-  assert.equal(ownership.has('SKU-TWO-LANES'), false)
-  assert.equal(markdownListHasAllOutletConfirmations(fullyConfirmedList), true)
-  assert.equal(markdownListHasAllOutletConfirmations(incompleteList), false)
+  assert.equal(ownership.has('SKU-THREE-LANES'), false)
   assert.deepEqual(
     unavailableOutletSkuCodes(
       [{ skuCode: 'SKU-PENDING' }, { skuCode: 'SKU-THREE-LANES' }, { skuCode: 'SKU-FREE' }],
       transfers,
       [fullyConfirmedList],
     ),
-    ['SKU-PENDING', 'SKU-THREE-LANES'],
+    ['SKU-PENDING'],
   )
 })
 
