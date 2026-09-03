@@ -6337,7 +6337,36 @@ export function backfillActivityLogFromLegacyIfEmpty() {
 // correctness. Set RETAILOS_SKIP_STARTUP_BACKFILLS=1 to disable the automatic
 // pass (e.g. in production) and instead run them in a controlled maintenance
 // window via `node scripts/run-data-backfills.mjs`.
+function purgePreLaunchOutletTestData() {
+  const migrationKey = 'purge_prelaunch_outlet_test_data_2026_09_03'
+  if (getSetting(migrationKey) === 'done') return
+
+  const transferIds = db.prepare(`
+    SELECT id FROM outlet_transfers
+    WHERE id = 'f78a0fa6-514d-4bec-9534-73098b02f180'
+       OR TRIM(COALESCE(fromShop, '')) = ''
+  `).all().map((row) => row.id)
+  const markdownListIds = db.prepare(`
+    SELECT id FROM markdown_lists
+    WHERE LOWER(TRIM(COALESCE(title, ''))) IN ('test arines 3 stores', 'viola test 3')
+  `).all().map((row) => row.id)
+  const purge = db.transaction(() => {
+    for (const transferId of transferIds) deleteOutletTransfer(transferId)
+    for (const listId of markdownListIds) {
+      deleteMarkdownList(listId)
+      db.prepare('DELETE FROM notifications WHERE relatedId = ?').run(listId)
+    }
+    setSetting(migrationKey, 'done')
+  })
+  purge()
+
+  if (transferIds.length || markdownListIds.length) {
+    console.log(`[db] Removed ${transferIds.length} pre-launch Outlet test transfer(s) and ${markdownListIds.length} test Markdown list(s)`)
+  }
+}
+
 const STARTUP_DATA_BACKFILL_STEPS = [
+  ['purge_prelaunch_outlet_test_data', purgePreLaunchOutletTestData],
   ['backfill_import_history_total_units', backfillImportHistoryTotalUnits],
   ['repair_skus_zero_cost_from_peers', repairSkusZeroCostFromSkuPeers],
   ['dedupe_sales_events', runDedupeOnStartup],
