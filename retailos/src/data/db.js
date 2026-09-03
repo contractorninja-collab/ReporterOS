@@ -2172,7 +2172,7 @@ export function getDistinctSkuBrands() {
 /**
  * Product / SKU substring report: aggregated rows per SKU code + timeline + totals.
  * @param {string} q — trimmed search; empty returns structure for "all" from client overview
- * @param {{season?: string, excludeSkuCodes?: string[]}} options
+ * @param {{season?: string, excludeSkuCodes?: string[], outletSkuCodes?: string[]}} options
  */
 export function getProductNameReport(searchQuery = '', options = {}) {
   const query = String(searchQuery || '').trim()
@@ -2210,11 +2210,8 @@ export function getProductNameReport(searchQuery = '', options = {}) {
             AND ${importSeasonWhere}
         `).all(...seasonValues)
       : db.prepare('SELECT DISTINCT sku FROM skus WHERE deleted_at IS NULL').all()
-  const excludedSkuCodes = new Set(
-    (Array.isArray(options.excludeSkuCodes) ? options.excludeSkuCodes : [])
-      .map((code) => String(code || '').trim())
-      .filter(Boolean),
-  )
+  const excludedSkuCodes = normalizedSkuCodeSet(options.excludeSkuCodes)
+  const outletSkuCodes = normalizedSkuCodeSet(options.outletSkuCodes)
   const skuCodes = skuRows.map((r) => r.sku).filter((code) => code && !excludedSkuCodes.has(code))
   const emptyTotals = { stock: 0, remaining: 0, sold: 0, cogs: 0, totalRevenue: 0, totalProfit: 0, avgRoi: 0, totalInvestment: 0 }
   const emptyGender = () => ({
@@ -2402,6 +2399,7 @@ export function getProductNameReport(searchQuery = '', options = {}) {
       sale_active: r.sale_active ? 1 : 0,
       sale_percent: r.sale_percent ?? null,
       sale_extra_percent: r.sale_extra_percent ?? null,
+      stock_location: outletSkuCodes.has(r.sku) ? 'Outlet' : '',
     }
   })
 
@@ -3906,23 +3904,32 @@ export function getSoldQuantityMap() {
   return map
 }
 
+function normalizedSkuCodeSet(values) {
+  return new Set(
+    (Array.isArray(values) ? values : [])
+      .map((value) => String(value || '').trim())
+      .filter(Boolean),
+  )
+}
+
 /**
  * Attribute every sales event to exactly one season: the latest real intake
  * season for that SKU on or before the event date. Historical events that
  * predate the first retained intake use that first season; catalog season is
  * the final fallback for legacy SKUs without import lines.
  */
-export function getSalesBySeasonSku(sinceDate, untilDate, season) {
+export function getSalesBySeasonSku(sinceDate, untilDate, season, options = {}) {
   const params = [sinceDate || '1970-01-01']
   let where = 'event_date >= ?'
   if (untilDate) { where += ' AND event_date <= ?'; params.push(untilDate) }
 
+  const excludedSkuCodes = normalizedSkuCodeSet(options.excludeSkuCodes)
   const events = db.prepare(`
     SELECT sku, units_sold, revenue, event_date
     FROM sales_events
     WHERE ${where}
     ORDER BY event_date ASC, created_at ASC, id ASC
-  `).all(...params)
+  `).all(...params).filter((row) => !excludedSkuCodes.has(row.sku))
   if (!events.length) return []
 
   const skuCodes = [...new Set(events.map((row) => row.sku).filter(Boolean))]
@@ -3993,20 +4000,21 @@ export function getSalesBySeasonSku(sinceDate, untilDate, season) {
   return [...groups.values()].sort((a, b) => compareSeasons(a.season, b.season) || a.sku.localeCompare(b.sku))
 }
 
-export function getSalesBySku(sinceDate, untilDate, season) {
+export function getSalesBySku(sinceDate, untilDate, season, options = {}) {
   const params = [sinceDate || '1970-01-01']
   let where = 'event_date >= ?'
   if (untilDate) { where += ' AND event_date <= ?'; params.push(untilDate) }
   const seasonFilter = normalizeSeasonInput(season)
   const seasonActive = seasonFilter && seasonFilter.toLowerCase() !== 'all'
   if (seasonActive) {
-    return getSalesBySeasonSku(sinceDate, untilDate, seasonFilter).map((row) => ({
+    return getSalesBySeasonSku(sinceDate, untilDate, seasonFilter, options).map((row) => ({
       sku: row.sku,
       sold_qty: row.sold_qty,
       revenue: row.revenue,
       return_units: row.return_units,
     }))
   }
+  const excludedSkuCodes = normalizedSkuCodeSet(options.excludeSkuCodes)
   return db.prepare(`
     SELECT sku,
            SUM(units_sold) AS sold_qty,
@@ -4015,7 +4023,7 @@ export function getSalesBySku(sinceDate, untilDate, season) {
     FROM sales_events
     WHERE ${where}
     GROUP BY sku
-  `).all(...params)
+  `).all(...params).filter((row) => !excludedSkuCodes.has(row.sku))
 }
 
 /** All-time (no date filter) per-SKU net revenue, net units, and return-line count from sales_events. */
@@ -4108,39 +4116,50 @@ export function hasAnySalesEvents() {
 }
 
 /** Per-calendar-day totals for trend charts (event_date is YYYY-MM-DD). */
-export function getSalesAggregatedByDay(sinceDate, untilDate, season) {
+export function getSalesAggregatedByDay(sinceDate, untilDate, season, options = {}) {
   const params = [sinceDate || '1970-01-01']
   let where = 'event_date >= ?'
   if (untilDate) { where += ' AND event_date <= ?'; params.push(untilDate) }
+  const excludedSkuCodes = normalizedSkuCodeSet(options.excludeSkuCodes)
   const seasonFilter = normalizeSeasonInput(season)
   const seasonActive = seasonFilter && seasonFilter.toLowerCase() !== 'all'
+  let seasonSkuCodes = null
   if (seasonActive) {
-    const skuCodes = [...new Set(
+    seasonSkuCodes = new Set(
       getAllSkus()
         .filter((s) => normalizeSeasonInput(s.season) === seasonFilter)
         .map((s) => s.sku)
         .filter(Boolean),
-    )]
-    if (!skuCodes.length) return []
-    where += ` AND sku IN (${skuCodes.map(() => '?').join(',')})`
-    params.push(...skuCodes)
+    )
+    if (!seasonSkuCodes.size) return []
   }
-  return db.prepare(`
+  const rows = db.prepare(`
     SELECT event_date AS event_date,
+           sku,
            SUM(units_sold) AS units,
            SUM(revenue) AS revenue
     FROM sales_events
     WHERE ${where}
-    GROUP BY event_date
-    ORDER BY event_date
+    GROUP BY event_date, sku
+    ORDER BY event_date, sku
   `).all(...params)
+  const days = new Map()
+  for (const row of rows) {
+    if (excludedSkuCodes.has(row.sku)) continue
+    if (seasonSkuCodes && !seasonSkuCodes.has(row.sku)) continue
+    if (!days.has(row.event_date)) days.set(row.event_date, { event_date: row.event_date, units: 0, revenue: 0 })
+    const day = days.get(row.event_date)
+    day.units += Number(row.units) || 0
+    day.revenue += Number(row.revenue) || 0
+  }
+  return [...days.values()]
 }
 
 /**
  * Exchange groups are linked sales_events sharing the same non-empty exchange_group_id.
  * A valid exchange pair has at least one return-side row (units_sold < 0) and one sale-side row (units_sold > 0).
  */
-export function getExchangePairs(sinceDate, untilDate) {
+export function getExchangePairs(sinceDate, untilDate, options = {}) {
   const params = []
   const where = ["TRIM(COALESCE(exchange_group_id, '')) != ''"]
   if (sinceDate) {
@@ -4166,8 +4185,10 @@ export function getExchangePairs(sinceDate, untilDate) {
     ORDER BY event_date ASC, created_at ASC, id ASC
   `).all(...params)
 
+  const excludedSkuCodes = normalizedSkuCodeSet(options.excludeSkuCodes)
   const groups = new Map()
   for (const row of rows) {
+    if (excludedSkuCodes.has(row.sku)) continue
     const key = String(row.exchange_group_id ?? '').trim()
     if (!key) continue
     if (!groups.has(key)) {
@@ -4279,10 +4300,15 @@ function onHandBySku(skuCodes) {
   return Object.fromEntries(rows.map((r) => [r.sku, Number(r.on_hand) || 0]))
 }
 
-function buildBuyingReportContext({ since, until, season } = {}) {
+function buildBuyingReportContext({ since, until, season, excludeSkuCodes, outletSkuCodes } = {}) {
+  const excludedCodes = normalizedSkuCodeSet(excludeSkuCodes)
+  const outletCodes = normalizedSkuCodeSet(outletSkuCodes)
   const seasonFilter = normalizeSeasonInput(season)
   const seasonActive = seasonFilter && seasonFilter.toLowerCase() !== 'all'
-  const rawSkus = getAllSkus().filter((s) => !seasonActive || normalizeSeasonInput(s.season) === seasonFilter)
+  const rawSkus = getAllSkus().filter((s) => (
+    !excludedCodes.has(s.sku) &&
+    (!seasonActive || normalizeSeasonInput(s.season) === seasonFilter)
+  ))
   const shipmentMeta = getShipmentMetaBySku()
   const products = aggregateSkus(rawSkus, shipmentMeta)
   const skuCodes = products.map((p) => p.sku).filter(Boolean)
@@ -4370,6 +4396,7 @@ function buildBuyingReportContext({ since, until, season } = {}) {
       revenue_per_day: round(revenuePerDay, 2),
       exchange_groups: ev.exchange_groups ? ev.exchange_groups.size : 0,
       import_date: p.import_date,
+      stock_location: outletCodes.has(p.sku) ? 'Outlet' : '',
     }
   })
 
@@ -4513,6 +4540,7 @@ export function getMoversReport(q = {}) {
     days_in_store: p.days_in_store,
     score: p.score,
     score_band: p.score_band,
+    stock_location: p.stock_location,
   })
   const fast = ctx.products
     .filter((p) => p.net_units > 0)
@@ -4615,7 +4643,7 @@ export function getExecutiveBuyingReport(q = {}) {
 
 export function getReturnsExchangeReport(q = {}) {
   const ctx = buildBuyingReportContext(q)
-  const exchangePairs = getExchangePairs(q.since, q.until)
+  const exchangePairs = getExchangePairs(q.since, q.until, { excludeSkuCodes: q.excludeSkuCodes })
   const rows = ctx.products
     .filter((p) => p.return_units > 0 || p.return_rate > 0)
     .sort((a, b) => b.return_rate - a.return_rate || b.return_units - a.return_units)
@@ -5965,20 +5993,39 @@ export function reviewShiftCorrectionRequest(id, decision, reviewer, reviewNote 
  * Weekly sales aggregation for the last N weeks.
  * Groups sales_events by ISO week number and returns totals.
  */
-export function getWeeklySales(weeksBack = 8) {
+export function getWeeklySales(weeksBack = 8, options = {}) {
+  const excludedSkuCodes = normalizedSkuCodeSet(options.excludeSkuCodes)
   const rows = db.prepare(`
     SELECT
       strftime('%Y-W%W', event_date) AS week,
       MIN(event_date) AS week_start,
+      sku,
       SUM(units_sold) AS totalUnits,
       SUM(revenue) AS totalRevenue
     FROM sales_events
     WHERE event_date >= date('now', ? || ' days')
-    GROUP BY week
-    ORDER BY week ASC
+    GROUP BY week, sku
+    ORDER BY week ASC, sku ASC
   `).all(`-${weeksBack * 7}`)
 
-  return rows.map((r) => {
+  const weeks = new Map()
+  for (const row of rows) {
+    if (excludedSkuCodes.has(row.sku)) continue
+    if (!weeks.has(row.week)) {
+      weeks.set(row.week, {
+        week: row.week,
+        week_start: row.week_start,
+        totalUnits: 0,
+        totalRevenue: 0,
+      })
+    }
+    const week = weeks.get(row.week)
+    week.totalUnits += Number(row.totalUnits) || 0
+    week.totalRevenue += Number(row.totalRevenue) || 0
+    if (String(row.week_start) < String(week.week_start)) week.week_start = row.week_start
+  }
+
+  return [...weeks.values()].map((r) => {
     const start = new Date(r.week_start)
     const end = new Date(start)
     end.setDate(end.getDate() + 6)

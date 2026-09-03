@@ -25,10 +25,13 @@ import { SmartAlertsList, SmartAlertsHeaderTitle } from '../components/SmartAler
 import { toTitleCase } from '../utils/textFormat.js'
 import StatusChip from '../components/StatusChip'
 import ProgressBar from '../components/ProgressBar'
+import OutletScopeControl from '../components/OutletScopeControl.jsx'
+import ProductLocationBadge from '../components/ProductLocationBadge.jsx'
 import { IconClose, IconSearchEmpty } from '../utils/icons.js'
 import { normalizeGenderCodeForFilter, genderShortLabel } from '../utils/gender.js'
-import { fetchSalesBySeasonSku } from '../api/client.js'
+import { fetchSalesBySeasonSku, fetchWeeklySales } from '../api/client.js'
 import { productMatchesActiveSeason } from '../utils/seasons.js'
+import { filterProductsByOutletScope } from '../utils/outletHub.js'
 import { DASHBOARD_PRODUCT_SORT_OPTIONS, sortDashboardProducts } from '../utils/dashboardProductSort.js'
 import { summarizeBestsellerSalesRows } from '../utils/bestsellerMetrics.js'
 
@@ -260,7 +263,7 @@ export function Dashboard() {
   const skuImportTotals = useStore((s) => s.skuImportTotals)
   const activeSeason = useStore((s) => s.activeSeason)
   const activeUser = useStore((s) => s.activeUser)
-  const weeklySales = useStore((s) => s.weeklySales)
+  const excludeOutlet = useStore((s) => s.excludeOutletAnalytics)
   const clearSalesEventHistory = useStore((s) => s.clearSalesEventHistory)
   const execUser = isExecutive(activeUser)
 
@@ -284,6 +287,7 @@ export function Dashboard() {
   const [customSalesTo, setCustomSalesTo] = useState('')
   const [periodSalesRows, setPeriodSalesRows] = useState([])
   const [periodSalesLoading, setPeriodSalesLoading] = useState(false)
+  const [weeklySales, setWeeklySales] = useState([])
 
   const [panelLayout, setPanelLayout] = useState(() => {
     try {
@@ -321,7 +325,7 @@ export function Dashboard() {
     }
     let alive = true
     setPeriodSalesLoading(true)
-    fetchSalesBySeasonSku(selectedSalesPeriod.since, selectedSalesPeriod.until, activeSeason)
+    fetchSalesBySeasonSku(selectedSalesPeriod.since, selectedSalesPeriod.until, activeSeason, { excludeOutlet })
       .then((rows) => {
         if (alive) setPeriodSalesRows(Array.isArray(rows) ? rows : [])
       })
@@ -332,11 +336,26 @@ export function Dashboard() {
         if (alive) setPeriodSalesLoading(false)
       })
     return () => { alive = false }
-  }, [execUser, selectedSalesPeriod, activeSeason])
+  }, [execUser, selectedSalesPeriod, activeSeason, excludeOutlet])
+
+  useEffect(() => {
+    let alive = true
+    fetchWeeklySales(8, { excludeOutlet })
+      .then((rows) => {
+        if (alive) setWeeklySales(Array.isArray(rows) ? rows : [])
+      })
+      .catch(() => {
+        if (alive) setWeeklySales([])
+      })
+    return () => { alive = false }
+  }, [excludeOutlet])
 
   const products = useMemo(
-    () => aggregateSkus(skus, shipmentMeta, activeSeason).filter((p) => productMatchesActiveSeason(p, activeSeason)),
-    [skus, shipmentMeta, activeSeason],
+    () => filterProductsByOutletScope(
+      aggregateSkus(skus, shipmentMeta, activeSeason).filter((p) => productMatchesActiveSeason(p, activeSeason)),
+      excludeOutlet,
+    ),
+    [skus, shipmentMeta, activeSeason, excludeOutlet],
   )
 
   const statusGroups = useMemo(() => {
@@ -552,6 +571,7 @@ export function Dashboard() {
           </Link>
         )}
       </div>
+      <OutletScopeControl className="dashboard-outlet-scope fade-up delay-1" />
 
       {/* Section 2 — lifecycle tiles + catalog overview (distinct SKUs vs total units) */}
       <section className="fade-up delay-1 dash-section dash-lifecycle-tiles dash-lifecycle-tiles--with-catalog">
@@ -992,7 +1012,7 @@ export function Dashboard() {
             <SmartAlertsHeaderTitle />
           </div>
           <div className="dash-alerts-list">
-            <SmartAlertsList limit={5} showViewAllLink urgencyFilter="all" />
+            <SmartAlertsList limit={5} showViewAllLink urgencyFilter="all" excludeOutlet={excludeOutlet} />
           </div>
         </div>
 
@@ -1210,7 +1230,8 @@ export function Dashboard() {
                     <tr key={sku.sku} className="dash-recent-table__row">
                       <td className="dash-recent-table__sku" data-label="SKU">{sku.sku}</td>
                       <td className="dash-recent-table__product dash-recent-table__product--lead" data-label="Product">
-                        {toTitleCase(sku.product_name)}
+                        <span>{toTitleCase(sku.product_name)}</span>
+                        <ProductLocationBadge product={sku} />
                       </td>
                       <td className="dash-recent-table__brand" data-label="Brand">{sku.brand}</td>
                       <td className="dash-recent-table__muted" data-label="Gender">{genderShortLabel(sku.gender)}</td>

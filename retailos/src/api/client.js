@@ -178,6 +178,7 @@ export const fetchProductReport = (q, options = {}) => {
   const params = new URLSearchParams()
   params.set('q', q ?? '')
   if (options.season) params.set('season', options.season)
+  if (options.excludeOutlet) params.set('excludeOutlet', '1')
   return request(`/product-report?${params.toString()}`)
 }
 export const fetchSkuBrands = () => request('/sku-brands')
@@ -311,18 +312,24 @@ export const deleteAllSalesEvents = () =>
   destructiveDelete('/sales-events', 'delete-sales-events', 'all')
 export const deleteSalesEventsByImportId = (importId) =>
   destructiveDelete(`/sales-events/import/${encodeURIComponent(importId)}`, 'delete-sales-events-import', importId)
-export const fetchWeeklySales = (weeks = 8) => request(`/sales/weekly?weeks=${weeks}`)
-export const fetchSalesBySku = (since, until, season) => {
+export const fetchWeeklySales = (weeks = 8, options = {}) => {
+  const params = new URLSearchParams({ weeks: String(weeks) })
+  if (options.excludeOutlet) params.set('excludeOutlet', '1')
+  return request(`/sales/weekly?${params.toString()}`)
+}
+export const fetchSalesBySku = (since, until, season, options = {}) => {
   let url = `/sales/by-sku?since=${encodeURIComponent(since || '')}`
   if (until) url += `&until=${encodeURIComponent(until)}`
   if (season && String(season).toLowerCase() !== 'all') url += `&season=${encodeURIComponent(season)}`
+  if (options.excludeOutlet) url += '&excludeOutlet=1'
   return request(url)
 }
 
-export const fetchSalesBySeasonSku = (since, until, season) => {
+export const fetchSalesBySeasonSku = (since, until, season, options = {}) => {
   let url = `/sales/by-season-sku?since=${encodeURIComponent(since || '')}`
   if (until) url += `&until=${encodeURIComponent(until)}`
   if (season && String(season).toLowerCase() !== 'all') url += `&season=${encodeURIComponent(season)}`
+  if (options.excludeOutlet) url += '&excludeOutlet=1'
   return request(url)
 }
 
@@ -352,10 +359,11 @@ export const downloadSkuActivity = async (sku, format = 'csv', options = {}) => 
   const a = document.createElement('a'); a.href = url; a.download = `RetailOS_Product_Sales_Card_${sku}.${format}`; a.click(); URL.revokeObjectURL(url)
 }
 
-export const fetchSalesByDay = (since, until, season) => {
+export const fetchSalesByDay = (since, until, season, options = {}) => {
   let url = `/sales/by-day?since=${encodeURIComponent(since || '')}`
   if (until) url += `&until=${encodeURIComponent(until)}`
   if (season && String(season).toLowerCase() !== 'all') url += `&season=${encodeURIComponent(season)}`
+  if (options.excludeOutlet) url += '&excludeOutlet=1'
   return request(url)
 }
 
@@ -378,6 +386,7 @@ function reportParams(params = {}) {
   if (params.since) q.set('since', params.since)
   if (params.until) q.set('until', params.until)
   if (params.season) q.set('season', params.season)
+  if (params.excludeOutlet) q.set('excludeOutlet', '1')
   const s = q.toString()
   return s ? `?${s}` : ''
 }

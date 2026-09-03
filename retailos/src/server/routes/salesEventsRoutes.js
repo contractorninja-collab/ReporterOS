@@ -7,6 +7,7 @@ export function createSalesEventsRouter({
   safeImportError,
   act,
   salesEvents,
+  getOutletAnalyticsOptions,
 }) {
   const router = express.Router()
 
@@ -73,7 +74,10 @@ export function createSalesEventsRouter({
   router.get('/sales/weekly', (req, res) => {
     try {
       const weeks = parseInt(req.query.weeks, 10) || 8
-      res.json(salesEvents.getWeeklySales(weeks))
+      const options = typeof getOutletAnalyticsOptions === 'function'
+        ? getOutletAnalyticsOptions(req.query)
+        : {}
+      res.json(salesEvents.getWeeklySales(weeks, options))
     } catch (e) { safeError(res, e) }
   })
 

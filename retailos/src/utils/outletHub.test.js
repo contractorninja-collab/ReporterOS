@@ -3,6 +3,8 @@ import assert from 'node:assert/strict'
 import {
   buildOutletInventory,
   excludeOutletOwnedProducts,
+  filterProductsByOutletScope,
+  isOutletOwnedProduct,
   outletWebChecklistProgress,
   receivedTransferUnitsBySku,
 } from './outletHub.js'
@@ -108,4 +110,15 @@ test('excludes only officially Outlet-owned products from standard reporting vie
   ])
 
   assert.deepEqual(visible.map((product) => product.sku), ['NORMAL', 'MOVING'])
+})
+
+test('analytics scope includes Outlet by default and excludes it only when requested', () => {
+  const rows = [
+    { sku: 'NORMAL' },
+    { sku: 'OUTLET', stock_location: ' Outlet ' },
+  ]
+
+  assert.equal(isOutletOwnedProduct(rows[1]), true)
+  assert.equal(filterProductsByOutletScope(rows), rows)
+  assert.deepEqual(filterProductsByOutletScope(rows, true).map((row) => row.sku), ['NORMAL'])
 })

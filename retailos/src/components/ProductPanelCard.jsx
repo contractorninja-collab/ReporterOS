@@ -6,6 +6,7 @@ import { IconFootwear, IconApparel, IconAccessories, IconPackage, IconHot, IconT
 import SaleBadge from './SaleBadge.jsx'
 import StatusBadge from './StatusBadge.jsx'
 import ProductGenderEditor from './ProductGenderEditor.jsx'
+import ProductLocationBadge from './ProductLocationBadge.jsx'
 
 export default function ProductPanelCard({
   sku,
@@ -319,6 +320,7 @@ export default function ProductPanelCard({
                 />
               </div>
               <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap', marginTop: 6 }}>
+                <ProductLocationBadge product={sku} />
                 <span
                   style={{
                     fontSize: 8,
@@ -383,6 +385,7 @@ export default function ProductPanelCard({
             </>
           ) : (
             <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap', marginTop: 6 }}>
+              <ProductLocationBadge product={sku} />
               <span
                 style={{
                   fontSize: 8,
@@ -692,6 +695,7 @@ export default function ProductPanelCard({
               />
             </div>
             <div className="product-panel-card-tile__chips" style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 7 }}>
+              <ProductLocationBadge product={sku} />
               <span
                 className="product-panel-card-tile__chip"
                 style={{
@@ -759,6 +763,7 @@ export default function ProductPanelCard({
           </>
         ) : (
           <div className="product-panel-card-tile__chips" style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 7 }}>
+            <ProductLocationBadge product={sku} />
             <span
               className="product-panel-card-tile__chip"
               style={{

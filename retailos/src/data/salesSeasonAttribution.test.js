@@ -63,4 +63,49 @@ test('sales move exclusively to the latest intake season and All remains additiv
     db.getSalesBySku('2026-08-16', '2026-08-16', 'FW26').map((row) => row.sku).sort(),
     ['FW-ONLY', 'SHARED'],
   )
+
+  const excluded = { excludeSkuCodes: ['FW-ONLY'] }
+  assert.deepEqual(
+    db.getSalesBySeasonSku('2026-08-16', '2026-08-16', 'FW26', excluded).map((row) => row.sku),
+    ['SHARED'],
+  )
+  assert.deepEqual(
+    db.getSalesBySku('2026-08-16', '2026-08-16', 'All', excluded).map((row) => row.sku).sort(),
+    ['SHARED', 'SS-ONLY'],
+  )
+  assert.deepEqual(
+    db.getSalesAggregatedByDay('2026-08-16', '2026-08-16', 'All', excluded),
+    [{ event_date: '2026-08-16', units: 24, revenue: 989 }],
+  )
+  const weeklyWithoutOutlet = db.getWeeklySales(5200, excluded)
+  assert.equal(sum(weeklyWithoutOutlet, 'totalUnits'), 26)
+  assert.equal(sum(weeklyWithoutOutlet, 'totalRevenue'), 1069)
+
+  const outletOptions = { season: 'FW26', outletSkuCodes: ['FW-ONLY'] }
+  const includedReport = db.getProductNameReport('', outletOptions)
+  assert.equal(includedReport.rows.find((row) => row.sku === 'FW-ONLY')?.stock_location, 'Outlet')
+  assert.ok(includedReport.rows.some((row) => row.sku === 'FW-ONLY'))
+
+  const excludedReport = db.getProductNameReport('', {
+    ...outletOptions,
+    excludeSkuCodes: ['FW-ONLY'],
+  })
+  assert.equal(excludedReport.rows.some((row) => row.sku === 'FW-ONLY'), false)
+
+  const movers = db.getMoversReport({
+    since: '2026-08-01',
+    until: '2026-08-31',
+    season: 'FW26',
+    outletSkuCodes: ['FW-ONLY'],
+  })
+  const outletMover = [...movers.fast, ...movers.slow].find((row) => row.sku === 'FW-ONLY')
+  assert.equal(outletMover?.stock_location, 'Outlet')
+  const moversWithoutOutlet = db.getMoversReport({
+    since: '2026-08-01',
+    until: '2026-08-31',
+    season: 'FW26',
+    outletSkuCodes: ['FW-ONLY'],
+    excludeSkuCodes: ['FW-ONLY'],
+  })
+  assert.equal([...moversWithoutOutlet.fast, ...moversWithoutOutlet.slow].some((row) => row.sku === 'FW-ONLY'), false)
 })

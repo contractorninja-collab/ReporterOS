@@ -11,9 +11,11 @@ import ProductDetailModal from '../components/ProductDetailModal'
 import ProductActivityModal from '../components/ProductActivityModal'
 import StatusChip from '../components/StatusChip'
 import BrandSelect from '../components/BrandSelect.jsx'
+import OutletScopeControl from '../components/OutletScopeControl.jsx'
+import ProductLocationBadge from '../components/ProductLocationBadge.jsx'
 import { fetchSalesBySeasonSku } from '../api/client.js'
 import { enrichBestsellerProducts, indexBestsellerSalesRows } from '../utils/bestsellerMetrics.js'
-import { excludeOutletOwnedProducts } from '../utils/outletHub.js'
+import { filterProductsByOutletScope } from '../utils/outletHub.js'
 import {
   IconFootwear,
   IconApparel,
@@ -283,6 +285,7 @@ export function Bestsellers() {
   const activeUser = useStore((s) => s.activeUser)
   const photoMap = useStore((s) => s.photoMap)
   const addAssignment = useStore((s) => s.addAssignment)
+  const excludeOutlet = useStore((s) => s.excludeOutletAnalytics)
 
   const [categoryFilter, setCategoryFilter] = useState('All')
   const [genderFilter, setGenderFilter] = useState('All')
@@ -314,13 +317,15 @@ export function Bestsellers() {
 
   useEffect(() => {
     setShowAllSold(false)
-  }, [timeRange, categoryFilter, genderFilter, brandFilter, activeSeason, rankMode, limit])
+  }, [timeRange, categoryFilter, genderFilter, brandFilter, activeSeason, rankMode, limit, excludeOutlet])
 
   const products = useMemo(
-    () => excludeOutletOwnedProducts(
-      aggregateSkus(skus, shipmentMeta, activeSeason),
-    ).filter((p) => productMatchesActiveSeason(p, activeSeason)),
-    [skus, shipmentMeta, activeSeason],
+    () => filterProductsByOutletScope(
+      aggregateSkus(skus, shipmentMeta, activeSeason)
+        .filter((p) => productMatchesActiveSeason(p, activeSeason)),
+      excludeOutlet,
+    ),
+    [skus, shipmentMeta, activeSeason, excludeOutlet],
   )
 
   const brandOptions = useMemo(() => {
@@ -372,18 +377,18 @@ export function Bestsellers() {
     try {
       const since = timeRange === 'all' ? '1970-01-01' : (sinceDate || '1970-01-01')
       const until = timeRange === 'all' ? today : untilDate
-      const data = await fetchSalesBySeasonSku(since, until, activeSeason)
+      const data = await fetchSalesBySeasonSku(since, until, activeSeason, { excludeOutlet })
       setSalesData(indexBestsellerSalesRows(data))
     } catch { setSalesData(null) }
 
     const prev = timeRange === 'all' ? null : computePreviousPeriod(timeRange, customFrom, customTo)
     if (prev) {
       try {
-        const data = await fetchSalesBySeasonSku(prev.since, prev.until, activeSeason)
+        const data = await fetchSalesBySeasonSku(prev.since, prev.until, activeSeason, { excludeOutlet })
         setPrevSalesData(indexBestsellerSalesRows(data))
       } catch { setPrevSalesData(null) }
     } else { setPrevSalesData(null) }
-  }, [exec, timeRange, sinceDate, untilDate, customFrom, customTo, activeSeason])
+  }, [exec, timeRange, sinceDate, untilDate, customFrom, customTo, activeSeason, excludeOutlet])
 
   useEffect(() => { fetchSales() }, [fetchSales])
 
@@ -635,14 +640,14 @@ export function Bestsellers() {
 
   // ── Export CSV ──────────────────────────────────────────────────────────────
   function exportCsv() {
-    const header = ['Rank', 'SKU', 'Product', 'Category', 'Brand', 'Season', 'Gender', 'Qty', 'Sold', 'Remaining', 'Sell-Through %', 'Revenue', 'Days In Store', 'Velocity (units/wk)']
+    const header = ['Rank', 'SKU', 'Product', 'Location', 'Category', 'Brand', 'Season', 'Gender', 'Qty', 'Sold', 'Remaining', 'Sell-Through %', 'Revenue', 'Days In Store', 'Velocity (units/wk)']
     const rows = rankedSkus.map((sku, i) => {
       const pct = Math.round(sellThroughPct(sku, hasEventSales, skuImportTotals))
       const vel = getVelocity(sku)
       const imported = unitsImported(sku, skuImportTotals)
       return [
         i + 1, sku.sku, `"${(sku.product_name || '').replace(/"/g, '""')}"`,
-        sku.category || '', sku.brand || '', sku.season || '', sku.gender || '',
+        sku.stock_location || '', sku.category || '', sku.brand || '', sku.season || '', sku.gender || '',
         imported, sku._periodSold, getRemaining(sku),
         pct, (sku._periodRevenue || 0).toFixed(2),
         getDaysInStore(getEffectiveLifecycleImportDate(sku)), vel ?? '',
@@ -710,6 +715,7 @@ export function Bestsellers() {
           </>
         )}
       </div>
+      <OutletScopeControl className="bestsellers-outlet-scope fade-up delay-1" />
 
       {/* Mobile filter summary + drawer trigger */}
       <div className="bs-mobile-filters fade-up delay-1">
@@ -981,7 +987,10 @@ export function Bestsellers() {
                       </div>
                     )}
                   </td>
-                  <td style={{ padding: '9px 14px', fontSize: 12, fontWeight: 600, color: 'var(--ro-text)' }} onClick={() => setSelectedSku(sku)}>{sku.product_name}</td>
+                  <td style={{ padding: '9px 14px', fontSize: 12, fontWeight: 600, color: 'var(--ro-text)' }} onClick={() => setSelectedSku(sku)}>
+                    <span>{sku.product_name}</span>
+                    <ProductLocationBadge product={sku} />
+                  </td>
                   <td style={{ padding: '9px 14px', fontFamily: '"DM Sans"', fontSize: 11, color: 'var(--ro-text-dim)' }}>{sku.sku}</td>
                   <td style={{ padding: '9px 14px' }}>{metricCell}</td>
                   {exec ? (

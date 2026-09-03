@@ -8,10 +8,17 @@ function skuCode(value) {
   return String(value ?? '').trim()
 }
 
+export function isOutletOwnedProduct(product) {
+  return String(product?.stock_location || '').trim().toLocaleLowerCase() === 'outlet'
+}
+
 export function excludeOutletOwnedProducts(products) {
-  return (Array.isArray(products) ? products : []).filter((product) => (
-    String(product?.stock_location || '').trim().toLocaleLowerCase() !== 'outlet'
-  ))
+  return (Array.isArray(products) ? products : []).filter((product) => !isOutletOwnedProduct(product))
+}
+
+export function filterProductsByOutletScope(products, excludeOutlet = false) {
+  const rows = Array.isArray(products) ? products : []
+  return excludeOutlet ? excludeOutletOwnedProducts(rows) : rows
 }
 
 export const receivedTransferUnitsBySku = receivedOutletTransferUnitsBySku

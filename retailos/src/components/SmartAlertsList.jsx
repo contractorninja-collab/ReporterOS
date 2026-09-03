@@ -5,6 +5,7 @@ import { generateAlerts, dedupeAlertsBySku } from '../utils/alerts.js'
 import { aggregateSkus } from '../utils/aggregateSkus.js'
 import { getProductLifecycleStatus } from '../utils/lifecycle.js'
 import { productMatchesActiveSeason } from '../utils/seasons.js'
+import { filterProductsByOutletScope } from '../utils/outletHub.js'
 import AlertItem from './AlertItem.jsx'
 import ProductDetailModal from './ProductDetailModal.jsx'
 import { AlertAssignModal } from './AlertAssignModal.jsx'
@@ -40,9 +41,9 @@ function modalStatusData(status) {
 }
 
 /**
- * @param {{ limit?: number, showViewAllLink?: boolean, urgencyFilter?: string }} props
+ * @param {{ limit?: number, showViewAllLink?: boolean, urgencyFilter?: string, excludeOutlet?: boolean }} props
  */
-export function SmartAlertsList({ limit, showViewAllLink, urgencyFilter = 'all' }) {
+export function SmartAlertsList({ limit, showViewAllLink, urgencyFilter = 'all', excludeOutlet = false }) {
   const skus = useStore((s) => s.skus)
   const shipmentMeta = useStore((s) => s.shipmentMeta)
   const activeSeason = useStore((s) => s.activeSeason)
@@ -56,8 +57,11 @@ export function SmartAlertsList({ limit, showViewAllLink, urgencyFilter = 'all' 
   const [detailSku, setDetailSku] = useState(null)
 
   const products = useMemo(
-    () => aggregateSkus(skus, shipmentMeta, activeSeason).filter((p) => productMatchesActiveSeason(p, activeSeason)),
-    [skus, shipmentMeta, activeSeason],
+    () => filterProductsByOutletScope(
+      aggregateSkus(skus, shipmentMeta, activeSeason).filter((p) => productMatchesActiveSeason(p, activeSeason)),
+      excludeOutlet,
+    ),
+    [skus, shipmentMeta, activeSeason, excludeOutlet],
   )
 
   const allAlerts = useMemo(() => dedupeAlertsBySku(generateAlerts(products)), [products])

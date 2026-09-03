@@ -15,7 +15,10 @@ import {
 import { genderBucketKey } from '../utils/gender.js'
 import { normalizeCategory } from '../utils/category.js'
 import StatusBadge from '../components/StatusBadge.jsx'
+import OutletScopeControl from '../components/OutletScopeControl.jsx'
+import ProductLocationBadge from '../components/ProductLocationBadge.jsx'
 import { isSeasonFilterActive, productMatchesActiveSeason } from '../utils/seasons.js'
+import { filterProductsByOutletScope } from '../utils/outletHub.js'
 import { toTitleCase } from '../utils/textFormat.js'
 import KpiCard from '../components/KpiCard'
 import { IconLock, IconPrint } from '../utils/icons.js'
@@ -130,14 +133,15 @@ function sellThroughColor(pct) {
   return '#DC2626'
 }
 
-function MoverProductCell({ name, sku, deadStock = false }) {
+function MoverProductCell({ product, deadStock = false }) {
   return (
     <div className="movers-product-cell">
       <div className="movers-product-cell__name">
-        <span>{toTitleCase(name)}</span>
+        <span>{toTitleCase(product.product_name)}</span>
+        <ProductLocationBadge product={product} />
         {deadStock ? <StatusBadge variant="dead-stock">⚠ Dead stock</StatusBadge> : null}
       </div>
-      <div className="movers-product-cell__sku">{sku}</div>
+      <div className="movers-product-cell__sku">{product.sku}</div>
     </div>
   )
 }
@@ -150,8 +154,7 @@ function moverColumns(variant) {
       label: 'Product',
       render: (r) => (
         <MoverProductCell
-          name={r.product_name}
-          sku={r.sku}
+          product={r}
           deadStock={isSlow && Number(r.days_in_store) >= 150 && Number(r.sell_through) === 0}
         />
       ),
@@ -209,11 +212,14 @@ function moverColumns(variant) {
   ]
 }
 
-function ProductCell({ name, sku }) {
+function ProductCell({ product }) {
   return (
     <div>
-      <div style={{ fontWeight: 600 }}>{name}</div>
-      <div style={{ fontSize: 9, color: 'var(--ro-text-muted)' }}>{sku}</div>
+      <div style={{ fontWeight: 600, display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+        <span>{product.product_name}</span>
+        <ProductLocationBadge product={product} />
+      </div>
+      <div style={{ fontSize: 9, color: 'var(--ro-text-muted)' }}>{product.sku}</div>
     </div>
   )
 }
@@ -235,13 +241,14 @@ function marginThresholdColor(margin) {
   return '#DC2626'
 }
 
-function ProfitProductCell({ name, sku }) {
+function ProfitProductCell({ product }) {
   return (
     <div className="profit-product-cell">
       <div className="profit-product-cell__name">
-        <span>{toTitleCase(name)}</span>
+        <span>{toTitleCase(product.product_name)}</span>
+        <ProductLocationBadge product={product} />
       </div>
-      <div className="profit-product-cell__sku">{sku}</div>
+      <div className="profit-product-cell__sku">{product.sku}</div>
     </div>
   )
 }
@@ -259,7 +266,7 @@ function profitProductColumns(variant) {
       key: 'product_name',
       label: 'Product',
       render: (r) => (
-        <ProfitProductCell name={r.product_name} sku={r.sku} />
+        <ProfitProductCell product={r} />
       ),
     },
     { key: 'sold', label: 'Sold' },
@@ -611,16 +618,26 @@ export function Reports() {
   const activeUser = useStore((s) => s.activeUser)
   const snapshots = useStore((s) => s.salesSnapshots)
   const activeSeason = useStore((s) => s.activeSeason)
+  const excludeOutlet = useStore((s) => s.excludeOutletAnalytics)
 
   const products = useMemo(
-    () => aggregateSkus(skus, shipmentMeta, activeSeason).filter((p) => productMatchesActiveSeason(p, activeSeason)),
-    [skus, shipmentMeta, activeSeason],
+    () => filterProductsByOutletScope(
+      aggregateSkus(skus, shipmentMeta, activeSeason).filter((p) => productMatchesActiveSeason(p, activeSeason)),
+      excludeOutlet,
+    ),
+    [skus, shipmentMeta, activeSeason, excludeOutlet],
   )
 
   const seasonSkuSet = useMemo(
     () => new Set(products.map((p) => p.sku)),
     [products],
   )
+  const scopedSnapshots = useMemo(() => snapshots.map((snapshot) => ({
+    ...snapshot,
+    products: Object.fromEntries(
+      Object.entries(snapshot.products || {}).filter(([skuCode]) => seasonSkuSet.has(skuCode)),
+    ),
+  })), [snapshots, seasonSkuSet])
   const hasSnapshots = snapshots.length > 0
 
   const presets = useMemo(() => getDatePresets(), [])
@@ -681,8 +698,8 @@ export function Reports() {
     const since = toLocalYMD(startDate)
     const until = toLocalYMD(endDate)
     Promise.all([
-      fetchSalesBySku(since, until, activeSeason),
-      fetchSalesByDay(since, until, activeSeason),
+      fetchSalesBySku(since, until, activeSeason, { excludeOutlet }),
+      fetchSalesByDay(since, until, activeSeason, { excludeOutlet }),
     ])
       .then(([skuRows, dayRows]) => {
         if (cancelled) return
@@ -696,7 +713,7 @@ export function Reports() {
         }
       })
     return () => { cancelled = true }
-  }, [salesEventsMode, startDate, endDate, activeSeason])
+  }, [salesEventsMode, startDate, endDate, activeSeason, excludeOutlet])
 
   useEffect(() => {
     let cancelled = false
@@ -704,6 +721,7 @@ export function Reports() {
       since: toLocalYMD(startDate),
       until: toLocalYMD(endDate),
       season: activeSeason || 'All',
+      excludeOutlet,
     }
     setExecutiveReports((s) => ({ ...s, loading: true, error: '' }))
     Promise.all([
@@ -725,18 +743,18 @@ export function Reports() {
         }
       })
     return () => { cancelled = true }
-  }, [startDate, endDate, activeSeason])
+  }, [startDate, endDate, activeSeason, excludeOutlet])
 
   useEffect(() => {
     let cancelled = false
-    fetchWeeklySales(8)
+    fetchWeeklySales(8, { excludeOutlet })
       .then((rows) => { if (!cancelled) setWeeklyRows(Array.isArray(rows) ? rows : []) })
       .catch(() => { if (!cancelled) setWeeklyRows([]) })
-    fetchProductReport('', { season: activeSeason || 'All' })
+    fetchProductReport('', { season: activeSeason || 'All', excludeOutlet })
       .then((r) => { if (!cancelled) setProductReport(r) })
       .catch(() => { if (!cancelled) setProductReport(null) })
     return () => { cancelled = true }
-  }, [activeSeason])
+  }, [activeSeason, excludeOutlet])
 
   // --- Core data computation ---
   const salesData = useMemo(() => {
@@ -755,6 +773,7 @@ export function Reports() {
             category: p?.category || '',
             gender: p?.gender || '',
             brand: p?.brand || '',
+            stock_location: p?.stock_location || '',
             priceSold,
             priceTag: p?.price_tag,
             quantity: p?.quantity ?? 0,
@@ -766,7 +785,7 @@ export function Reports() {
         .filter((r) => r.delta > 0 && inSeason(r.skuCode))
     }
     if (hasSnapshots) {
-      const snapshotResult = computeSalesInPeriod(snapshots, startDate, endDate)
+      const snapshotResult = computeSalesInPeriod(scopedSnapshots, startDate, endDate)
       if (snapshotResult.length > 0) {
         return snapshotResult.filter((r) => inSeason(r.skuCode))
       }
@@ -777,6 +796,7 @@ export function Reports() {
       category: p.category || '',
       gender: p.gender || '',
       brand: p.brand || '',
+      stock_location: p.stock_location || '',
       priceSold: p.avg_price_sold || p.price_sold,
       priceTag: p.price_tag,
       quantity: p.quantity,
@@ -789,7 +809,7 @@ export function Reports() {
       const d = new Date(products.find((pp) => pp.sku === p.skuCode)?.import_date)
       return d >= startDate && d <= endDate
     })
-  }, [salesEventsMode, eventSkuRows, hasSnapshots, snapshots, startDate, endDate, products, rangeKey, seasonSkuSet])
+  }, [salesEventsMode, eventSkuRows, hasSnapshots, scopedSnapshots, startDate, endDate, products, rangeKey, seasonSkuSet])
 
   const trendData = useMemo(() => {
     if (salesEventsMode) {
@@ -799,8 +819,8 @@ export function Reports() {
     }
     if (!hasSnapshots) return []
     const interval = pickInterval(startDate, endDate)
-    return groupSalesByInterval(snapshots, startDate, endDate, interval)
-  }, [salesEventsMode, eventDayRows, hasSnapshots, snapshots, startDate, endDate])
+    return groupSalesByInterval(scopedSnapshots, startDate, endDate, interval)
+  }, [salesEventsMode, eventDayRows, hasSnapshots, scopedSnapshots, startDate, endDate])
 
   // --- KPIs ---
   const totalUnits = useMemo(() => salesData.reduce((s, r) => s + r.delta, 0), [salesData])
@@ -975,8 +995,8 @@ export function Reports() {
     : rangeKey.charAt(0).toUpperCase() + rangeKey.slice(1)
 
   const seasonScopeLabel = isSeasonFilterActive(activeSeason)
-    ? `${activeSeason} products · sales in ${rangeLabel} · inventory totals lifetime`
-    : `All seasons · sales in ${rangeLabel} · inventory totals lifetime`
+    ? `${activeSeason} products · ${excludeOutlet ? 'Outlet excluded' : 'Outlet included'} · sales in ${rangeLabel} · inventory totals lifetime`
+    : `All seasons · ${excludeOutlet ? 'Outlet excluded' : 'Outlet included'} · sales in ${rangeLabel} · inventory totals lifetime`
 
   // --- Print handler ---
   const handlePrint = () => { window.print() }
@@ -1001,6 +1021,7 @@ export function Reports() {
           Print Report
         </button>
       </div>
+      <OutletScopeControl className="reports-outlet-scope" />
 
       {/* Date range toolbar */}
       <div className="reports-period-tabs">
@@ -1494,10 +1515,10 @@ export function Reports() {
           <h3 className="reports-chart-card__title">Fast & slow movers</h3>
           {(moversFast.length > 0 || moversSlow.length > 0) && (
             <ExportBtn onClick={() => downloadTableCSV(
-              ['List', 'SKU', 'Product', 'Brand', 'Category', 'Sold', 'Sell-Through %', 'Units/Day', 'Days In Store', 'Remaining', 'Net Revenue'],
+              ['List', 'SKU', 'Product', 'Location', 'Brand', 'Category', 'Sold', 'Sell-Through %', 'Units/Day', 'Days In Store', 'Remaining', 'Net Revenue'],
               [
-                ...moversFast.map((r) => ['Fast', r.sku, r.product_name, r.brand, r.category, r.net_units, r.sell_through, r.velocity, r.days_in_store, r.remaining, Number(r.net_revenue || 0).toFixed(2)]),
-                ...moversSlow.map((r) => ['Slow', r.sku, r.product_name, r.brand, r.category, r.net_units, r.sell_through, r.velocity, r.days_in_store, r.remaining, Number(r.net_revenue || 0).toFixed(2)]),
+                ...moversFast.map((r) => ['Fast', r.sku, r.product_name, r.stock_location || '', r.brand, r.category, r.net_units, r.sell_through, r.velocity, r.days_in_store, r.remaining, Number(r.net_revenue || 0).toFixed(2)]),
+                ...moversSlow.map((r) => ['Slow', r.sku, r.product_name, r.stock_location || '', r.brand, r.category, r.net_units, r.sell_through, r.velocity, r.days_in_store, r.remaining, Number(r.net_revenue || 0).toFixed(2)]),
               ],
               'fast-slow-movers.csv'
             )} />
@@ -1521,9 +1542,9 @@ export function Reports() {
           <h3 className="reports-chart-card__title">Profitability & ROI — all time</h3>
           {profitRows.length > 0 && (
             <ExportBtn onClick={() => downloadTableCSV(
-              ['SKU', 'Product', 'Brand', 'Category', 'Sold', 'Revenue', 'COGS', 'Profit', 'ROI %'],
+              ['SKU', 'Product', 'Location', 'Brand', 'Category', 'Sold', 'Revenue', 'COGS', 'Profit', 'ROI %'],
               profitRows.map((r) => [
-                r.sku, r.product_name, r.brand, r.category, r.sold,
+                r.sku, r.product_name, r.stock_location || '', r.brand, r.category, r.sold,
                 Number(r.totalRevenue || 0).toFixed(2), Number(r.cogs || 0).toFixed(2),
                 Number(r.profit || 0).toFixed(2), Number(r.roi || 0).toFixed(1),
               ]),

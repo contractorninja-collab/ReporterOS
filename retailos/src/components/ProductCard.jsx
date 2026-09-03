@@ -6,6 +6,7 @@ import { IconFootwear, IconApparel, IconAccessories, IconPackage, IconHot, IconT
 import SaleBadge from './SaleBadge.jsx'
 import StatusBadge from './StatusBadge.jsx'
 import ProductGenderEditor from './ProductGenderEditor.jsx'
+import ProductLocationBadge from './ProductLocationBadge.jsx'
 
 function ProductCard({ sku, rank, onClick, onSalesCardClick, metric, metricLabel, velocity, lowStock, rankTrend, delta, hideSalesCounts = false, className = '', showDayOverlay = false, showBrandPill = false }) {
   const photoMap = useStore((s) => s.photoMap)
@@ -312,6 +313,7 @@ function ProductCard({ sku, rank, onClick, onSalesCardClick, metric, metricLabel
         </div>
 
         <div className="product-card-tile__chips" style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', marginTop: '7px' }}>
+          <ProductLocationBadge product={sku} />
           {sku.sale_active ? <SaleBadge percent={sku.sale_percent} extraPercent={sku.sale_extra_percent} /> : null}
           {!hideSalesCounts && isBestseller && (
             <StatusBadge variant="hot" className="product-card-tile__chip product-card-tile__chip--hot">

@@ -19,4 +19,5 @@ test('sign-out clears every server-backed role-scoped cache', () => {
   assert.equal(cleared.myShift, null)
   assert.equal(cleared.unreadCount, 0)
   assert.equal(cleared.photoCount, 0)
+  assert.equal(cleared.excludeOutletAnalytics, false)
 })

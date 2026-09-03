@@ -39,6 +39,7 @@ export function asRecord(v) {
 export function clearedSessionData() {
   return {
     activeUser: null,
+    excludeOutletAnalytics: false,
     skus: [],
     importHistory: [],
     users: [],

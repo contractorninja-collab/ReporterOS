@@ -11,6 +11,8 @@ import ProductActivityModal from '../components/ProductActivityModal'
 import SaleBadge from '../components/SaleBadge.jsx'
 import StatusBadge from '../components/StatusBadge.jsx'
 import BrandSelect from '../components/BrandSelect.jsx'
+import OutletScopeControl from '../components/OutletScopeControl.jsx'
+import ProductLocationBadge from '../components/ProductLocationBadge.jsx'
 import { lifecycleStatusBadgeClass } from '../utils/statusBadge.js'
 import { IconLock, IconDelete, IconSliders, IconChevronDown } from '../utils/icons.js'
 import { toTitleCase } from '../utils/textFormat.js'
@@ -22,7 +24,7 @@ import {
 } from '../utils/gender.js'
 import { DISCOUNTS, salePriceOf } from '../utils/saleList.js'
 import { isSeasonFilterActive, productMatchesActiveSeason } from '../utils/seasons.js'
-import { excludeOutletOwnedProducts } from '../utils/outletHub.js'
+import { filterProductsByOutletScope, isOutletOwnedProduct } from '../utils/outletHub.js'
 
 const DM = '"DM Sans", sans-serif'
 
@@ -202,6 +204,16 @@ function enrichReportBrandsFromSkus(rows, skuRows) {
       ...(category ? { category } : null),
     }
   })
+}
+
+function enrichReportLocationsFromSkus(rows, skuRows) {
+  if (!rows?.length) return []
+  const outletCodes = new Set((skuRows || []).filter(isOutletOwnedProduct).map((row) => row.sku))
+  return rows.map((row) => (
+    outletCodes.has(row.sku) && !isOutletOwnedProduct(row)
+      ? { ...row, stock_location: 'Outlet' }
+      : row
+  ))
 }
 
 /**
@@ -483,6 +495,7 @@ function buildClientReport(q, skus, shipmentMeta = null, activeSeason = 'All') {
       profit,
       roi,
       avgTicket: soldQty > 0 ? totalRevenue / soldQty : 0,
+      stock_location: p.stock_location || '',
     }
   })
 
@@ -578,6 +591,7 @@ export function ProductLookup() {
   const activeUser = useStore((s) => s.activeUser)
   const markdownLists = useStore((s) => s.markdownLists)
   const addItemToMarkdownList = useStore((s) => s.addItemToMarkdownList)
+  const excludeOutlet = useStore((s) => s.excludeOutletAnalytics)
 
   const canManage = activeUser?.role === 'executive' || activeUser?.role === 'manager'
 
@@ -618,7 +632,10 @@ export function ProductLookup() {
   const qParam = (searchParams.get('q') || '').trim()
   const qForApi = tab === 'all' ? '' : qParam
   const shouldFetch = tab === 'all' || qParam.length > 0
-  const standardSkus = useMemo(() => excludeOutletOwnedProducts(skus), [skus])
+  const scopedSkus = useMemo(
+    () => filterProductsByOutletScope(skus, excludeOutlet),
+    [skus, excludeOutlet],
+  )
 
   const load = useCallback(async () => {
     setLoadError(null)
@@ -639,7 +656,7 @@ export function ProductLookup() {
       return
     }
     try {
-      const data = await api.fetchProductReport(qForApi, { season: activeSeason || 'All' })
+      const data = await api.fetchProductReport(qForApi, { season: activeSeason || 'All', excludeOutlet })
       setReport(data)
       api
         .fetchSkuBrands()
@@ -649,9 +666,9 @@ export function ProductLookup() {
         .catch(() => {})
     } catch (e) {
       setLoadError(e?.message || 'Offline or API unavailable')
-      setReport(buildClientReport(qForApi, standardSkus, shipmentMeta, activeSeason))
+      setReport(buildClientReport(qForApi, scopedSkus, shipmentMeta, activeSeason))
     }
-  }, [shouldFetch, qForApi, activeSeason, standardSkus, shipmentMeta])
+  }, [shouldFetch, qForApi, activeSeason, scopedSkus, shipmentMeta, excludeOutlet])
 
   useEffect(() => {
     load()
@@ -689,8 +706,8 @@ export function ProductLookup() {
     const today = new Date().toISOString().slice(0, 10)
     const since30 = salesSince30DaysYMD()
     Promise.all([
-      api.fetchSalesBySku('1970-01-01', today, activeSeason || 'All'),
-      api.fetchSalesBySku(since30, today, activeSeason || 'All'),
+      api.fetchSalesBySku('1970-01-01', today, activeSeason || 'All', { excludeOutlet }),
+      api.fetchSalesBySku(since30, today, activeSeason || 'All', { excludeOutlet }),
     ])
       .then(([salesRows, sales30Rows]) => {
         if (cancelled) return
@@ -718,7 +735,12 @@ export function ProductLookup() {
     return () => {
       cancelled = true
     }
-  }, [activeSeason])
+  }, [activeSeason, excludeOutlet])
+
+  useEffect(() => {
+    setSelectedSkus({})
+    setExpandedSkus(new Set())
+  }, [excludeOutlet])
 
   useEffect(() => {
     let cancelled = false
@@ -795,7 +817,10 @@ export function ProductLookup() {
 
   const reportRowsForUi = useMemo(() => {
     const withSales = applyNetSalesToRows(
-      applyIntakeTotalsToRows(enrichReportBrandsFromSkus(report?.rows, skus), importTotalsMap),
+      applyIntakeTotalsToRows(
+        enrichReportLocationsFromSkus(enrichReportBrandsFromSkus(report?.rows, scopedSkus), scopedSkus),
+        importTotalsMap,
+      ),
       salesBySku,
     )
     if (!withSales.length || salesBySku30d == null || salesBySku30d === 'error') return withSales
@@ -803,11 +828,11 @@ export function ProductLookup() {
       ...row,
       sold30d: Number(salesBySku30d[row.sku]?.sold_qty) || 0,
     }))
-  }, [report?.rows, skus, salesBySku, salesBySku30d, importTotalsMap])
+  }, [report?.rows, scopedSkus, salesBySku, salesBySku30d, importTotalsMap])
 
   const brandOptions = useMemo(
-    () => mergeBrandOptionEntries(skuBrandsFromApi, skus, reportRowsForUi),
-    [skuBrandsFromApi, skus, reportRowsForUi],
+    () => mergeBrandOptionEntries(excludeOutlet ? [] : skuBrandsFromApi, scopedSkus, reportRowsForUi),
+    [excludeOutlet, skuBrandsFromApi, scopedSkus, reportRowsForUi],
   )
 
   const mobileFilterPills = useMemo(() => {
@@ -906,11 +931,11 @@ export function ProductLookup() {
 
   const productsBySku = useMemo(() => {
     const map = {}
-    for (const p of aggregateSkus(skus, shipmentMeta, activeSeason).filter((row) => productMatchesActiveSeason(row, activeSeason))) {
+    for (const p of aggregateSkus(scopedSkus, shipmentMeta, activeSeason).filter((row) => productMatchesActiveSeason(row, activeSeason))) {
       map[p.sku] = p
     }
     return map
-  }, [skus, shipmentMeta, activeSeason])
+  }, [scopedSkus, shipmentMeta, activeSeason])
 
   const activeSaleLists = useMemo(
     () => markdownLists.filter((l) => !['removal', 'location_change'].includes(l.kind) && l.status !== 'ended'),
@@ -947,12 +972,13 @@ export function ProductLookup() {
     const rows = sortedRows.filter((r) => selectedSkus[r.sku])
     if (!rows.length) return
     downloadTableCSV(
-      ['SKU', 'Product', 'Brand', 'Gender', 'Sold', 'Profit', 'Margin %', 'Reasoning'],
+      ['SKU', 'Product', 'Location', 'Brand', 'Gender', 'Sold', 'Profit', 'Margin %', 'Reasoning'],
       rows.map((r) => {
         const verdict = getReorderVerdict(r)
         return [
           r.sku,
           r.product_name,
+          r.stock_location || '',
           r.brand ?? '',
           r.genderBucket ?? '',
           r.sold ?? 0,
@@ -1059,7 +1085,7 @@ export function ProductLookup() {
   }
 
   const openModal = (row) => {
-    const agg = aggregateSkus(skus, shipmentMeta, activeSeason)
+    const agg = aggregateSkus(scopedSkus, shipmentMeta, activeSeason)
       .filter((p) => productMatchesActiveSeason(p, activeSeason))
       .find((p) => p.sku === row.sku)
     if (agg) {
@@ -1133,6 +1159,7 @@ export function ProductLookup() {
       <div className="pl-page-header">
         <Link to="/" className="pl-dash-link">Dashboard</Link>
       </div>
+      <OutletScopeControl className="product-lookup-outlet-scope" />
 
       <div className="pl-filter-shell">
         <div className="pl-toolbar">
@@ -1578,6 +1605,7 @@ export function ProductLookup() {
                               <span className="pl-mobile-card__name">{toTitleCase(row.product_name)}</span>
                             </div>
                             <div className="pl-chip-row pl-mobile-card__badges">
+                              <ProductLocationBadge product={row} />
                               {row.sale_active ? <SaleBadge percent={row.sale_percent} extraPercent={row.sale_extra_percent} /> : null}
                               {lifecycleStatus && lifecycleStatus !== '—' ? (
                                 <span className={lifecycleBadgeClass(lifecycleStatus)}>
@@ -1822,6 +1850,7 @@ export function ProductLookup() {
                             <div className="pl-product-cell__main">
                               <div className="pl-product-name">{toTitleCase(row.product_name)}</div>
                               <div className="pl-chip-row">
+                                <ProductLocationBadge product={row} />
                                 {row.sale_active ? <SaleBadge percent={row.sale_percent} extraPercent={row.sale_extra_percent} /> : null}
                                 {lifecycleStatus && lifecycleStatus !== '—' ? (
                                   <span className={`pl-chip-lifecycle ${lifecycleBadgeClass(lifecycleStatus)}`}>

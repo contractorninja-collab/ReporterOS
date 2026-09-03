@@ -770,6 +770,22 @@ function withOutletStockLocation(rows) {
   })
 }
 
+function queryExcludesOutlet(query = {}) {
+  const value = String(query.excludeOutlet || '').trim().toLowerCase()
+  return value === '1' || value === 'true'
+}
+
+function outletAnalyticsOptions(query = {}) {
+  const outletSkuCodes = [...outletSkuLocationOwnership(
+    getAllOutletTransfers(),
+    getAllMarkdownLists(),
+  ).keys()]
+  return {
+    outletSkuCodes,
+    excludeSkuCodes: queryExcludesOutlet(query) ? outletSkuCodes : [],
+  }
+}
+
 function assignmentVisibleToUser(row, user) {
   if (user.role === 'executive') return true
   return (
@@ -1800,11 +1816,7 @@ app.get('/api/product-report', (req, res) => {
   try {
     const q = typeof req.query.q === 'string' ? req.query.q : ''
     const season = typeof req.query.season === 'string' && req.query.season ? req.query.season : undefined
-    const outletSkuCodes = [...outletSkuLocationOwnership(
-      getAllOutletTransfers(),
-      getAllMarkdownLists(),
-    ).keys()]
-    res.json(getProductNameReport(q, { season, excludeSkuCodes: outletSkuCodes }))
+    res.json(getProductNameReport(q, { season, ...outletAnalyticsOptions(req.query) }))
   } catch (e) { safeError(res, e) }
 })
 
@@ -1892,6 +1904,7 @@ function reportQuery(req) {
     since: typeof req.query.since === 'string' && req.query.since ? req.query.since : undefined,
     until: typeof req.query.until === 'string' && req.query.until ? req.query.until : undefined,
     season: typeof req.query.season === 'string' && req.query.season ? req.query.season : undefined,
+    ...outletAnalyticsOptions(req.query),
   }
 }
 
@@ -3022,7 +3035,7 @@ app.get('/api/sales/by-sku', (req, res) => {
     const since = req.query.since || '1970-01-01'
     const until = req.query.until || undefined
     const season = typeof req.query.season === 'string' && req.query.season ? req.query.season : undefined
-    res.json(getSalesBySku(since, until, season))
+    res.json(getSalesBySku(since, until, season, outletAnalyticsOptions(req.query)))
   } catch (e) { safeError(res, e) }
 })
 
@@ -3031,7 +3044,7 @@ app.get('/api/sales/by-season-sku', (req, res) => {
     const since = req.query.since || '1970-01-01'
     const until = req.query.until || undefined
     const season = typeof req.query.season === 'string' && req.query.season ? req.query.season : undefined
-    res.json(getSalesBySeasonSku(since, until, season))
+    res.json(getSalesBySeasonSku(since, until, season, outletAnalyticsOptions(req.query)))
   } catch (e) { safeError(res, e) }
 })
 
@@ -3075,7 +3088,7 @@ app.get('/api/sales/by-day', (req, res) => {
     const since = req.query.since || '1970-01-01'
     const until = req.query.until || undefined
     const season = typeof req.query.season === 'string' && req.query.season ? req.query.season : undefined
-    res.json(getSalesAggregatedByDay(since, until, season))
+    res.json(getSalesAggregatedByDay(since, until, season, outletAnalyticsOptions(req.query)))
   } catch (e) { safeError(res, e) }
 })
 
@@ -3094,6 +3107,7 @@ app.use('/api', createSalesEventsRouter({
   safeImportError,
   act,
   salesEvents,
+  getOutletAnalyticsOptions: outletAnalyticsOptions,
 }))
 
 // ── Photos ──────────────────────────────────────────────────────────────────

@@ -26,6 +26,7 @@ const initialState = {
   extraSeasons: loadExtraSeasons(),
   activeCategory: 'all',
   activeGender: 'all',
+  excludeOutletAnalytics: false,
 
   users: [],
   activeUser: restoreActiveUser(),
@@ -84,6 +85,10 @@ const useStore = create((set, get) => ({
 
   // ── CSV imports ─────────────────────────────────────────────────────────────
   ...createImportsSlice(set, get),
+
+  // Shared analytics scope. Intentionally not persisted: every reload starts
+  // with Outlet products included.
+  setExcludeOutletAnalytics: (value) => set({ excludeOutletAnalytics: value === true }),
 }))
 
 export default useStore
