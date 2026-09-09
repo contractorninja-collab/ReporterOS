@@ -1286,8 +1286,10 @@ export function ImportCSV() {
 
   return (
     <div className="import-page">
-      <div className="fade-up delay-1 page-hero-mobile-hide import-page-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
+      <div className="fade-up delay-1 page-hero-mobile-hide import-page-header">
         <h1 className="import-page-header__title">Import CSV data</h1>
+      </div>
+      <div className="fade-up delay-1" style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '14px' }}>
         <button
           type="button"
           className="import-history-actions__btn"
