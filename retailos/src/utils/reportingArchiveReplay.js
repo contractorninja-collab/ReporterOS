@@ -101,26 +101,14 @@ function hasMalformedReportingDate(row) {
   return !Number.isInteger(year) || year < 2000 || year > 2100
 }
 
-function signatureCounts(rows) {
-  const counts = new Map()
-  for (const row of rows || []) {
-    const signature = reportingRowContentSignature(row)
-    counts.set(signature, (counts.get(signature) || 0) + 1)
-  }
-  return counts
-}
-
-function matchingRowCount(rows, counts) {
-  const remaining = new Map(counts)
-  let matches = 0
-  for (const row of rows || []) {
-    const signature = reportingRowContentSignature(row)
-    const available = remaining.get(signature) || 0
-    if (available <= 0) continue
-    remaining.set(signature, available - 1)
-    matches += 1
-  }
-  return matches
+function hasValidReportingDate(row) {
+  const value = row?.sale_date
+  return Boolean(
+    value instanceof Date &&
+    !Number.isNaN(value.getTime()) &&
+    value.getFullYear() >= 2000 &&
+    value.getFullYear() <= 2100
+  )
 }
 
 /**
@@ -130,44 +118,41 @@ function matchingRowCount(rows, counts) {
  */
 function removeRowsCoveredByCorrectedFiles(sources) {
   const output = (sources || []).map((source) => ({ ...source, rows: [...(source.rows || [])] }))
-  const skippedCorrectedRows = []
-
-  for (let damagedIndex = 0; damagedIndex < output.length; damagedIndex += 1) {
-    const damaged = output[damagedIndex]
-    const malformedCount = damaged.rows.filter(hasMalformedReportingDate).length
-    if (malformedCount === 0 || damaged.rows.length < 2) continue
-
-    let best = null
-    for (let correctedIndex = 0; correctedIndex < output.length; correctedIndex += 1) {
-      if (correctedIndex === damagedIndex) continue
-      const corrected = output[correctedIndex]
-      if (corrected.rows.length < 2) continue
-      const correctedMalformed = corrected.rows.filter(hasMalformedReportingDate).length
-      if (correctedMalformed >= malformedCount) continue
-      const counts = signatureCounts(corrected.rows)
-      const matches = matchingRowCount(damaged.rows, counts)
-      const smallerFileSize = Math.min(damaged.rows.length, corrected.rows.length)
-      const overlap = smallerFileSize > 0 ? matches / smallerFileSize : 0
-      if (overlap < 0.8 || (best && matches <= best.matches)) continue
-      best = { corrected, counts, matches }
-    }
-    if (!best) continue
-
-    const remaining = new Map(best.counts)
-    damaged.rows = damaged.rows.filter((row) => {
+  const validSourcesBySignature = new Map()
+  for (let sourceIndex = 0; sourceIndex < output.length; sourceIndex += 1) {
+    for (const row of output[sourceIndex].rows) {
+      if (!hasValidReportingDate(row) || hasMalformedReportingDate(row)) continue
       const signature = reportingRowContentSignature(row)
-      const available = remaining.get(signature) || 0
-      if (available <= 0) return true
-      remaining.set(signature, available - 1)
+      if (!validSourcesBySignature.has(signature)) validSourcesBySignature.set(signature, [])
+      validSourcesBySignature.get(signature).push(sourceIndex)
+    }
+  }
+
+  const skippedByPair = new Map()
+  for (let sourceIndex = 0; sourceIndex < output.length; sourceIndex += 1) {
+    const damaged = output[sourceIndex]
+    const malformedCount = damaged.rows.filter(hasMalformedReportingDate).length
+    if (malformedCount === 0) continue
+    const badlyDamagedFile = malformedCount >= Math.max(2, Math.ceil(damaged.rows.length / 2))
+    damaged.rows = damaged.rows.filter((row) => {
+      const matches = validSourcesBySignature.get(reportingRowContentSignature(row)) || []
+      const correctedIndex = matches.find((index) => index !== sourceIndex)
+      if (correctedIndex == null) return true
+      if (!badlyDamagedFile && !hasMalformedReportingDate(row)) return true
+      const pairKey = `${sourceIndex}|${correctedIndex}`
+      skippedByPair.set(pairKey, (skippedByPair.get(pairKey) || 0) + 1)
       return false
-    })
-    skippedCorrectedRows.push({
-      filename: damaged.filename || damaged.importId || 'reporting.csv',
-      correctedBy: best.corrected.filename || best.corrected.importId || 'reporting.csv',
-      rows: best.matches,
     })
   }
 
+  const skippedCorrectedRows = [...skippedByPair].map(([key, rows]) => {
+    const [damagedIndex, correctedIndex] = key.split('|').map(Number)
+    return {
+      filename: output[damagedIndex].filename || output[damagedIndex].importId || 'reporting.csv',
+      correctedBy: output[correctedIndex].filename || output[correctedIndex].importId || 'reporting.csv',
+      rows,
+    }
+  })
   return { sources: output, skippedCorrectedRows }
 }
 
