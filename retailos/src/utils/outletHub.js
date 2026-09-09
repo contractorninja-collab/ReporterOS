@@ -9,6 +9,8 @@ function skuCode(value) {
 }
 
 export function isOutletOwnedProduct(product) {
+  if (product?.outlet_location_source === 'markdown_list') return false
+  if (product?.outlet_location_source === 'outlet_transfer' && product.outlet_units != null && Number(product.outlet_units) <= 0) return false
   return String(product?.stock_location || '').trim().toLocaleLowerCase() === 'outlet'
 }
 
@@ -23,13 +25,33 @@ export function filterProductsByOutletScope(products, excludeOutlet = false) {
 
 export const receivedTransferUnitsBySku = receivedOutletTransferUnitsBySku
 
+export function buildOutletSourceReview({ skus, shipmentMeta, transfers, markdownLists }) {
+  const products = aggregateSkus(skus, shipmentMeta, 'All')
+  const productBySku = new Map(products.map((product) => [skuCode(product.sku), product]))
+  const received = outletSkuLocationOwnership(transfers)
+  return (Array.isArray(markdownLists) ? markdownLists : [])
+    .filter((list) => Number(list.outlet_legacy_review) === 1 && !list.outlet_review_removed_at)
+    .map((list) => {
+      const items = [...new Map((list.items || []).map((item) => [skuCode(item.skuCode), item])).entries()]
+        .filter(([code]) => code && !received.has(code) && !isOutletOwnedProduct(productBySku.get(code)))
+        .map(([code, item]) => ({
+          sku: code,
+          productName: productBySku.get(code)?.product_name || item.productName || 'Product details unavailable',
+        }))
+      return { id: list.id, title: list.title || 'Markdown list', createdAt: list.createdAt, completedAt: list.completedAt, items }
+    })
+    .filter((group) => group.items.length)
+}
+
 export function buildOutletInventory({ skus, shipmentMeta, transfers, markdownLists }) {
   const products = aggregateSkus(skus, shipmentMeta, 'All')
   const productBySku = new Map(products.map((product) => [skuCode(product.sku), product]))
   const ownership = outletSkuLocationOwnership(transfers, markdownLists)
   const receivedUnits = receivedOutletTransferUnitsBySku(transfers)
   const officialOutletCodes = new Set(products
-    .filter((product) => String(product?.stock_location || '').trim().toLocaleLowerCase() === 'outlet')
+    .filter((product) => isOutletOwnedProduct(product) && (
+      !receivedUnits.has(skuCode(product.sku)) || receivedUnits.get(skuCode(product.sku)) > 0 || Number(product.outlet_units) > 0
+    ))
     .map((product) => skuCode(product.sku))
     .filter(Boolean))
   for (const code of ownership.keys()) officialOutletCodes.add(code)
@@ -58,7 +80,7 @@ export function buildOutletInventory({ skus, shipmentMeta, transfers, markdownLi
         source,
         sourceLabel: source === 'outlet_transfer'
           ? 'Received transfer'
-          : source === 'markdown_list' ? 'Markdown complete' : 'Outlet stock',
+          : 'Outlet stock',
         transferId: owner?.transferId || product.outlet_transfer_id || null,
         fromShop: owner?.fromShop || product.outlet_from_shop || '',
         locatedAt: owner?.locatedAt || product.outlet_located_at || '',

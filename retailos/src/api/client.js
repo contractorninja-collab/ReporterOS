@@ -172,8 +172,13 @@ export async function postImportCsvFile({ importId, filename, file, blob, csvTex
 }
 export const reprocessReportingImport = (importId) =>
   request(`/import-history/${encodeURIComponent(importId)}/reprocess-reporting`, { method: 'POST' })
-export const reprocessAllReportingImports = () =>
-  request('/import-history/reprocess-reporting', { method: 'POST' })
+export const auditReportingHistory = (options = {}) =>
+  request(`/import-history/reporting-repair-audit${options.includeOrphaned ? '?includeOrphaned=1' : ''}`)
+export const reprocessAllReportingImports = (options = {}) =>
+  request('/import-history/reprocess-reporting', {
+    method: 'POST',
+    body: JSON.stringify({ includeOrphaned: options.includeOrphaned === true }),
+  })
 export const fetchProductReport = (q, options = {}) => {
   const params = new URLSearchParams()
   params.set('q', q ?? '')
@@ -278,6 +283,9 @@ export const deleteMarkdownListItem = (listId, skuCode) =>
   request(`/markdown-lists/${listId}/items/${encodeURIComponent(skuCode)}`, { method: 'DELETE' })
 
 // ── Sale change reports ─────────────────────────────────────────────────────
+
+export const removeIncorrectOutletEntry = (listId) =>
+  request(`/markdown-lists/${encodeURIComponent(listId)}/remove-outlet-entry`, { method: 'POST' })
 
 export const fetchSaleChangeReports = () => request('/sale-change-reports')
 export const fetchSaleChangeReport = (id) => request(`/sale-change-reports/${id}`)

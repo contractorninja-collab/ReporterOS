@@ -10,10 +10,12 @@ import {
   Search,
   Store,
   Truck,
+  Trash2,
 } from 'lucide-react'
 import useStore from '../store/useStore.js'
 import { isExecutive } from '../utils/roles.js'
-import { buildOutletInventory, outletWebChecklistProgress } from '../utils/outletHub.js'
+import { buildOutletInventory, buildOutletSourceReview, outletWebChecklistProgress } from '../utils/outletHub.js'
+import OutletSourceReview from '../components/OutletSourceReview.jsx'
 import { outletTransferItemExpectedQuantity } from '../utils/outletTransfers.js'
 import { toTitleCase } from '../utils/textFormat.js'
 
@@ -59,9 +61,14 @@ export function OutletHub() {
   const markdownLists = useStore((state) => state.markdownLists)
   const photoMap = useStore((state) => state.photoMap)
   const activeUser = useStore((state) => state.activeUser)
+  const removeIncorrectOutletEntry = useStore((state) => state.removeIncorrectOutletEntry)
+  const deleteOutletTransfer = useStore((state) => state.deleteOutletTransfer)
   const executive = isExecutive(activeUser)
   const [tab, setTab] = useState('overview')
   const [query, setQuery] = useState('')
+  const [deletingTransfer, setDeletingTransfer] = useState(null)
+  const [transferError, setTransferError] = useState('')
+  const reviewGroups = useMemo(() => buildOutletSourceReview({ skus, shipmentMeta, transfers, markdownLists }), [skus, shipmentMeta, transfers, markdownLists])
 
   const inventory = useMemo(() => buildOutletInventory({
     skus,
@@ -93,13 +100,27 @@ export function OutletHub() {
   const tabs = [
     { id: 'overview', label: 'Overview' },
     { id: 'inventory', label: 'Inventory', count: inventory.length },
-    { id: 'transfers', label: 'Transfers', count: pendingVerification + awaitingOutlet },
+    { id: 'transfers', label: 'Transfers', count: transfers.length },
+    ...(executive ? [{ id: 'review', label: 'Review entries', count: reviewGroups.length }] : []),
     ...(executive ? [{ id: 'web', label: 'Web Location', count: webProgress.remainingItems }] : []),
   ]
 
   const openTransfer = (id, options = {}) => navigate(
     `/outlet?transfer=${encodeURIComponent(id)}${options.web ? '&web=1' : ''}`,
   )
+
+  async function removeTransfer(transfer) {
+    if (!executive || !window.confirm(`Delete the ${formatDate(transfer.createdAt)} transfer from ${transfer.fromShop || 'Shop'} (${(transfer.items || []).length} SKUs)?\nThe transfer and its linked E-commerce sale and website-location lists will be deleted.`)) return
+    setDeletingTransfer(transfer.id)
+    setTransferError('')
+    try {
+      await deleteOutletTransfer(transfer.id)
+    } catch (err) {
+      setTransferError(err?.message || 'The transfer could not be deleted.')
+    } finally {
+      setDeletingTransfer(null)
+    }
+  }
 
   return (
     <div className="oh-page">
@@ -187,7 +208,7 @@ export function OutletHub() {
                   <div><strong>{product.sku}</strong><span>{product.outletUnits} units · {product.unitBasisLabel.toLocaleLowerCase()}</span></div>
                 </article>
               ))}
-              {!inventory.length && <div className="oh-empty-inline">Products appear here after Outlet receipt or full three-party confirmation.</div>}
+              {!inventory.length && <div className="oh-empty-inline">Products appear here after Outlet confirms receipt of at least one unit.</div>}
             </div>
           </section>
 
@@ -229,23 +250,29 @@ export function OutletHub() {
             <div><span className="oh-card__eyebrow">Physical movement</span><h2>Outlet transfers</h2><p>Follow products from a main shop through verification and Outlet receipt.</p></div>
             <button type="button" className="oh-primary-button" onClick={() => navigate('/outlet')}>Open full workflow <ArrowRight size={16} /></button>
           </div>
+          {transferError && <p className="oh-review-error" role="alert">{transferError}</p>}
           <div className="oh-transfer-list">
             {sortedTransfers.map((transfer) => {
               const unitCount = (transfer.items || []).reduce((sum, item) => sum + outletTransferItemExpectedQuantity(item), 0)
               return (
-                <button key={transfer.id} type="button" onClick={() => openTransfer(transfer.id)}>
-                  <span className="oh-transfer-list__route"><span><Truck size={18} /></span><span><strong>{transfer.fromShop || 'Shop'} → Outlet</strong><small>{formatDate(transfer.createdAt)}</small></span></span>
-                  <span className="oh-transfer-list__counts"><strong>{(transfer.items || []).length}</strong><small>SKUs</small></span>
-                  <span className="oh-transfer-list__counts"><strong>{unitCount}</strong><small>Units</small></span>
-                  <TransferStatus status={transfer.status} />
-                  <ArrowRight className="oh-transfer-list__arrow" size={17} />
-                </button>
+                <div key={transfer.id} className="oh-transfer-entry">
+                  <button className="oh-transfer-entry__open" type="button" onClick={() => openTransfer(transfer.id)}>
+                    <span className="oh-transfer-list__route"><span><Truck size={18} /></span><span><strong>{transfer.fromShop || 'Shop'} → Outlet</strong><small>{formatDate(transfer.createdAt)}</small></span></span>
+                    <span className="oh-transfer-list__counts"><strong>{(transfer.items || []).length}</strong><small>SKUs</small></span>
+                    <span className="oh-transfer-list__counts"><strong>{unitCount}</strong><small>Units</small></span>
+                    <TransferStatus status={transfer.status} />
+                    <ArrowRight className="oh-transfer-list__arrow" size={17} />
+                  </button>
+                  {executive && <button type="button" className="oh-remove-entry" disabled={Boolean(deletingTransfer)} onClick={() => removeTransfer(transfer)} aria-label={`Delete transfer from ${transfer.fromShop || 'Shop'} on ${formatDate(transfer.createdAt)}`}><Trash2 size={14} />{deletingTransfer === transfer.id ? 'Deleting…' : 'Delete transfer'}</button>}
+                </div>
               )
             })}
             {!sortedTransfers.length && <div className="oh-empty-state">No Outlet transfers yet.</div>}
           </div>
         </section>
       )}
+
+      {tab === 'review' && executive && <OutletSourceReview groups={reviewGroups} onRemove={removeIncorrectOutletEntry} />}
 
       {tab === 'web' && executive && (
         <section className="oh-card">

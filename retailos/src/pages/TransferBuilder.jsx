@@ -6,6 +6,7 @@ import { normalizeGenderCodeForFilter } from '../utils/gender.js'
 import { toTitleCase } from '../utils/textFormat.js'
 import { IconSearch, IconClose, IconWarning, IconCart, IconChevronDown } from '../utils/icons.js'
 import { outletSkuLocationOwnership, outletSkuOwnership } from '../utils/outletTransfers.js'
+import { isOutletOwnedProduct } from '../utils/outletHub.js'
 
 const DM = '"DM Sans", sans-serif'
 const SHOPS = ['Ring Mall', 'Village']
@@ -102,7 +103,7 @@ export function TransferBuilder() {
     const codes = new Set(outletSkuOwnership(outletTransfers).keys())
     for (const skuCode of outletSkuLocationOwnership(outletTransfers, markdownLists).keys()) codes.add(skuCode)
     for (const row of skus) {
-      if ((row?.stock_location === 'Outlet' || row?.outlet_transfer_reserved) && row?.sku) codes.add(String(row.sku))
+      if ((isOutletOwnedProduct(row) || row?.outlet_transfer_reserved) && row?.sku) codes.add(String(row.sku))
     }
     return codes
   }, [outletTransfers, markdownLists, skus])

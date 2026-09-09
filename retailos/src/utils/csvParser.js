@@ -393,7 +393,7 @@ export function skuSizeKey(sku, size) {
 /**
  * Map raw CSV row to clean SKU object.
  */
-function mapRow(row, headerMap) {
+function mapRow(row, headerMap, sourceRow = null) {
   const getRaw = (field) => {
     const col = headerMap[field]
     if (col == null) return ''
@@ -435,6 +435,8 @@ function mapRow(row, headerMap) {
     brand: get('brand').trim(),
     sale_date: parseReportingSaleDate(rawSaleDate),
     sale_date_repaired: reportingSaleDateWasRepaired(rawSaleDate),
+    _source_sale_date: rawSaleDate,
+    _source_row: sourceRow,
     transaction_type: normalizeTransactionType(get('transaction_type')),
   }
   mapped.transaction_type = classifyReportingMovement(mapped)
@@ -541,7 +543,7 @@ export async function parseCSV(file) {
         }
 
         const skus = rawRows
-          .map((row) => mapRow(row, headerMap))
+          .map((row, index) => mapRow(row, headerMap, index + 2))
           .filter((sku) => sku.barcode.trim() !== '' && sku.sku.trim() !== '')
 
         resolve(skus)
@@ -594,6 +596,6 @@ export function parseCSVText(csvText) {
   }
 
   return rawRows
-    .map((row) => mapRow(row, headerMap))
+    .map((row, index) => mapRow(row, headerMap, index + 2))
     .filter((sku) => sku.barcode.trim() !== '' && sku.sku.trim() !== '')
 }

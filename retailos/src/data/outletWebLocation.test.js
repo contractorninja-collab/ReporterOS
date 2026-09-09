@@ -14,7 +14,7 @@ after(() => {
   rmSync(dataDir, { recursive: true, force: true })
 })
 
-test('creates one Change Location Web item per original SKU and keeps the sale list separate', () => {
+test('creates one Change Location Web item per received SKU and keeps the sale list separate', () => {
   const transferId = 'outlet-web-location-transfer'
   db.insertOutletTransfer({
     id: transferId,
@@ -61,7 +61,7 @@ test('creates one Change Location Web item per original SKU and keeps the sale l
   assert.equal(location.list.kind, 'location_change')
   assert.equal(location.list.title, 'Change Location Web')
   assert.equal(location.list.sourceTransferId, transferId)
-  assert.deepEqual(location.items.map((item) => item.skuCode), ['SKU-FULL', 'SKU-MISSING', 'SKU-PARTIAL'])
+  assert.deepEqual(location.items.map((item) => item.skuCode), ['SKU-FULL', 'SKU-PARTIAL'])
 
   const retry = db.createLocationChangeListForOutletTransfer(transferId, 'outlet-1', 'exec-1,exec-2')
   assert.equal(retry.created, false)
@@ -84,15 +84,15 @@ test('final marking completes the checklist and unmarking reopens it', () => {
   assert.equal(completed.status, 'completed')
   assert.ok(completed.completedAt)
 
-  const reopened = db.toggleMarkdownListItemTagged(list.id, 'SKU-MISSING', 'E-commerce', 'exec-2')
+  const reopened = db.toggleMarkdownListItemTagged(list.id, 'SKU-PARTIAL', 'E-commerce', 'exec-2')
   assert.equal(reopened.status, 'pending')
   assert.equal(reopened.completedAt, null)
-  assert.equal(reopened.item_statuses['SKU-MISSING'], undefined)
+  assert.equal(reopened.item_statuses['SKU-PARTIAL'], undefined)
 
-  const completedAgain = db.toggleMarkdownListItemTagged(list.id, 'SKU-MISSING', 'E-commerce', 'exec-2')
+  const completedAgain = db.toggleMarkdownListItemTagged(list.id, 'SKU-PARTIAL', 'E-commerce', 'exec-2')
   assert.equal(completedAgain.status, 'completed')
   assert.ok(completedAgain.completedAt)
-  assert.equal(completedAgain.item_statuses['SKU-MISSING']['E-commerce'].markedBy, 'exec-2')
+  assert.equal(completedAgain.item_statuses['SKU-PARTIAL']['E-commerce'].markedBy, 'exec-2')
 })
 
 test('deleting the transfer removes both linked lists and web-location notifications', () => {
@@ -112,4 +112,44 @@ test('deleting the transfer removes both linked lists and web-location notificat
     db.getNotifications().some((notification) => notification.type === 'outlet_web_location_ready' && notification.relatedId === transferId),
     false,
   )
+})
+
+test('startup preserves August 27 transfers and repairs existing website work without losing receipt history', () => {
+  const transfer = db.insertOutletTransfer({
+    id: 'real-aug27-transfer', createdAt: '2026-08-27T10:00:00.000Z',
+    fromShop: 'Ring Mall', status: 'received', receivedAt: '2026-08-28T10:00:00.000Z',
+    items: [{ skuCode: 'RECEIVED', quantity: 2 }, { skuCode: 'MISSING', quantity: 3 }],
+    item_statuses: {
+      'RECEIVED|One Size': { status: 'done', received: 2, missing: 0 },
+      'MISSING|One Size': { status: 'missing', received: 0, missing: 3, comment: 'Not sent' },
+    },
+  })
+  const marked = { 'E-commerce': { status: 'tagged', markedBy: 'exec-1', markedAt: '2026-08-28T11:00:00.000Z' } }
+  const list = db.insertMarkdownList({
+    id: 'old-web-checklist', kind: 'location_change', sourceTransferId: transfer.id,
+    items: [{ skuCode: 'RECEIVED' }, { skuCode: 'MISSING' }],
+    item_statuses: { RECEIVED: marked }, status: 'pending',
+  })
+  const sale = db.insertMarkdownList({ id: 'ordinary-sale', items: [{ skuCode: 'MISSING' }], kind: 'sale' })
+  const result = db.runStartupDataBackfills()
+  assert.deepEqual(result.failed, [])
+  assert.equal(db.getOutletTransferById(transfer.id).items.length, 2)
+  assert.equal(db.getOutletTransferById(transfer.id).createdAt, transfer.createdAt)
+  const repaired = db.getMarkdownListById(list.id)
+  assert.deepEqual(repaired.items.map((item) => item.skuCode), ['RECEIVED'])
+  assert.deepEqual(repaired.item_statuses.RECEIVED, marked)
+  assert.equal(repaired.status, 'completed')
+  assert.equal(db.getMarkdownListById(sale.id).items.length, 1)
+  assert.equal(db.repairOutletWebLocationLists(), 0)
+})
+
+test('all-missing and unreceived transfers do not create website location work', () => {
+  for (const status of ['pending', 'completed', 'received']) {
+    const transfer = db.insertOutletTransfer({
+      id: `no-location-${status}`, status,
+      items: [{ skuCode: 'MISSING', quantity: 3 }],
+      item_statuses: { 'MISSING|One Size': { status: 'missing', received: 0, missing: 3 } },
+    })
+    assert.equal(db.createLocationChangeListForOutletTransfer(transfer.id).list, null)
+  }
 })

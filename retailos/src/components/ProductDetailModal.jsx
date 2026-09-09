@@ -16,6 +16,7 @@ import {
 } from '../utils/icons.js'
 import { genderShortLabel } from '../utils/gender.js'
 import { outletSkuLocationOwnership, outletSkuOwnership } from '../utils/outletTransfers.js'
+import { isOutletOwnedProduct } from '../utils/outletHub.js'
 
 const ACTION_BTN = {
   padding: '8px 14px',
@@ -113,8 +114,8 @@ export default function ProductDetailModal({ sku, status, statusData, onClose, s
     () => outletSkuLocationOwnership(outletTransfers, markdownLists).get(skuCode) || null,
     [outletTransfers, markdownLists, skuCode],
   )
-  const hasOutletLocationField = sku.stock_location === 'Outlet' || rawSkus.some((row) => (
-    String(row?.sku ?? '') === skuCode && row?.stock_location === 'Outlet'
+  const hasOutletLocationField = isOutletOwnedProduct(sku) || rawSkus.some((row) => (
+    String(row?.sku ?? '') === skuCode && isOutletOwnedProduct(row)
   ))
   const hasOutletReservationField = Boolean(sku.outlet_transfer_reserved) || rawSkus.some((row) => (
     String(row?.sku ?? '') === skuCode && Boolean(row?.outlet_transfer_reserved)

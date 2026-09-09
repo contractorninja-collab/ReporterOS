@@ -669,6 +669,9 @@ export function ImportCSV() {
   const [deletingId, setDeletingId] = useState(null)
   const [reprocessingId, setReprocessingId] = useState(null)
   const [reprocessConfirmRow, setReprocessConfirmRow] = useState(null)
+  const [repairAudit, setRepairAudit] = useState(null)
+  const [auditingHistory, setAuditingHistory] = useState(false)
+  const [repairingHistory, setRepairingHistory] = useState(false)
 
   const fileInputIntakeRef = useRef(null)
   const fileInputReportingRef = useRef(null)
@@ -1223,6 +1226,47 @@ export function ImportCSV() {
     }
   }
 
+  async function handleAuditReportingHistory() {
+    if (auditingHistory || repairingHistory) return
+    setAuditingHistory(true)
+    setErrorReporting(null)
+    setSuccessBanner(null)
+    try {
+      const result = await api.auditReportingHistory({ includeOrphaned: true })
+      setRepairAudit(result)
+    } catch (err) {
+      setErrorReporting(formatImportError(err))
+    } finally {
+      setAuditingHistory(false)
+    }
+  }
+
+  async function handleRepairReportingHistory() {
+    if (repairingHistory) return
+    setRepairingHistory(true)
+    setErrorReporting(null)
+    try {
+      const result = await api.reprocessAllReportingImports({ includeOrphaned: true })
+      const freshSkus = await api.fetchSkus().catch(() => null)
+      if (Array.isArray(freshSkus)) setSkus(freshSkus)
+      refreshSkuImportTotals()
+      refreshWeeklySales()
+      refreshImportHistory()
+      setRepairAudit(null)
+      setSuccessBanner({
+        kind: 'archiveRepair',
+        processed: Number(result.processed) || 0,
+        changedSkus: Array.isArray(result.changedSkus) ? result.changedSkus : [],
+        repairedRows: Array.isArray(result.repairedRows) ? result.repairedRows : [],
+        invalidRows: Array.isArray(result.invalidRows) ? result.invalidRows : [],
+      })
+    } catch (err) {
+      setErrorReporting(formatImportError(err))
+    } finally {
+      setRepairingHistory(false)
+    }
+  }
+
   async function handleDeleteImport(importId) {
     if (!importId) return
     try {
@@ -1242,8 +1286,18 @@ export function ImportCSV() {
 
   return (
     <div className="import-page">
-      <div className="fade-up delay-1 page-hero-mobile-hide import-page-header">
+      <div className="fade-up delay-1 page-hero-mobile-hide import-page-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
         <h1 className="import-page-header__title">Import CSV data</h1>
+        <button
+          type="button"
+          className="import-history-actions__btn"
+          onClick={handleAuditReportingHistory}
+          disabled={auditingHistory || repairingHistory}
+          title="Check every archived reporting file and restore missing sales"
+        >
+          <IconLifecycle size={13} strokeWidth={1.75} className="import-history-actions__icon" />
+          {auditingHistory ? 'Checking history…' : 'Check sales history'}
+        </button>
       </div>
 
       {successBanner && (
@@ -1264,7 +1318,14 @@ export function ImportCSV() {
           }}
         >
           <div style={{ fontSize: '13px', color: 'var(--ro-text)', lineHeight: 1.5 }}>
-            {successBanner.kind === 'reprocess' ? (
+            {successBanner.kind === 'archiveRepair' ? (
+              <>
+                Restored sales history from {successBanner.processed} reporting file{successBanner.processed === 1 ? '' : 's'}.
+                {' '}{successBanner.changedSkus.length} SKU{successBanner.changedSkus.length === 1 ? '' : 's'} corrected
+                {successBanner.repairedRows.length > 0 && <> · {successBanner.repairedRows.length} damaged date{successBanner.repairedRows.length === 1 ? '' : 's'} recovered</>}
+                {successBanner.invalidRows.length > 0 && <> · {successBanner.invalidRows.length} line{successBanner.invalidRows.length === 1 ? '' : 's'} still need review</>}.
+              </>
+            ) : successBanner.kind === 'reprocess' ? (
               <>
                 <strong style={{ color: '#00e676' }}>Reporting reprocessed.</strong>{' '}
                 Re-read <span style={{ fontFamily: "'DM Sans', sans-serif" }}>{successBanner.filename}</span> and wrote{' '}
@@ -1600,6 +1661,56 @@ export function ImportCSV() {
                 onClick={() => handleReprocessReporting(reprocessConfirmRow)}
               >
                 Reprocess now
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {repairAudit && (
+        <div className="import-reprocess-modal-backdrop" onClick={() => !repairingHistory && setRepairAudit(null)}>
+          <div className="import-reprocess-modal" style={{ maxWidth: '560px' }} onClick={(e) => e.stopPropagation()}>
+            <div className="import-reprocess-modal__kicker">Sales history check</div>
+            <div className="import-reprocess-modal__title">
+              {repairAudit.changedSkus?.length || 0} SKU{repairAudit.changedSkus?.length === 1 ? '' : 's'} need correction
+            </div>
+            <div className="import-reprocess-modal__copy">
+              RetailOS checked {repairAudit.processed || 0} unique reporting files. The repair will restore missing sales together so one file cannot erase another.
+            </div>
+            {(repairAudit.repairedRows?.length > 0 || repairAudit.invalidRows?.length > 0 || repairAudit.orphanedSources?.length > 0) && (
+              <div className="import-reprocess-modal__file" style={{ lineHeight: 1.55 }}>
+                {repairAudit.repairedRows?.length > 0 && <div>{repairAudit.repairedRows.length} damaged Excel date{repairAudit.repairedRows.length === 1 ? '' : 's'} can be recovered safely.</div>}
+                {repairAudit.invalidRows?.length > 0 && <div>{repairAudit.invalidRows.length} line{repairAudit.invalidRows.length === 1 ? '' : 's'} will remain unchanged for review.</div>}
+                {repairAudit.orphanedSources?.length > 0 && <div>{repairAudit.orphanedSources.length} archived file{repairAudit.orphanedSources.length === 1 ? '' : 's'} had a deleted history card and will be recovered.</div>}
+              </div>
+            )}
+            {repairAudit.changedSkus?.length > 0 && (
+              <div className="import-reprocess-modal__file" style={{ maxHeight: '170px', overflow: 'auto', lineHeight: 1.55 }}>
+                {repairAudit.changedSkus.slice(0, 20).map((row) => (
+                  <div key={row.sku} style={{ display: 'flex', justifyContent: 'space-between', gap: '12px' }}>
+                    <span>{row.sku}</span>
+                    <span>{row.currentSold} → {row.archiveSold} sold</span>
+                  </div>
+                ))}
+                {repairAudit.changedSkus.length > 20 && <div>+ {repairAudit.changedSkus.length - 20} more SKUs</div>}
+              </div>
+            )}
+            <div className="import-reprocess-modal__actions">
+              <button
+                type="button"
+                className="import-reprocess-modal__button import-reprocess-modal__button--ghost"
+                disabled={repairingHistory}
+                onClick={() => setRepairAudit(null)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="import-reprocess-modal__button import-reprocess-modal__button--primary"
+                disabled={repairingHistory || !(repairAudit.changedSkus?.length > 0)}
+                onClick={handleRepairReportingHistory}
+              >
+                {repairingHistory ? 'Repairing…' : 'Repair sales history'}
               </button>
             </div>
           </div>

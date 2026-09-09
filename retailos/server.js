@@ -29,6 +29,7 @@ import {
   removeMarkdownListItemFromSale,
   createEcommerceSaleListForOutletTransfer,
   createLocationChangeListForOutletTransfer,
+  removeIncorrectOutletEntry,
   getAllSaleChangeReports, getSaleChangeReportById, saleChangeReportVisibleToUser,
   toggleSaleChangeItemMarked, discardSaleChangeReport, discardSaleChangeReportProduct,
   getAllSnapshots, insertSnapshot,
@@ -64,6 +65,11 @@ import {
   reportingLineRevenueFromRow,
   classifyReportingMovement,
 } from './src/utils/csvParser.js'
+import {
+  buildReportingArchiveReplay,
+  changedSkuTotals,
+  repairReportingRowsFromFile,
+} from './src/utils/reportingArchiveReplay.js'
 import { detectImageExtension } from './src/utils/imageFormat.js'
 import {
   STORE_TRANSFER_WORKFLOW_VERSION,
@@ -306,7 +312,8 @@ function reprocessArchivedReportingImport(importId) {
   const absPath = resolveArchivedImportPath(meta)
   const csvText = fs.readFileSync(absPath, 'utf8')
   const parsedRows = parseCSVText(csvText)
-  const reportingRows = parsedRows.filter((row) => validateReportingRow(row))
+  const repairedFile = repairReportingRowsFromFile(parsedRows)
+  const reportingRows = repairedFile.rows.filter((row) => validateReportingRow(row))
   if (reportingRows.length === 0) {
     const err = new Error('Archived file is not a valid reporting CSV')
     err.statusCode = 400
@@ -331,6 +338,117 @@ function reprocessArchivedReportingImport(importId) {
     rowsStillSkipped: reportingRows.length - recognized.length,
     salesEventsWritten: eventsWritten,
     skippedSkus,
+    repairedRows: repairedFile.repaired,
+  }
+}
+
+function isReportingArchiveName(value) {
+  return /reporting[ _-]*import/i.test(String(value || ''))
+}
+
+function currentSalesTotalsBySku() {
+  const totals = new Map()
+  for (const [key, units] of Object.entries(getSoldQuantityMap())) {
+    const separator = key.indexOf('|')
+    const sku = separator >= 0 ? key.slice(0, separator) : key
+    totals.set(sku, (totals.get(sku) || 0) + (Number(units) || 0))
+  }
+  return totals
+}
+
+function reportingArchiveSources(options = {}) {
+  const includeOrphaned = options.includeOrphaned === true
+  const trackedPaths = new Set()
+  const candidates = []
+  for (const history of getImportHistory()) {
+    if (!history.csvFilePath) continue
+    const normalizedPath = String(history.csvFilePath).replace(/\\/g, '/')
+    trackedPaths.add(normalizedPath.toLowerCase())
+    if (!isReportingArchiveName(history.filename) && !isReportingArchiveName(history.csvFileName)) continue
+    const candidate = {
+      importId: history.id,
+      filename: history.filename || history.csvFileName || 'reporting.csv',
+      importedAt: history.date,
+      orphaned: false,
+    }
+    try {
+      candidate.absPath = resolveArchivedImportPath({ csv_file_path: normalizedPath })
+    } catch (error) {
+      candidate.readError = error?.message || 'Archived CSV is unavailable'
+    }
+    candidates.push(candidate)
+  }
+
+  const orphanedCandidates = []
+  for (const entry of fs.readdirSync(IMPORT_ARCHIVE_DIR, { withFileTypes: true })) {
+    if (!entry.isFile() || !entry.name.toLowerCase().endsWith('.csv') || !isReportingArchiveName(entry.name)) continue
+    const absPath = path.join(IMPORT_ARCHIVE_DIR, entry.name)
+    const relativePath = path.relative(DATA_DIR, absPath).replace(/\\/g, '/')
+    if (trackedPaths.has(relativePath.toLowerCase())) continue
+    const splitAt = entry.name.indexOf('__')
+    const source = {
+      importId: splitAt > 0 ? entry.name.slice(0, splitAt) : `orphan-${crypto.createHash('sha256').update(entry.name).digest('hex').slice(0, 12)}`,
+      filename: splitAt > 0 ? entry.name.slice(splitAt + 2) : entry.name,
+      importedAt: fs.statSync(absPath).mtime.toISOString(),
+      absPath,
+      orphaned: true,
+    }
+    orphanedCandidates.push(source)
+    if (includeOrphaned) candidates.push(source)
+  }
+
+  return { candidates, orphanedCandidates }
+}
+
+function buildReportingArchiveAudit(options = {}) {
+  const { candidates, orphanedCandidates } = reportingArchiveSources(options)
+  const sources = []
+  const skippedImports = []
+  for (const candidate of candidates) {
+    try {
+      if (candidate.readError) throw new Error(candidate.readError)
+      const csvText = fs.readFileSync(candidate.absPath, 'utf8')
+      sources.push({
+        ...candidate,
+        hash: crypto.createHash('sha256').update(csvText).digest('hex'),
+        rows: parseCSVText(csvText),
+      })
+    } catch (error) {
+      skippedImports.push({
+        importId: candidate.importId,
+        filename: candidate.filename,
+        reason: error?.message || 'Could not read archived CSV',
+      })
+    }
+  }
+  const replay = buildReportingArchiveReplay(sources, getAllSkus())
+  const changedSkus = changedSkuTotals(currentSalesTotalsBySku(), replay.salesEvents)
+  return {
+    replay,
+    changedSkus,
+    skippedImports,
+    orphanedSources: orphanedCandidates.map((source) => ({
+      importId: source.importId,
+      filename: source.filename,
+      importedAt: source.importedAt,
+    })),
+  }
+}
+
+function reportingArchiveAuditPayload(audit, applied = false) {
+  return {
+    applied,
+    processed: audit.replay.processedSources.length,
+    rowsParsed: audit.replay.rowsParsed,
+    rowsRecognized: audit.replay.rowsRecognized,
+    salesEventsWritten: applied ? audit.replay.salesEvents.length : 0,
+    repairedRows: audit.replay.repairedRows,
+    invalidRows: audit.replay.invalidRows,
+    skippedSkus: audit.replay.skippedSkus,
+    skippedDuplicateFiles: audit.replay.skippedDuplicateFiles,
+    skippedImports: audit.skippedImports,
+    orphanedSources: audit.orphanedSources,
+    changedSkus: audit.changedSkus,
   }
 }
 
@@ -1962,53 +2080,37 @@ app.post('/api/import-history', requireExecutive, (req, res) => {
   } catch (e) { safeImportError(res, e, req) }
 })
 
+app.get('/api/import-history/reporting-repair-audit', requireExecutive, (req, res) => {
+  try {
+    const includeOrphaned = req.query.includeOrphaned === '1'
+    res.json(reportingArchiveAuditPayload(buildReportingArchiveAudit({ includeOrphaned })))
+  } catch (e) { safeImportError(res, e, req, e.statusCode || 500) }
+})
+
 app.post('/api/import-history/reprocess-reporting', requireExecutive, (req, res) => {
   try {
-    const archived = getImportHistory().filter((h) => h.csvFilePath)
-    const results = []
-    const skipped = []
-    for (const h of archived) {
-      try {
-        results.push(reprocessArchivedReportingImport(h.id))
-      } catch (e) {
-        if (e?.statusCode === 400) {
-          const safe = importErrorPayload(e, e.statusCode)
-          skipped.push({ importId: h.id, filename: h.filename, reason: safe.message, code: safe.code })
-          continue
-        }
-        throw e
-      }
-    }
-    const totals = results.reduce((acc, r) => {
-      acc.rowsParsed += r.rowsParsed
-      acc.rowsRecognized += r.rowsRecognized
-      acc.rowsStillSkipped += r.rowsStillSkipped
-      acc.salesEventsWritten += r.salesEventsWritten
-      for (const sku of r.skippedSkus) acc.skippedSkus.add(sku)
-      return acc
-    }, {
-      rowsParsed: 0,
-      rowsRecognized: 0,
-      rowsStillSkipped: 0,
-      salesEventsWritten: 0,
-      skippedSkus: new Set(),
-    })
-    const payload = {
-      processed: results.length,
-      skippedImports: skipped,
-      totals: {
-        ...totals,
-        skippedSkus: [...totals.skippedSkus],
-      },
-      results,
-    }
+    const includeOrphaned = req.body?.includeOrphaned === true
+    const audit = buildReportingArchiveAudit({ includeOrphaned })
+    const eventsWritten = audit.replay.salesEvents.length > 0
+      ? replaceSalesEventsForReportingImport(audit.replay.salesEvents)
+      : 0
+    const payload = reportingArchiveAuditPayload(audit, true)
+    payload.salesEventsWritten = eventsWritten
     act(req.authUser, {
       category: 'import',
       action: 'reprocessed_reporting_bulk',
       entityType: 'import_batch',
       entityId: 'bulk',
-      summary: `Reprocessed ${results.length} archived reporting import(s)`,
-      meta: { processed: results.length, skippedImports: skipped.length, totals: payload.totals },
+      summary: `Repaired sales history from ${payload.processed} archived reporting import(s)`,
+      meta: {
+        processed: payload.processed,
+        rowsRecognized: payload.rowsRecognized,
+        salesEventsWritten: payload.salesEventsWritten,
+        changedSkus: payload.changedSkus.length,
+        repairedRows: payload.repairedRows.length,
+        invalidRows: payload.invalidRows.length,
+        includedOrphaned: includeOrphaned,
+      },
     })
     res.json(payload)
   } catch (e) { safeImportError(res, e, req, e.statusCode || 500) }
@@ -2286,6 +2388,19 @@ app.put('/api/assignments/:id', (req, res) => {
 
 // ── Outlet transfers ────────────────────────────────────────────────────────
 
+app.post('/api/markdown-lists/:id/remove-outlet-entry', requireExecutive, (req, res) => {
+  try {
+    const result = removeIncorrectOutletEntry(req.params.id, req.authUser.id)
+    if (result.removed) act(req.authUser, {
+      category: 'transfer_outlet', action: 'incorrect_entry_removed',
+      entityType: 'markdown_list', entityId: result.list.id,
+      summary: `Removed incorrect Outlet entry: ${result.list.title || 'Markdown list'}`,
+      meta: { source: 'markdown_list', preservedMarkdownList: true },
+    })
+    res.json(result.list)
+  } catch (e) { safeError(res, e) }
+})
+
 app.get('/api/outlet-transfers', (req, res) => {
   try {
     res.json(filterOutletTransfers(getAllOutletTransfers(), req.authUser))
@@ -2295,7 +2410,7 @@ app.get('/api/outlet-transfers', (req, res) => {
 app.post('/api/outlet-transfers', (req, res) => {
   try {
     const u = req.authUser
-    const body = { ...req.body, createdBy: u.id }
+    const body = { ...req.body, createdBy: u.id, status: 'pending', receivedAt: null, item_statuses: {} }
     if (u.role !== 'executive' && u.shop) body.fromShop = u.shop
     if (u.role !== 'executive') {
       const at = body.assignedTo

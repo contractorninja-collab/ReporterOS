@@ -1,3 +1,5 @@
+import { flattenTransferLines } from './storeTransferVerification.js'
+
 function normalizedShop(value) {
   return String(value ?? '').trim().toLocaleLowerCase()
 }
@@ -12,6 +14,14 @@ const OUTLET_STATUS_PRIORITY = {
   received: 3,
 }
 
+/** Identifies the old markdown rule for review only; never establishes physical ownership. */
+export function isLegacyOutletMarkdownSource(list) {
+  if ((list?.kind || 'sale') !== 'sale' || !Array.isArray(list.items) || !list.items.length) return false
+  return list.items.every((item) => ['Ring Mall', 'Village', 'E-commerce'].every((shop) => (
+    list.item_statuses?.[item?.skuCode]?.[shop]?.status === 'tagged'
+  )))
+}
+
 /**
  * Every open or received Outlet transfer reserves its SKUs against another
  * transfer. Official Outlet location is calculated separately below.
@@ -23,6 +33,7 @@ export function outletSkuOwnership(transfers, excludeTransferId = null) {
     for (const item of Array.isArray(transfer.items) ? transfer.items : []) {
       const skuCode = normalizedSku(item?.skuCode ?? item?.sku)
       if (!skuCode) continue
+      if (transfer.status === 'received' && outletTransferItemReceivedQuantity(transfer, item) <= 0) continue
       const current = ownership.get(skuCode)
       const nextPriority = OUTLET_STATUS_PRIORITY[transfer.status] || 0
       const currentPriority = OUTLET_STATUS_PRIORITY[current?.status] || 0
@@ -47,25 +58,27 @@ export function outletTransferItemExpectedQuantity(item) {
 }
 
 function savedReceivedQuantity(saved, expected) {
-  if (saved?.received == null || saved.received === '') return expected
+  if (saved?.status === 'missing') return 0
+  if (saved?.received == null || saved.received === '') {
+    if (saved?.missing != null && saved.missing !== '') {
+      const missing = Number(saved.missing)
+      return Number.isInteger(missing) && missing >= 0 && missing <= expected ? expected - missing : 0
+    }
+    return !saved || saved.status === 'done' ? expected : 0
+  }
   const value = Number(saved.received)
-  return Number.isInteger(value) && value >= 0 && value <= expected ? value : expected
+  return Number.isInteger(value) && value >= 0 && value <= expected ? value : 0
 }
 
-/** Legacy lines without a saved received value are treated as fully received. */
+/** Preserve legacy receipts, but never turn a recorded shortage into received stock. */
 export function outletTransferItemReceivedQuantity(transfer, item) {
   const statuses = transfer?.item_statuses || {}
   const skuCode = normalizedSku(item?.skuCode ?? item?.sku)
-  if (Array.isArray(item?.sizeBreakdown) && item.sizeBreakdown.length) {
-    return item.sizeBreakdown.reduce((sum, line) => {
-      const expected = Number(line?.qty) || 0
-      const saved = statuses[`${skuCode}|${line?.size}`]
-      return sum + savedReceivedQuantity(saved, expected)
-    }, 0)
-  }
   const expected = outletTransferItemExpectedQuantity(item)
-  const size = item?.sizes || 'One Size'
-  return savedReceivedQuantity(statuses[`${skuCode}|${size}`], expected)
+  const received = flattenTransferLines([{ ...item, skuCode }]).reduce((sum, line) => (
+    sum + savedReceivedQuantity(statuses[line.key], line.expected)
+  ), 0)
+  return Math.max(0, Math.min(expected, received))
 }
 
 export function receivedOutletTransferUnitsBySku(transfers) {
@@ -81,21 +94,24 @@ export function receivedOutletTransferUnitsBySku(transfers) {
   return units
 }
 
-/** A SKU becomes Outlet stock only after Outlet confirms receipt of its transfer. */
+/** Physical Outlet stock requires a received transfer with at least one received unit. */
 export function outletSkuLocationOwnership(transfers) {
   const ownership = new Map()
   for (const transfer of Array.isArray(transfers) ? transfers : []) {
     if (transfer?.status !== 'received') continue
     for (const item of Array.isArray(transfer.items) ? transfer.items : []) {
       const skuCode = normalizedSku(item?.skuCode ?? item?.sku)
-      if (!skuCode) continue
+      if (!skuCode || outletTransferItemReceivedQuantity(transfer, item) <= 0) continue
+      const current = ownership.get(skuCode)
+      const locatedAt = transfer.receivedAt || transfer.completedAt || transfer.createdAt || ''
+      if (current && (Date.parse(current.locatedAt) || 0) >= (Date.parse(locatedAt) || 0)) continue
       ownership.set(skuCode, {
         skuCode,
         source: 'outlet_transfer',
         transferId: transfer.id,
         status: 'received',
         fromShop: transfer.fromShop || '',
-        locatedAt: transfer.receivedAt || transfer.completedAt || transfer.createdAt || '',
+        locatedAt,
       })
     }
   }

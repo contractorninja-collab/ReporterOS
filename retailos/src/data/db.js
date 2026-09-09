@@ -12,6 +12,7 @@ import { aggregateSkus } from '../utils/aggregateSkus.js'
 import { getDaysInStore, getSellThrough } from '../utils/lifecycle.js'
 import { normalizeCategory } from '../utils/category.js'
 import { salePriceOf } from '../utils/saleList.js'
+import { isLegacyOutletMarkdownSource, outletTransferItemReceivedQuantity } from '../utils/outletTransfers.js'
 import { normalizeSeasonInput, isEarlierSeason, compareSeasons } from '../utils/seasons.js'
 import {
   brandKey,
@@ -359,6 +360,9 @@ safeAddColumn('skus', 'sale_active', 'INTEGER DEFAULT 0')
 safeAddColumn('skus', 'sale_list_id', 'TEXT')
 safeAddColumn('markdown_lists', 'kind', 'TEXT')
 safeAddColumn('markdown_lists', 'sourceTransferId', 'TEXT')
+safeAddColumn('markdown_lists', 'outlet_legacy_review', 'INTEGER DEFAULT 0')
+safeAddColumn('markdown_lists', 'outlet_review_removed_at', 'TEXT')
+safeAddColumn('markdown_lists', 'outlet_review_removed_by', 'TEXT')
 safeAddColumn('sale_change_reports', 'item_statuses', 'TEXT')
 
 db.exec(`
@@ -3691,11 +3695,12 @@ export function createLocationChangeListForOutletTransfer(transferId, actorUserI
 
   const transfer = getOutletTransferById(transferId)
   if (!transfer) throw new Error('Outlet transfer not found')
+  if (transfer.status !== 'received') return { list: null, created: false, items: [] }
 
   const bySku = new Map()
   for (const item of Array.isArray(transfer.items) ? transfer.items : []) {
     const skuCode = String(item?.skuCode || '').trim()
-    if (!skuCode || bySku.has(skuCode)) continue
+    if (!skuCode || bySku.has(skuCode) || outletTransferItemReceivedQuantity(transfer, item) <= 0) continue
     bySku.set(skuCode, {
       skuCode,
       productName: item?.productName || '',
@@ -6337,35 +6342,63 @@ export function backfillActivityLogFromLegacyIfEmpty() {
 // correctness. Set RETAILOS_SKIP_STARTUP_BACKFILLS=1 to disable the automatic
 // pass (e.g. in production) and instead run them in a controlled maintenance
 // window via `node scripts/run-data-backfills.mjs`.
-function purgePreLaunchOutletTestData() {
-  const migrationKey = 'purge_prelaunch_outlet_test_data_v2_2026_09_03'
-  if (getSetting(migrationKey) === 'done') return
+/** Snapshot sources affected by the retired markdown ownership rule for executive review. */
+export function captureLegacyOutletSourcesForReview() {
+  const key = 'outlet_legacy_sources_captured_v1'
+  if (getSetting(key) === 'done') return 0
+  return db.transaction(() => {
+    const lists = getAllMarkdownLists().filter(isLegacyOutletMarkdownSource)
+    const mark = db.prepare('UPDATE markdown_lists SET outlet_legacy_review = 1 WHERE id = ?')
+    for (const list of lists) mark.run(list.id)
+    setSetting(key, 'done')
+    return lists.length
+  })()
+}
 
-  const transferIds = db.prepare(`
-    SELECT id FROM outlet_transfers
-    WHERE createdAt IS NULL OR createdAt < '2026-09-04T00:00:00.000Z'
-  `).all().map((row) => row.id)
-  const markdownListIds = db.prepare(`
-    SELECT id FROM markdown_lists
-    WHERE LOWER(TRIM(COALESCE(title, ''))) IN ('test arines 3 stores', 'viola test 3')
-  `).all().map((row) => row.id)
-  const purge = db.transaction(() => {
-    for (const transferId of transferIds) deleteOutletTransfer(transferId)
-    for (const listId of markdownListIds) {
-      deleteMarkdownList(listId)
-      db.prepare('DELETE FROM notifications WHERE relatedId = ?').run(listId)
+export function removeIncorrectOutletEntry(listId, actorUserId) {
+  return db.transaction(() => {
+    const list = getMarkdownListById(listId)
+    if (!list) throw Object.assign(new Error('Outlet source not found'), { statusCode: 404 })
+    if (Number(list.outlet_legacy_review) !== 1) {
+      throw Object.assign(new Error('This list is not an incorrect Outlet entry'), { statusCode: 409 })
     }
-    setSetting(migrationKey, 'done')
-  })
-  purge()
+    if (list.outlet_review_removed_at) return { list, removed: false }
+    db.prepare('UPDATE markdown_lists SET outlet_review_removed_at = ?, outlet_review_removed_by = ? WHERE id = ?')
+      .run(new Date().toISOString(), actorUserId, listId)
+    return { list: getMarkdownListById(listId), removed: true }
+  })()
+}
 
-  if (transferIds.length || markdownListIds.length) {
-    console.log(`[db] Removed ${transferIds.length} pre-launch Outlet test transfer(s) and ${markdownListIds.length} test Markdown list(s)`)
-  }
+/** Repair derived website work while preserving the original transfer and shortage history. */
+export function repairOutletWebLocationLists() {
+  return db.transaction(() => {
+    let repaired = 0
+    for (const list of getAllMarkdownLists().filter((row) => row.kind === 'location_change' && row.sourceTransferId)) {
+      const transfer = getOutletTransferById(list.sourceTransferId)
+      if (!transfer || transfer.status !== 'received') continue
+      const receivedCodes = new Set(transfer.items
+        .filter((item) => outletTransferItemReceivedQuantity(transfer, item) > 0)
+        .map((item) => String(item.skuCode ?? item.sku ?? '').trim()))
+      const items = list.items.filter((item) => receivedCodes.has(String(item.skuCode ?? '').trim()))
+      if (items.length === list.items.length) continue
+      const statuses = Object.fromEntries(Object.entries(list.item_statuses || {})
+        .filter(([code]) => receivedCodes.has(code)))
+      const complete = items.every((item) => statuses[item.skuCode]?.['E-commerce']?.status === 'tagged')
+      updateMarkdownList(list.id, {
+        items,
+        item_statuses: statuses,
+        status: complete ? 'completed' : 'pending',
+        completedAt: complete ? (list.completedAt || new Date().toISOString()) : null,
+      })
+      repaired++
+    }
+    return repaired
+  })()
 }
 
 const STARTUP_DATA_BACKFILL_STEPS = [
-  ['purge_prelaunch_outlet_test_data', purgePreLaunchOutletTestData],
+  ['capture_outlet_legacy_sources_for_review', captureLegacyOutletSourcesForReview],
+  ['repair_outlet_web_location_lists', repairOutletWebLocationLists],
   ['backfill_import_history_total_units', backfillImportHistoryTotalUnits],
   ['repair_skus_zero_cost_from_peers', repairSkusZeroCostFromSkuPeers],
   ['dedupe_sales_events', runDedupeOnStartup],

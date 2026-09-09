@@ -30,7 +30,7 @@ test('counts verified received units without inflating shortages', () => {
   assert.equal(units.get('SKU-2'), 0)
 })
 
-test('builds Outlet inventory across seasons and keeps missing products traceable', () => {
+test('builds Outlet inventory across seasons without treating entirely missing products as physical stock', () => {
   const inventory = buildOutletInventory({
     skus: [
       { sku: 'SKU-1', size: 'M', quantity: 3, sold_quantity: 0, season: 'SS26', product_name: 'One', stock_location: 'Outlet' },
@@ -42,10 +42,10 @@ test('builds Outlet inventory across seasons and keeps missing products traceabl
     markdownLists: [],
   })
 
-  assert.deepEqual(inventory.map((item) => item.sku), ['SKU-1', 'SKU-2'])
+  assert.deepEqual(inventory.map((item) => item.sku), ['SKU-1'])
   assert.equal(inventory[0].outletUnits, 4)
   assert.equal(inventory[0].size, 'M, L')
-  assert.equal(inventory[1].outletUnits, 0)
+  assert.equal(transfers[0].items.length, 2, 'shortage history remains in the transfer')
 })
 
 test('uses authoritative catalog location even when the viewer cannot see the source transfer', () => {
@@ -71,6 +71,30 @@ test('uses authoritative catalog location even when the viewer cannot see the so
   assert.equal(inventory[0].outletUnits, 2)
   assert.equal(inventory[0].unitBasisLabel, 'Received')
   assert.equal(inventory[0].fromShop, 'Village')
+})
+
+test('rejects obsolete markdown ownership and zero receipts from catalog metadata', () => {
+  const skus = [
+    { sku: '180676-D1245', stock_location: 'Outlet', outlet_location_source: 'markdown_list', quantity: 10 },
+    { sku: '180676-D1268', stock_location: 'Outlet', outlet_location_source: 'outlet_transfer', outlet_units: 0 },
+  ]
+  assert.deepEqual(buildOutletInventory({ skus, transfers: [], markdownLists: [] }), [])
+  assert.deepEqual(excludeOutletOwnedProducts(skus), skus)
+})
+
+test('FN3514-077 cannot become physical Outlet stock from a completed markdown list', () => {
+  const code = 'FN3514-077'
+  const product = { sku: code, quantity: 5, stock_location: 'Outlet', outlet_location_source: 'markdown_list' }
+  const markdownList = {
+    kind: 'sale', status: 'completed', items: [{ skuCode: code }],
+    item_statuses: { [code]: {
+      'Ring Mall': { status: 'tagged' },
+      Village: { status: 'tagged' },
+      'E-commerce': { status: 'tagged' },
+    } },
+  }
+  assert.equal(isOutletOwnedProduct(product), false)
+  assert.deepEqual(buildOutletInventory({ skus: [product], transfers: [], markdownLists: [markdownList] }), [])
 })
 
 test('sorts recently located products by location time instead of SKU', () => {

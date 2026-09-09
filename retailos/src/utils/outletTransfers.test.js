@@ -22,7 +22,7 @@ test('reserves every SKU in an Outlet transfer at every stage', () => {
   const transfers = [
     { id: 'pending', status: 'pending', fromShop: 'Ring Mall', items: [{ skuCode: 'SKU-1' }] },
     { id: 'completed', status: 'completed', fromShop: 'Village', items: [{ skuCode: 'SKU-2' }] },
-    { id: 'received', status: 'received', fromShop: 'Ring Mall', items: [{ skuCode: 'SKU-3' }] },
+    { id: 'received', status: 'received', fromShop: 'Ring Mall', items: [{ skuCode: 'SKU-3', quantity: 1 }] },
   ]
   const ownership = outletSkuOwnership(transfers)
 
@@ -39,7 +39,7 @@ test('marks stock as Outlet only after Outlet confirms transfer receipt', () => 
   const transfers = [
     { id: 'pending', status: 'pending', items: [{ skuCode: 'SKU-PENDING' }] },
     { id: 'completed', status: 'completed', items: [{ skuCode: 'SKU-SENDER-DONE' }] },
-    { id: 'received', status: 'received', receivedAt: '2026-08-20T10:00:00.000Z', items: [{ skuCode: 'SKU-RECEIVED' }] },
+    { id: 'received', status: 'received', receivedAt: '2026-08-20T10:00:00.000Z', items: [{ skuCode: 'SKU-RECEIVED', quantity: 1 }] },
   ]
   const fullyConfirmedList = {
     id: 'sale-complete',
@@ -87,10 +87,47 @@ test('normalizes transfer quantities and treats legacy null received values as c
   assert.equal(receivedOutletTransferUnitsBySku([transfer]).get('SKU-1'), 4)
 })
 
+test('fully missing SKUs stay traceable but do not establish Outlet ownership or block a later transfer', () => {
+  const item = { skuCode: '180676-D1245', quantity: 2, sizes: '42, 43' }
+  const transfer = {
+    id: 'aug27', status: 'received', items: [item],
+    item_statuses: {
+      '180676-D1245|42': { status: 'missing', received: 0, missing: 1 },
+      '180676-D1245|43': { status: 'missing', received: null, missing: 1 },
+    },
+  }
+  assert.equal(outletTransferItemReceivedQuantity(transfer, item), 0)
+  assert.equal(outletSkuLocationOwnership([transfer]).size, 0)
+  assert.equal(outletSkuOwnership([transfer]).size, 0)
+  assert.deepEqual(unavailableOutletSkuCodes([item], [transfer]), [])
+  assert.equal(outletSkuOwnership([{ ...transfer, status: 'pending' }]).size, 1)
+  assert.equal(transfer.items.length, 1)
+})
+
+test('legacy partial receipts and invalid receipt values never become full quantities', () => {
+  const item = { skuCode: '180676-D1268', quantity: 4, sizes: '42' }
+  for (const [entry, expected] of [
+    [{ status: 'partial', missing: 3 }, 1],
+    [{ status: 'partial' }, 0],
+    [{ status: 'done', received: 'invalid' }, 0],
+    [{ status: 'done', received: 5 }, 0],
+    [{ status: 'missing', received: 4 }, 0],
+  ]) {
+    assert.equal(outletTransferItemReceivedQuantity({ item_statuses: { '180676-D1268|42': entry } }, item), expected)
+  }
+})
+
+test('repeated receipts retain the latest source regardless of transfer ordering', () => {
+  const recent = { id: 'recent', status: 'received', receivedAt: '2026-09-08T10:00:00Z', items: [{ skuCode: 'A', quantity: 1 }] }
+  const old = { ...recent, id: 'old', receivedAt: '2026-08-27T10:00:00Z' }
+  assert.equal(outletSkuLocationOwnership([recent, old]).get('A').transferId, 'recent')
+  assert.equal(outletSkuLocationOwnership([old, recent]).get('A').transferId, 'recent')
+})
+
 test('can exclude the transfer being edited while still detecting other Outlet ownership', () => {
   const transfers = [
     { id: 'current', status: 'pending', items: [{ skuCode: 'SKU-1' }, { skuCode: 'SKU-2' }] },
-    { id: 'other', status: 'received', items: [{ skuCode: 'SKU-2' }] },
+    { id: 'other', status: 'received', items: [{ skuCode: 'SKU-2', quantity: 1 }] },
   ]
 
   assert.deepEqual(

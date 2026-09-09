@@ -16,6 +16,16 @@ function splitAssignedTo(value) {
 /** Markdown / sale lists and sale-change reports. */
 export function createMarkdownsSlice(set, get) {
   return {
+    removeIncorrectOutletEntry: async (listId) => {
+      try {
+        const updated = await api.removeIncorrectOutletEntry(listId)
+        set((state) => ({ markdownLists: state.markdownLists.map((list) => list.id === listId ? updated : list) }))
+        return updated
+      } catch (err) {
+        notifyLocalWriteFailure(set, get, 'Outlet entry was not removed', err)
+        throw err
+      }
+    },
     /**
      * Create a sale/markdown list (Sale Builder page), or a removal list (kind 'removal')
      * tracking the physical removal of sale tags after a sale ends.
