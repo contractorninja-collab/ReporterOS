@@ -71,6 +71,34 @@ test('keeps a corrected file and skips its Excel-corrupted copy', () => {
   assert.equal(result.repairedRows.length, 0)
 })
 
+test('removes corrected overlap but keeps a legitimate extra row from the damaged file', () => {
+  const corrected = csv(
+    '1,A,M,10,1,26.08.2026,SALE',
+    '2,B,M,10,1,26.08.2026,SALE',
+    '3,C,M,10,1,26.08.2026,SALE',
+    '4,D,M,10,1,26.08.2026,SALE',
+    '5,091180-15,BV,32,1,26.08.2026,SALE',
+  )
+  const damagedWithExtra = csv(
+    '1,A,M,10,1,26.08.2026,SALE',
+    '2,B,M,10,1,26.08.1622,SALE',
+    '3,C,M,10,1,26.08.3446,SALE',
+    '4,D,M,10,1,26.08.5270,SALE',
+    '5,091180-15,BV,32,1,26.08.127478,SALE',
+    '6,EXTRA,M,15,1,27.08.2026,SALE',
+  )
+  const known = ['A', 'B', 'C', 'D', '091180-15', 'EXTRA'].map((sku) => ({ sku, size: sku === '091180-15' ? 'BV' : 'M' }))
+  const result = buildReportingArchiveReplay([
+    { filename: 'corrected.csv', hash: 'corrected', rows: corrected },
+    { filename: 'damaged-with-extra.csv', hash: 'damaged', rows: damagedWithExtra },
+  ], known)
+  assert.equal(result.salesEvents.find((row) => row.sku === '091180-15').units_sold, 1)
+  assert.equal(result.salesEvents.find((row) => row.sku === 'EXTRA').units_sold, 1)
+  assert.deepEqual(result.skippedCorrectedRows, [{
+    filename: 'damaged-with-extra.csv', correctedBy: 'corrected.csv', rows: 5,
+  }])
+})
+
 test('restores all ten sales for 091180-15 including the recoverable damaged line', () => {
   const sources = []
   for (let day = 17; day <= 25; day += 1) {

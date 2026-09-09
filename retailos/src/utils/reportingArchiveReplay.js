@@ -94,6 +94,83 @@ function reportingFileContentSignature(rows) {
   return (rows || []).map(reportingRowContentSignature).sort().join('\n')
 }
 
+function hasMalformedReportingDate(row) {
+  const raw = dateParts(row?._source_sale_date)
+  if (!raw) return false
+  const year = Number(raw.yearText)
+  return !Number.isInteger(year) || year < 2000 || year > 2100
+}
+
+function signatureCounts(rows) {
+  const counts = new Map()
+  for (const row of rows || []) {
+    const signature = reportingRowContentSignature(row)
+    counts.set(signature, (counts.get(signature) || 0) + 1)
+  }
+  return counts
+}
+
+function matchingRowCount(rows, counts) {
+  const remaining = new Map(counts)
+  let matches = 0
+  for (const row of rows || []) {
+    const signature = reportingRowContentSignature(row)
+    const available = remaining.get(signature) || 0
+    if (available <= 0) continue
+    remaining.set(signature, available - 1)
+    matches += 1
+  }
+  return matches
+}
+
+/**
+ * A damaged Excel export can be an almost-exact copy of a corrected file while
+ * still containing one legitimate extra row. Remove only the overlapping rows
+ * from the damaged copy, leaving the extra row available for replay.
+ */
+function removeRowsCoveredByCorrectedFiles(sources) {
+  const output = (sources || []).map((source) => ({ ...source, rows: [...(source.rows || [])] }))
+  const skippedCorrectedRows = []
+
+  for (let damagedIndex = 0; damagedIndex < output.length; damagedIndex += 1) {
+    const damaged = output[damagedIndex]
+    const malformedCount = damaged.rows.filter(hasMalformedReportingDate).length
+    if (malformedCount === 0 || damaged.rows.length < 2) continue
+
+    let best = null
+    for (let correctedIndex = 0; correctedIndex < output.length; correctedIndex += 1) {
+      if (correctedIndex === damagedIndex) continue
+      const corrected = output[correctedIndex]
+      if (corrected.rows.length < 2) continue
+      const correctedMalformed = corrected.rows.filter(hasMalformedReportingDate).length
+      if (correctedMalformed >= malformedCount) continue
+      const counts = signatureCounts(corrected.rows)
+      const matches = matchingRowCount(damaged.rows, counts)
+      const smallerFileSize = Math.min(damaged.rows.length, corrected.rows.length)
+      const overlap = smallerFileSize > 0 ? matches / smallerFileSize : 0
+      if (overlap < 0.8 || (best && matches <= best.matches)) continue
+      best = { corrected, counts, matches }
+    }
+    if (!best) continue
+
+    const remaining = new Map(best.counts)
+    damaged.rows = damaged.rows.filter((row) => {
+      const signature = reportingRowContentSignature(row)
+      const available = remaining.get(signature) || 0
+      if (available <= 0) return true
+      remaining.set(signature, available - 1)
+      return false
+    })
+    skippedCorrectedRows.push({
+      filename: damaged.filename || damaged.importId || 'reporting.csv',
+      correctedBy: best.corrected.filename || best.corrected.importId || 'reporting.csv',
+      rows: best.matches,
+    })
+  }
+
+  return { sources: output, skippedCorrectedRows }
+}
+
 /** Build one canonical replay from every unique archived reporting file. */
 export function buildReportingArchiveReplay(sources, existingSkus) {
   const known = new Set((existingSkus || []).map((row) => String(row.sku || '').trim()).filter(Boolean))
@@ -105,12 +182,18 @@ export function buildReportingArchiveReplay(sources, existingSkus) {
   const repairedRows = []
   const skippedDuplicateFiles = []
   const skippedCorrectedCopies = []
+  const correctedCoverage = removeRowsCoveredByCorrectedFiles(sources)
+  const skippedCorrectedRows = correctedCoverage.skippedCorrectedRows
   const skippedSkus = new Set()
   const processedSources = []
   let rowsParsed = 0
   let rowsRecognized = 0
 
-  for (const source of sources || []) {
+  for (const source of correctedCoverage.sources) {
+    if ((source.rows || []).length === 0) {
+      skippedCorrectedCopies.push(source.filename || source.importId || 'reporting.csv')
+      continue
+    }
     if (source.hash && seenHashes.has(source.hash)) {
       skippedDuplicateFiles.push(source.filename || source.importId || 'reporting.csv')
       continue
@@ -186,6 +269,7 @@ export function buildReportingArchiveReplay(sources, existingSkus) {
     skippedSkus: [...skippedSkus].filter(Boolean).sort(),
     skippedDuplicateFiles,
     skippedCorrectedCopies,
+    skippedCorrectedRows,
   }
 }
 
