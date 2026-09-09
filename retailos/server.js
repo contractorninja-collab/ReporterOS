@@ -446,6 +446,7 @@ function reportingArchiveAuditPayload(audit, applied = false) {
     invalidRows: audit.replay.invalidRows,
     skippedSkus: audit.replay.skippedSkus,
     skippedDuplicateFiles: audit.replay.skippedDuplicateFiles,
+    skippedCorrectedCopies: audit.replay.skippedCorrectedCopies,
     skippedImports: audit.skippedImports,
     orphanedSources: audit.orphanedSources,
     changedSkus: audit.changedSkus,

@@ -53,6 +53,24 @@ test('skips exact duplicate files before replaying their rows', () => {
   assert.deepEqual(result.skippedDuplicateFiles, ['copy.csv'])
 })
 
+test('keeps a corrected file and skips its Excel-corrupted copy', () => {
+  const corrected = csv(
+    '4070032553450,091180-15,X,32,1,26.08.2026,SALE',
+    '4067980000001,OTHER,M,20,1,26.08.2026,SALE',
+  )
+  const corruptedCopy = csv(
+    '4.07003E+12,091180-15,X,32,1,26.08.127478,SALE',
+    '4.06798E+12,OTHER,M,20,1,26.08.129302,SALE',
+  )
+  const result = buildReportingArchiveReplay([
+    { filename: 'corrected.csv', hash: 'corrected', rows: corrected },
+    { filename: 'corrupted-copy.csv', hash: 'corrupt', rows: corruptedCopy },
+  ], [{ sku: '091180-15', size: 'X' }, { sku: 'OTHER', size: 'M' }])
+  assert.equal(result.salesEvents.find((row) => row.sku === '091180-15').units_sold, 1)
+  assert.deepEqual(result.skippedCorrectedCopies, ['corrupted-copy.csv'])
+  assert.equal(result.repairedRows.length, 0)
+})
+
 test('restores all ten sales for 091180-15 including the recoverable damaged line', () => {
   const sources = []
   for (let day = 17; day <= 25; day += 1) {

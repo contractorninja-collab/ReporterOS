@@ -76,15 +76,35 @@ function existingSkuLookup(existingSkus) {
   return { exact, bySku }
 }
 
+function reportingRowContentSignature(row) {
+  const date = dateParts(row?._source_sale_date)
+  const dayMonth = date ? `${date.day}.${date.month}` : isoDateLocal(row?.sale_date)?.slice(5) || ''
+  return [
+    String(row?.sku || '').trim(),
+    String(row?.size || '').trim().toLowerCase(),
+    Number(row?.price_sold || 0).toFixed(4),
+    Number(row?.sold_quantity || 0),
+    classifyReportingMovement(row),
+    dayMonth,
+  ].join('|')
+}
+
+/** Detect a corrected re-export even when Excel changed barcodes or date years. */
+function reportingFileContentSignature(rows) {
+  return (rows || []).map(reportingRowContentSignature).sort().join('\n')
+}
+
 /** Build one canonical replay from every unique archived reporting file. */
 export function buildReportingArchiveReplay(sources, existingSkus) {
   const known = new Set((existingSkus || []).map((row) => String(row.sku || '').trim()).filter(Boolean))
   const lookup = existingSkuLookup(existingSkus)
   const seenHashes = new Set()
+  const seenContentSignatures = new Set()
   const groups = new Map()
   const invalidRows = []
   const repairedRows = []
   const skippedDuplicateFiles = []
+  const skippedCorrectedCopies = []
   const skippedSkus = new Set()
   const processedSources = []
   let rowsParsed = 0
@@ -96,6 +116,12 @@ export function buildReportingArchiveReplay(sources, existingSkus) {
       continue
     }
     if (source.hash) seenHashes.add(source.hash)
+    const contentSignature = reportingFileContentSignature(source.rows)
+    if (contentSignature && seenContentSignatures.has(contentSignature)) {
+      skippedCorrectedCopies.push(source.filename || source.importId || 'reporting.csv')
+      continue
+    }
+    if (contentSignature) seenContentSignatures.add(contentSignature)
     processedSources.push(source)
     const repairedFile = repairReportingRowsFromFile(source.rows)
     repairedRows.push(...repairedFile.repaired.map((item) => ({ ...item, filename: source.filename })))
@@ -159,6 +185,7 @@ export function buildReportingArchiveReplay(sources, existingSkus) {
     repairedRows,
     skippedSkus: [...skippedSkus].filter(Boolean).sort(),
     skippedDuplicateFiles,
+    skippedCorrectedCopies,
   }
 }
 
