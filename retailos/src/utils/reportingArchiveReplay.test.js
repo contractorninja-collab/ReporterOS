@@ -126,6 +126,27 @@ test('restores all ten sales for 091180-15 including the recoverable damaged lin
   assert.equal(result.invalidRows.length, 0)
 })
 
+test('excludes a late archive sale that would exceed imported stock', () => {
+  const sources = []
+  for (let day = 17; day <= 27; day += 1) {
+    sources.push({
+      filename: day === 27 ? 'RetailOS_Reporting_Import_Template _55_.csv' : `day-${day}.csv`,
+      importedAt: `2026-08-${String(day).padStart(2, '0')}T10:00:00.000Z`,
+      hash: `day-${day}`,
+      rows: csv(`4070032553450,091180-15,X,32,1,${day}.08.2026,SALE`),
+    })
+  }
+  const result = buildReportingArchiveReplay(sources, [
+    { sku: '091180-15', size: 'X', quantity: 10, product_name: 'Puma Plus Backpack' },
+  ])
+  const total = result.salesEvents.reduce((sum, row) => sum + row.units_sold, 0)
+  assert.equal(total, 10)
+  assert.equal(result.sourceRows.length, 10)
+  assert.equal(result.cappedRows.length, 1)
+  assert.equal(result.cappedRows[0].eventDate, '2026-08-27')
+  assert.equal(result.cappedRows[0].excludedUnits, 1)
+})
+
 test('reports SKU totals that will change', () => {
   const before = new Map([['SKU-1', 1], ['SKU-2', 2]])
   const changed = changedSkuTotals(before, [

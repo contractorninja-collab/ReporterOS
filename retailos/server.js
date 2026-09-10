@@ -438,7 +438,7 @@ function buildReportingArchiveAudit(options = {}) {
 function reportingArchiveAuditPayload(audit, applied = false) {
   const changedSkuSet = new Set(audit.changedSkus.map((row) => row.sku))
   return {
-    replayVersion: 4,
+    replayVersion: 5,
     applied,
     processed: audit.replay.processedSources.length,
     rowsParsed: audit.replay.rowsParsed,
@@ -454,6 +454,7 @@ function reportingArchiveAuditPayload(audit, applied = false) {
     orphanedSources: audit.orphanedSources,
     changedSkus: audit.changedSkus,
     sourceRows: audit.replay.sourceRows.filter((row) => changedSkuSet.has(row.sku)),
+    cappedRows: audit.replay.cappedRows,
   }
 }
 

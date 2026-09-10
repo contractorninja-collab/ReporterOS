@@ -156,13 +156,59 @@ function removeRowsCoveredByCorrectedFiles(sources) {
   return { sources: output, skippedCorrectedRows }
 }
 
+/**
+ * Reporting archives are daily stock movements, so net units sold for a size
+ * cannot exceed the units ever received for that size. Keep rows in sales-date
+ * order and trim only the later overflow. This prevents a stray late report
+ * from creating negative stock while preserving returns and later re-sales.
+ */
+function capReportingRowsToInventory(rows, existingSkus) {
+  const capacityByKey = new Map()
+  for (const item of existingSkus || []) {
+    const key = skuSizeKey(item?.sku, item?.size)
+    const quantity = Math.max(0, Math.round(Number(item?.quantity) || 0))
+    capacityByKey.set(key, (capacityByKey.get(key) || 0) + quantity)
+  }
+
+  const runningByKey = new Map()
+  const accepted = []
+  const cappedRows = []
+  const ordered = [...(rows || [])].sort((a, b) => (
+    String(a.eventDate).localeCompare(String(b.eventDate)) ||
+    String(a.importedAt || '').localeCompare(String(b.importedAt || '')) ||
+    String(a.filename || '').localeCompare(String(b.filename || '')) ||
+    Number(a.row || 0) - Number(b.row || 0)
+  ))
+
+  for (const row of ordered) {
+    const key = skuSizeKey(row.sku, row.size)
+    const capacity = capacityByKey.get(key) || 0
+    const current = runningByKey.get(key) || 0
+    if (row.unitsSold <= 0 || capacity <= 0 || current + row.unitsSold <= capacity) {
+      accepted.push(row)
+      runningByKey.set(key, current + row.unitsSold)
+      continue
+    }
+
+    const acceptedUnits = Math.max(0, capacity - current)
+    const excludedUnits = row.unitsSold - acceptedUnits
+    cappedRows.push({ ...row, acceptedUnits, excludedUnits, stockCapacity: capacity })
+    if (acceptedUnits > 0) {
+      const ratio = acceptedUnits / row.unitsSold
+      accepted.push({ ...row, unitsSold: acceptedUnits, revenue: row.revenue * ratio })
+      runningByKey.set(key, current + acceptedUnits)
+    }
+  }
+
+  return { rows: accepted, cappedRows }
+}
+
 /** Build one canonical replay from every unique archived reporting file. */
 export function buildReportingArchiveReplay(sources, existingSkus) {
   const known = new Set((existingSkus || []).map((row) => String(row.sku || '').trim()).filter(Boolean))
   const lookup = existingSkuLookup(existingSkus)
   const seenHashes = new Set()
   const seenContentSignatures = new Set()
-  const groups = new Map()
   const invalidRows = []
   const repairedRows = []
   const skippedDuplicateFiles = []
@@ -217,24 +263,9 @@ export function buildReportingArchiveReplay(sources, existingSkus) {
       const movement = classifyReportingMovement(row)
       if (!eventDate || movement === 'UNKNOWN') continue
       rowsRecognized += 1
-      const direction = movement === 'RETURN' ? 'RETURN' : 'SALE'
-      const key = `${skuSizeKey(sku, row.size)}|${eventDate}|${direction}`
-      if (!groups.has(key)) {
-        groups.set(key, {
-          sku,
-          size: row.size ?? '',
-          event_date: eventDate,
-          units_sold: 0,
-          revenue: 0,
-          import_id: 'archive-replay',
-        })
-      }
-      const group = groups.get(key)
       const magnitude = Math.abs(Math.round(Number(row.sold_quantity) || 0))
       const unitsSold = movement === 'RETURN' ? -magnitude : magnitude
       const revenue = reportingLineRevenueFromRow(row)
-      group.units_sold += unitsSold
-      group.revenue += revenue
       sourceRows.push({
         sku,
         size: String(row.size ?? '').trim(),
@@ -252,6 +283,27 @@ export function buildReportingArchiveReplay(sources, existingSkus) {
         repaired: row.sale_date_repaired === true,
       })
     }
+  }
+
+  const capped = capReportingRowsToInventory(sourceRows, existingSkus)
+  const acceptedSourceRows = capped.rows
+  const groups = new Map()
+  for (const row of acceptedSourceRows) {
+    const direction = row.movement === 'RETURN' ? 'RETURN' : 'SALE'
+    const key = `${skuSizeKey(row.sku, row.size)}|${row.eventDate}|${direction}`
+    if (!groups.has(key)) {
+      groups.set(key, {
+        sku: row.sku,
+        size: row.size,
+        event_date: row.eventDate,
+        units_sold: 0,
+        revenue: 0,
+        import_id: 'archive-replay',
+      })
+    }
+    const group = groups.get(key)
+    group.units_sold += row.unitsSold
+    group.revenue += row.revenue
   }
 
   const salesEvents = [...groups.values()].map((event) => {
@@ -274,7 +326,8 @@ export function buildReportingArchiveReplay(sources, existingSkus) {
     skippedDuplicateFiles,
     skippedCorrectedCopies,
     skippedCorrectedRows,
-    sourceRows,
+    sourceRows: acceptedSourceRows,
+    cappedRows: capped.cappedRows,
   }
 }
 
