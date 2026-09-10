@@ -1680,11 +1680,12 @@ export function ImportCSV() {
               RetailOS checked {repairAudit.processed || 0} unique reporting files. The repair will restore missing sales together so one file cannot erase another.
               {repairAudit.replayVersion && ` Repair engine v${repairAudit.replayVersion}.`}
             </div>
-            {(repairAudit.repairedRows?.length > 0 || repairAudit.invalidRows?.length > 0 || repairAudit.orphanedSources?.length > 0 || repairAudit.cappedRows?.length > 0) && (
+            {(repairAudit.repairedRows?.length > 0 || repairAudit.invalidRows?.length > 0 || repairAudit.orphanedSources?.length > 0 || repairAudit.cappedRows?.length > 0 || repairAudit.normalizedSkuRows?.length > 0) && (
               <div className="import-reprocess-modal__file" style={{ lineHeight: 1.55 }}>
                 {repairAudit.repairedRows?.length > 0 && <div>{repairAudit.repairedRows.length} damaged Excel date{repairAudit.repairedRows.length === 1 ? '' : 's'} can be recovered safely.</div>}
                 {repairAudit.invalidRows?.length > 0 && <div>{repairAudit.invalidRows.length} line{repairAudit.invalidRows.length === 1 ? '' : 's'} will remain unchanged for review.</div>}
                 {repairAudit.orphanedSources?.length > 0 && <div>{repairAudit.orphanedSources.length} archived file{repairAudit.orphanedSources.length === 1 ? '' : 's'} had a deleted history card and will be recovered.</div>}
+                {repairAudit.normalizedSkuRows?.length > 0 && <div>{repairAudit.normalizedSkuRows.length} sale or return line{repairAudit.normalizedSkuRows.length === 1 ? '' : 's'} used a shortened SKU code and will be matched to the catalog.</div>}
                 {repairAudit.cappedRows?.length > 0 && (
                   <div>
                     {repairAudit.cappedRows.reduce((sum, row) => sum + (Number(row.excludedUnits) || 0), 0)} excess archived sale unit{repairAudit.cappedRows.reduce((sum, row) => sum + (Number(row.excludedUnits) || 0), 0) === 1 ? '' : 's'} will be excluded because stock was already sold out: {[...new Set(repairAudit.cappedRows.map((row) => row.sku))].join(', ')}.
@@ -1714,6 +1715,7 @@ export function ImportCSV() {
                   {rows.map((row, index) => (
                     <div key={`${row.importId}-${row.row}-${index}`} style={{ marginBottom: '7px' }}>
                       {row.eventDate} · {row.size || 'no size'} · {row.unitsSold > 0 ? '+' : ''}{row.unitsSold} unit{Math.abs(row.unitsSold) === 1 ? '' : 's'} · {row.filename}, line {row.row}
+                      {row.sourceSku && row.sourceSku !== row.sku && ` · matched from ${row.sourceSku}`}
                       {row.repaired && ` · repaired from ${row.sourceSaleDate}`}
                       {row.orphaned && ' · deleted history card'}
                     </div>

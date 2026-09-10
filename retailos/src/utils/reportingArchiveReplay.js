@@ -76,6 +76,24 @@ function existingSkuLookup(existingSkus) {
   return { exact, bySku }
 }
 
+function comparableSkuCode(value) {
+  const code = String(value || '').trim().toUpperCase()
+  const match = code.match(/^0*(\d+)(.*)$/)
+  return match ? `${Number(match[1])}${match[2]}` : code
+}
+
+function canonicalSkuAliases(existingSkus) {
+  const aliases = new Map()
+  for (const row of existingSkus || []) {
+    const sku = String(row?.sku || '').trim()
+    if (!sku) continue
+    const key = comparableSkuCode(sku)
+    if (!aliases.has(key)) aliases.set(key, sku)
+    else if (aliases.get(key) !== sku) aliases.set(key, null)
+  }
+  return aliases
+}
+
 function reportingRowContentSignature(row) {
   const date = dateParts(row?._source_sale_date)
   const dayMonth = date ? `${date.day}.${date.month}` : isoDateLocal(row?.sale_date)?.slice(5) || ''
@@ -157,10 +175,9 @@ function removeRowsCoveredByCorrectedFiles(sources) {
 }
 
 /**
- * Reporting archives are daily stock movements, so net units sold for a size
- * cannot exceed the units ever received for that size. Keep rows in sales-date
- * order and trim only the later overflow. This prevents a stray late report
- * from creating negative stock while preserving returns and later re-sales.
+ * Net units sold for a size cannot exceed the units ever received for that
+ * size. Returns are included before this check, so a returned item can be sold
+ * again. If the final net still exceeds stock, trim only the latest sale rows.
  */
 function capReportingRowsToInventory(rows, existingSkus) {
   const capacityByKey = new Map()
@@ -170,42 +187,53 @@ function capReportingRowsToInventory(rows, existingSkus) {
     capacityByKey.set(key, (capacityByKey.get(key) || 0) + quantity)
   }
 
-  const runningByKey = new Map()
   const accepted = []
   const cappedRows = []
-  const ordered = [...(rows || [])].sort((a, b) => (
-    String(a.eventDate).localeCompare(String(b.eventDate)) ||
-    String(a.importedAt || '').localeCompare(String(b.importedAt || '')) ||
-    String(a.filename || '').localeCompare(String(b.filename || '')) ||
-    Number(a.row || 0) - Number(b.row || 0)
-  ))
-
-  for (const row of ordered) {
+  const rowsByKey = new Map()
+  for (const row of rows || []) {
     const key = skuSizeKey(row.sku, row.size)
-    const capacity = capacityByKey.get(key) || 0
-    const current = runningByKey.get(key) || 0
-    if (row.unitsSold <= 0 || capacity <= 0 || current + row.unitsSold <= capacity) {
-      accepted.push(row)
-      runningByKey.set(key, current + row.unitsSold)
-      continue
-    }
+    if (!rowsByKey.has(key)) rowsByKey.set(key, [])
+    rowsByKey.get(key).push(row)
+  }
 
-    const acceptedUnits = Math.max(0, capacity - current)
-    const excludedUnits = row.unitsSold - acceptedUnits
-    cappedRows.push({ ...row, acceptedUnits, excludedUnits, stockCapacity: capacity })
-    if (acceptedUnits > 0) {
-      const ratio = acceptedUnits / row.unitsSold
-      accepted.push({ ...row, unitsSold: acceptedUnits, revenue: row.revenue * ratio })
-      runningByKey.set(key, current + acceptedUnits)
+  for (const [key, keyRows] of rowsByKey) {
+    const capacity = capacityByKey.get(key) || 0
+    let overflow = capacity > 0
+      ? Math.max(0, keyRows.reduce((sum, row) => sum + row.unitsSold, 0) - capacity)
+      : 0
+    const newestFirst = [...keyRows].sort((a, b) => (
+      String(b.eventDate).localeCompare(String(a.eventDate)) ||
+      String(b.importedAt || '').localeCompare(String(a.importedAt || '')) ||
+      String(b.filename || '').localeCompare(String(a.filename || '')) ||
+      Number(b.row || 0) - Number(a.row || 0)
+    ))
+
+    for (const row of newestFirst) {
+      if (overflow <= 0 || row.unitsSold <= 0) {
+        accepted.push(row)
+        continue
+      }
+      const excludedUnits = Math.min(row.unitsSold, overflow)
+      const acceptedUnits = row.unitsSold - excludedUnits
+      overflow -= excludedUnits
+      cappedRows.push({ ...row, acceptedUnits, excludedUnits, stockCapacity: capacity })
+      if (acceptedUnits > 0) {
+        const ratio = acceptedUnits / row.unitsSold
+        accepted.push({ ...row, unitsSold: acceptedUnits, revenue: row.revenue * ratio })
+      }
     }
   }
 
-  return { rows: accepted, cappedRows }
+  return {
+    rows: accepted.sort((a, b) => String(a.eventDate).localeCompare(String(b.eventDate))),
+    cappedRows,
+  }
 }
 
 /** Build one canonical replay from every unique archived reporting file. */
 export function buildReportingArchiveReplay(sources, existingSkus) {
   const known = new Set((existingSkus || []).map((row) => String(row.sku || '').trim()).filter(Boolean))
+  const aliases = canonicalSkuAliases(existingSkus)
   const lookup = existingSkuLookup(existingSkus)
   const seenHashes = new Set()
   const seenContentSignatures = new Set()
@@ -216,6 +244,7 @@ export function buildReportingArchiveReplay(sources, existingSkus) {
   const correctedCoverage = removeRowsCoveredByCorrectedFiles(sources)
   const skippedCorrectedRows = correctedCoverage.skippedCorrectedRows
   const sourceRows = []
+  const normalizedSkuRows = []
   const skippedSkus = new Set()
   const processedSources = []
   let rowsParsed = 0
@@ -254,10 +283,19 @@ export function buildReportingArchiveReplay(sources, existingSkus) {
         })
         continue
       }
-      const sku = String(row.sku || '').trim()
-      if (!known.has(sku)) {
-        skippedSkus.add(sku)
+      const sourceSku = String(row.sku || '').trim()
+      const sku = known.has(sourceSku) ? sourceSku : aliases.get(comparableSkuCode(sourceSku))
+      if (!sku) {
+        skippedSkus.add(sourceSku)
         continue
+      }
+      if (sku !== sourceSku) {
+        normalizedSkuRows.push({
+          filename: source.filename || source.importId || 'reporting.csv',
+          row: Number(row?._source_row) || index + 2,
+          sourceSku,
+          sku,
+        })
       }
       const eventDate = isoDateLocal(row.sale_date)
       const movement = classifyReportingMovement(row)
@@ -281,6 +319,7 @@ export function buildReportingArchiveReplay(sources, existingSkus) {
         revenue,
         movement,
         repaired: row.sale_date_repaired === true,
+        sourceSku,
       })
     }
   }
@@ -328,6 +367,7 @@ export function buildReportingArchiveReplay(sources, existingSkus) {
     skippedCorrectedRows,
     sourceRows: acceptedSourceRows,
     cappedRows: capped.cappedRows,
+    normalizedSkuRows,
   }
 }
 

@@ -182,5 +182,33 @@ test('returns the accepted archive rows used to calculate each SKU total', () =>
     revenue: 25,
     movement: 'SALE',
     repaired: false,
+    sourceSku: 'SKU-1',
   }])
+})
+
+test('matches a shortened leading-zero return before checking stock capacity', () => {
+  const result = buildReportingArchiveReplay([
+    {
+      filename: 'sales.csv',
+      hash: 'sales',
+      rows: csv('1,091180-15,X,320,10,26.08.2026,SALE'),
+    },
+    {
+      filename: 'returns.csv',
+      hash: 'returns',
+      rows: csv('1,91180-15,X,-32,-1,26.08.2026,RETURN'),
+    },
+    {
+      filename: 'resale.csv',
+      hash: 'resale',
+      rows: csv('1,091180-15,X,32,1,27.08.2026,SALE'),
+    },
+  ], [{ sku: '091180-15', size: 'X', quantity: 10 }])
+
+  assert.equal(result.salesEvents.reduce((sum, row) => sum + row.units_sold, 0), 10)
+  assert.equal(result.cappedRows.length, 0)
+  assert.deepEqual(result.normalizedSkuRows, [{
+    filename: 'returns.csv', row: 2, sourceSku: '91180-15', sku: '091180-15',
+  }])
+  assert.equal(result.sourceRows.find((row) => row.movement === 'RETURN').unitsSold, -1)
 })
