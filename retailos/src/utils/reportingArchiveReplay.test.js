@@ -4,6 +4,7 @@ import { parseCSVText } from './csvParser.js'
 import {
   buildReportingArchiveReplay,
   changedSkuTotals,
+  preserveCurrentSalesWhenArchiveIsLower,
   repairReportingRowsFromFile,
 } from './reportingArchiveReplay.js'
 
@@ -154,6 +155,26 @@ test('reports SKU totals that will change', () => {
     { sku: 'SKU-2', units_sold: 2 },
   ])
   assert.deepEqual(changed, [{ sku: 'SKU-1', currentSold: 1, archiveSold: 4, difference: 3 }])
+})
+
+test('keeps trusted current sales when an archive has a lower total', () => {
+  const before = new Map([['LOWER', 5], ['HIGHER', 1], ['SAME', 2]])
+  const protectedReplay = preserveCurrentSalesWhenArchiveIsLower([
+    { sku: 'LOWER', units_sold: 3 },
+    { sku: 'HIGHER', units_sold: 4 },
+    { sku: 'SAME', units_sold: 2 },
+  ], before)
+
+  assert.deepEqual(protectedReplay.salesEvents, [
+    { sku: 'HIGHER', units_sold: 4 },
+    { sku: 'SAME', units_sold: 2 },
+  ])
+  assert.deepEqual(protectedReplay.preservedCurrentSkus, [{
+    sku: 'LOWER', currentSold: 5, archiveSold: 3, difference: -2,
+  }])
+  assert.deepEqual(changedSkuTotals(before, protectedReplay.salesEvents), [{
+    sku: 'HIGHER', currentSold: 1, archiveSold: 4, difference: 3,
+  }])
 })
 
 test('returns the accepted archive rows used to calculate each SKU total', () => {

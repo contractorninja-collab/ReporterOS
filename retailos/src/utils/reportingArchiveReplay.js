@@ -378,6 +378,31 @@ export function salesTotalsBySku(events) {
   return totals
 }
 
+export function preserveCurrentSalesWhenArchiveIsLower(events, currentTotals) {
+  const archiveTotals = salesTotalsBySku(events)
+  const preservedCurrentSkus = []
+  const preservedSkuSet = new Set()
+
+  for (const [sku, archiveSold] of archiveTotals) {
+    const currentSold = Number(currentTotals?.get?.(sku)) || 0
+    if (archiveSold >= currentSold || Math.abs(archiveSold - currentSold) < 1e-9) continue
+    preservedSkuSet.add(sku)
+    preservedCurrentSkus.push({
+      sku,
+      currentSold,
+      archiveSold,
+      difference: archiveSold - currentSold,
+    })
+  }
+
+  return {
+    salesEvents: preservedSkuSet.size > 0
+      ? (events || []).filter((event) => !preservedSkuSet.has(String(event?.sku || '').trim()))
+      : (events || []),
+    preservedCurrentSkus: preservedCurrentSkus.sort((a, b) => a.sku.localeCompare(b.sku)),
+  }
+}
+
 export function changedSkuTotals(beforeTotals, afterEvents) {
   const afterTotals = salesTotalsBySku(afterEvents)
   const changed = []

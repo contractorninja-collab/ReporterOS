@@ -68,6 +68,7 @@ import {
 import {
   buildReportingArchiveReplay,
   changedSkuTotals,
+  preserveCurrentSalesWhenArchiveIsLower,
   repairReportingRowsFromFile,
 } from './src/utils/reportingArchiveReplay.js'
 import { detectImageExtension } from './src/utils/imageFormat.js'
@@ -427,6 +428,9 @@ function buildReportingArchiveAudit(options = {}) {
     inventoryBySku[sku] = Math.max(Number(inventoryBySku[sku]) || 0, Number(currentTotals.get(sku)) || 0)
   }
   const replay = buildReportingArchiveReplay(sources, getAllSkus(), { inventoryBySku })
+  const protectedReplay = preserveCurrentSalesWhenArchiveIsLower(replay.salesEvents, currentTotals)
+  replay.salesEvents = protectedReplay.salesEvents
+  replay.preservedCurrentSkus = protectedReplay.preservedCurrentSkus
   const changedSkus = changedSkuTotals(currentTotals, replay.salesEvents)
   return {
     replay,
@@ -443,7 +447,7 @@ function buildReportingArchiveAudit(options = {}) {
 function reportingArchiveAuditPayload(audit, applied = false) {
   const changedSkuSet = new Set(audit.changedSkus.map((row) => row.sku))
   return {
-    replayVersion: 8,
+    replayVersion: 9,
     applied,
     processed: audit.replay.processedSources.length,
     rowsParsed: audit.replay.rowsParsed,
@@ -461,6 +465,7 @@ function reportingArchiveAuditPayload(audit, applied = false) {
     sourceRows: audit.replay.sourceRows.filter((row) => changedSkuSet.has(row.sku)),
     cappedRows: audit.replay.cappedRows,
     normalizedSkuRows: audit.replay.normalizedSkuRows,
+    preservedCurrentSkus: audit.replay.preservedCurrentSkus,
   }
 }
 
