@@ -169,6 +169,7 @@ export function buildReportingArchiveReplay(sources, existingSkus) {
   const skippedCorrectedCopies = []
   const correctedCoverage = removeRowsCoveredByCorrectedFiles(sources)
   const skippedCorrectedRows = correctedCoverage.skippedCorrectedRows
+  const sourceRows = []
   const skippedSkus = new Set()
   const processedSources = []
   let rowsParsed = 0
@@ -230,8 +231,26 @@ export function buildReportingArchiveReplay(sources, existingSkus) {
       }
       const group = groups.get(key)
       const magnitude = Math.abs(Math.round(Number(row.sold_quantity) || 0))
-      group.units_sold += movement === 'RETURN' ? -magnitude : magnitude
-      group.revenue += reportingLineRevenueFromRow(row)
+      const unitsSold = movement === 'RETURN' ? -magnitude : magnitude
+      const revenue = reportingLineRevenueFromRow(row)
+      group.units_sold += unitsSold
+      group.revenue += revenue
+      sourceRows.push({
+        sku,
+        size: String(row.size ?? '').trim(),
+        filename: source.filename || source.importId || 'reporting.csv',
+        importId: source.importId || '',
+        importedAt: source.importedAt || '',
+        orphaned: source.orphaned === true,
+        row: Number(row?._source_row) || index + 2,
+        eventDate,
+        sourceSaleDate: String(row?._source_sale_date || '').trim(),
+        unitsSold,
+        priceSold: Number(row.price_sold) || 0,
+        revenue,
+        movement,
+        repaired: row.sale_date_repaired === true,
+      })
     }
   }
 
@@ -255,6 +274,7 @@ export function buildReportingArchiveReplay(sources, existingSkus) {
     skippedDuplicateFiles,
     skippedCorrectedCopies,
     skippedCorrectedRows,
+    sourceRows,
   }
 }
 

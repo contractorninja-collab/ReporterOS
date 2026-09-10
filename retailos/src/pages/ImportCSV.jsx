@@ -1678,6 +1678,7 @@ export function ImportCSV() {
             </div>
             <div className="import-reprocess-modal__copy">
               RetailOS checked {repairAudit.processed || 0} unique reporting files. The repair will restore missing sales together so one file cannot erase another.
+              {repairAudit.replayVersion && ` Repair engine v${repairAudit.replayVersion}.`}
             </div>
             {(repairAudit.repairedRows?.length > 0 || repairAudit.invalidRows?.length > 0 || repairAudit.orphanedSources?.length > 0) && (
               <div className="import-reprocess-modal__file" style={{ lineHeight: 1.55 }}>
@@ -1697,6 +1698,24 @@ export function ImportCSV() {
                 {repairAudit.changedSkus.length > 20 && <div>+ {repairAudit.changedSkus.length - 20} more SKUs</div>}
               </div>
             )}
+            {repairAudit.changedSkus?.[0] && repairAudit.sourceRows?.length > 0 && (() => {
+              const selected = repairAudit.changedSkus[0]
+              const rows = repairAudit.sourceRows.filter((row) => row.sku === selected.sku)
+              return (
+                <div className="import-reprocess-modal__file" style={{ maxHeight: '210px', overflow: 'auto', lineHeight: 1.55 }}>
+                  <div style={{ fontWeight: 700, marginBottom: '6px' }}>
+                    Sources for {selected.sku}: {selected.archiveSold} sold
+                  </div>
+                  {rows.map((row, index) => (
+                    <div key={`${row.importId}-${row.row}-${index}`} style={{ marginBottom: '7px' }}>
+                      {row.eventDate} · {row.size || 'no size'} · {row.unitsSold > 0 ? '+' : ''}{row.unitsSold} unit{Math.abs(row.unitsSold) === 1 ? '' : 's'} · {row.filename}, line {row.row}
+                      {row.repaired && ` · repaired from ${row.sourceSaleDate}`}
+                      {row.orphaned && ' · deleted history card'}
+                    </div>
+                  ))}
+                </div>
+              )
+            })()}
             <div className="import-reprocess-modal__actions">
               <button
                 type="button"

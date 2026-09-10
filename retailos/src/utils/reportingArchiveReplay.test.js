@@ -134,3 +134,32 @@ test('reports SKU totals that will change', () => {
   ])
   assert.deepEqual(changed, [{ sku: 'SKU-1', currentSold: 1, archiveSold: 4, difference: 3 }])
 })
+
+test('returns the accepted archive rows used to calculate each SKU total', () => {
+  const result = buildReportingArchiveReplay([
+    {
+      importId: 'import-1',
+      filename: 'day.csv',
+      hash: 'day',
+      orphaned: true,
+      rows: csv('1,SKU-1,M,25,2,26.08.2026,SALE'),
+    },
+  ], [{ sku: 'SKU-1', size: 'M' }])
+
+  assert.deepEqual(result.sourceRows, [{
+    sku: 'SKU-1',
+    size: 'M',
+    filename: 'day.csv',
+    importId: 'import-1',
+    importedAt: '',
+    orphaned: true,
+    row: 2,
+    eventDate: '2026-08-26',
+    sourceSaleDate: '26.08.2026',
+    unitsSold: 2,
+    priceSold: 25,
+    revenue: 25,
+    movement: 'SALE',
+    repaired: false,
+  }])
+})
