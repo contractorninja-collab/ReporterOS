@@ -137,8 +137,8 @@ test('excludes a late archive sale that would exceed imported stock', () => {
     })
   }
   const result = buildReportingArchiveReplay(sources, [
-    { sku: '091180-15', size: 'X', quantity: 10, product_name: 'Puma Plus Backpack' },
-  ])
+    { sku: '091180-15', size: 'BV', quantity: 10, product_name: 'Puma Plus Backpack' },
+  ], { inventoryBySku: { '091180-15': 10 } })
   const total = result.salesEvents.reduce((sum, row) => sum + row.units_sold, 0)
   assert.equal(total, 10)
   assert.equal(result.sourceRows.length, 10)
@@ -203,7 +203,7 @@ test('matches a shortened leading-zero return before checking stock capacity', (
       hash: 'resale',
       rows: csv('1,091180-15,X,32,1,27.08.2026,SALE'),
     },
-  ], [{ sku: '091180-15', size: 'X', quantity: 10 }])
+  ], [{ sku: '091180-15', size: 'X', quantity: 10 }], { inventoryBySku: { '091180-15': 10 } })
 
   assert.equal(result.salesEvents.reduce((sum, row) => sum + row.units_sold, 0), 10)
   assert.equal(result.cappedRows.length, 0)

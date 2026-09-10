@@ -421,7 +421,7 @@ function buildReportingArchiveAudit(options = {}) {
       })
     }
   }
-  const replay = buildReportingArchiveReplay(sources, getAllSkus())
+  const replay = buildReportingArchiveReplay(sources, getAllSkus(), { inventoryBySku: getLifetimeImportedBySku() })
   const changedSkus = changedSkuTotals(currentSalesTotalsBySku(), replay.salesEvents)
   return {
     replay,
@@ -438,7 +438,7 @@ function buildReportingArchiveAudit(options = {}) {
 function reportingArchiveAuditPayload(audit, applied = false) {
   const changedSkuSet = new Set(audit.changedSkus.map((row) => row.sku))
   return {
-    replayVersion: 6,
+    replayVersion: 7,
     applied,
     processed: audit.replay.processedSources.length,
     rowsParsed: audit.replay.rowsParsed,

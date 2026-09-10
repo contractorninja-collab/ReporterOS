@@ -175,29 +175,26 @@ function removeRowsCoveredByCorrectedFiles(sources) {
 }
 
 /**
- * Net units sold for a size cannot exceed the units ever received for that
- * size. Returns are included before this check, so a returned item can be sold
+ * Net units sold for a SKU cannot exceed the units ever received for that SKU.
+ * Returns are included before this check, so a returned item can be sold
  * again. If the final net still exceeds stock, trim only the latest sale rows.
  */
-function capReportingRowsToInventory(rows, existingSkus) {
-  const capacityByKey = new Map()
-  for (const item of existingSkus || []) {
-    const key = skuSizeKey(item?.sku, item?.size)
-    const quantity = Math.max(0, Math.round(Number(item?.quantity) || 0))
-    capacityByKey.set(key, (capacityByKey.get(key) || 0) + quantity)
-  }
+function capReportingRowsToInventory(rows, inventoryBySku) {
+  const capacityBySku = inventoryBySku instanceof Map
+    ? inventoryBySku
+    : new Map(Object.entries(inventoryBySku || {}))
 
   const accepted = []
   const cappedRows = []
   const rowsByKey = new Map()
   for (const row of rows || []) {
-    const key = skuSizeKey(row.sku, row.size)
+    const key = row.sku
     if (!rowsByKey.has(key)) rowsByKey.set(key, [])
     rowsByKey.get(key).push(row)
   }
 
   for (const [key, keyRows] of rowsByKey) {
-    const capacity = capacityByKey.get(key) || 0
+    const capacity = Math.max(0, Math.round(Number(capacityBySku.get(key)) || 0))
     let overflow = capacity > 0
       ? Math.max(0, keyRows.reduce((sum, row) => sum + row.unitsSold, 0) - capacity)
       : 0
@@ -231,7 +228,7 @@ function capReportingRowsToInventory(rows, existingSkus) {
 }
 
 /** Build one canonical replay from every unique archived reporting file. */
-export function buildReportingArchiveReplay(sources, existingSkus) {
+export function buildReportingArchiveReplay(sources, existingSkus, options = {}) {
   const known = new Set((existingSkus || []).map((row) => String(row.sku || '').trim()).filter(Boolean))
   const aliases = canonicalSkuAliases(existingSkus)
   const lookup = existingSkuLookup(existingSkus)
@@ -324,7 +321,7 @@ export function buildReportingArchiveReplay(sources, existingSkus) {
     }
   }
 
-  const capped = capReportingRowsToInventory(sourceRows, existingSkus)
+  const capped = capReportingRowsToInventory(sourceRows, options.inventoryBySku)
   const acceptedSourceRows = capped.rows
   const groups = new Map()
   for (const row of acceptedSourceRows) {
