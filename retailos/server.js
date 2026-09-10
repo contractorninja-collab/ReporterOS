@@ -421,8 +421,13 @@ function buildReportingArchiveAudit(options = {}) {
       })
     }
   }
-  const replay = buildReportingArchiveReplay(sources, getAllSkus(), { inventoryBySku: getLifetimeImportedBySku() })
-  const changedSkus = changedSkuTotals(currentSalesTotalsBySku(), replay.salesEvents)
+  const currentTotals = currentSalesTotalsBySku()
+  const inventoryBySku = getLifetimeImportedBySku()
+  for (const sku of Object.keys(inventoryBySku)) {
+    inventoryBySku[sku] = Math.max(Number(inventoryBySku[sku]) || 0, Number(currentTotals.get(sku)) || 0)
+  }
+  const replay = buildReportingArchiveReplay(sources, getAllSkus(), { inventoryBySku })
+  const changedSkus = changedSkuTotals(currentTotals, replay.salesEvents)
   return {
     replay,
     changedSkus,
@@ -438,7 +443,7 @@ function buildReportingArchiveAudit(options = {}) {
 function reportingArchiveAuditPayload(audit, applied = false) {
   const changedSkuSet = new Set(audit.changedSkus.map((row) => row.sku))
   return {
-    replayVersion: 7,
+    replayVersion: 8,
     applied,
     processed: audit.replay.processedSources.length,
     rowsParsed: audit.replay.rowsParsed,
