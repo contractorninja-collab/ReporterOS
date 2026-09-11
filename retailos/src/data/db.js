@@ -3639,50 +3639,24 @@ export function changeMarkdownListItemSalePct(listId, skuCode, newPct, newExtraP
   return { list: getMarkdownListById(listId), report }
 }
 
-function flattenTransferItemsWithMeta(items) {
-  const lines = []
-  for (const it of Array.isArray(items) ? items : []) {
-    if (Array.isArray(it?.sizeBreakdown) && it.sizeBreakdown.length > 0) {
-      for (const sb of it.sizeBreakdown) {
-        lines.push({
-          key: `${String(it.skuCode ?? '')}|${String(sb.size ?? '')}`,
-          skuCode: String(it.skuCode ?? ''),
-          size: String(sb.size ?? ''),
-          qty: Number(sb.qty) || 0,
-          item: it,
-        })
-      }
-      continue
-    }
-    const sizes = String(it?.sizes || '').split(',').map((s) => s.trim()).filter(Boolean)
-    if (sizes.length > 0) {
-      const perSize = Math.ceil((Number(it.totalQty ?? it.quantity) || 0) / sizes.length)
-      for (const size of sizes) {
-        lines.push({ key: `${String(it.skuCode ?? '')}|${size}`, skuCode: String(it.skuCode ?? ''), size, qty: perSize, item: it })
-      }
-    } else {
-      lines.push({
-        key: `${String(it?.skuCode ?? '')}|One Size`,
-        skuCode: String(it?.skuCode ?? ''),
-        size: 'One Size',
-        qty: Number(it?.totalQty ?? it?.quantity) || 0,
-        item: it,
-      })
-    }
-  }
-  return lines
-}
-
-function outletSaleTitle(iso) {
-  const d = new Date(iso || Date.now())
-  const formatted = isNaN(d.getTime())
-    ? new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
-    : d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
-  return `E-commerce Outlet Sale - ${formatted}`
-}
-
 export function getEcommerceSaleListBySourceTransfer(sourceTransferId) {
   return toMarkdownList(db.prepare("SELECT * FROM markdown_lists WHERE sourceTransferId = ? AND kind = 'ecommerce_sale' ORDER BY createdAt DESC LIMIT 1").get(sourceTransferId))
+}
+
+/** Remove the retired automatic sale step while preserving the Outlet transfer and web-location checklist. */
+export function removeAutomaticEcommerceOutletSaleLists() {
+  const rows = db.prepare(`
+    SELECT id
+    FROM markdown_lists
+    WHERE kind = 'ecommerce_sale'
+      AND TRIM(COALESCE(sourceTransferId, '')) <> ''
+  `).all()
+  const tx = db.transaction((lists) => {
+    let removed = 0
+    for (const row of lists) removed += deleteMarkdownList(row.id)
+    return removed
+  })
+  return tx(rows)
 }
 
 export function getLocationChangeListBySourceTransfer(sourceTransferId) {
@@ -3720,80 +3694,6 @@ export function createLocationChangeListForOutletTransfer(transferId, actorUserI
     note: `Auto-created from outlet transfer ${transferId}`,
     sourceTransferId: transferId,
   })
-  return { list, created: true, items }
-}
-
-export function createEcommerceSaleListForOutletTransfer(transferId, actorUserId = '', assignedTo = null) {
-  const existing = getEcommerceSaleListBySourceTransfer(transferId)
-  if (existing) return { list: existing, created: false, items: existing.items || [] }
-
-  const transfer = getOutletTransferById(transferId)
-  if (!transfer) throw new Error('Outlet transfer not found')
-
-  const statuses = transfer.item_statuses || {}
-  const bySku = new Map()
-  const lines = flattenTransferItemsWithMeta(transfer.items)
-  for (const line of lines) {
-    if (!line.skuCode) continue
-    const entry = statuses[line.key] || {}
-    const status = String(entry.status || '')
-    const received = entry.received == null
-      ? (status === 'done' ? line.qty : 0)
-      : Number(entry.received) || 0
-    if (received <= 0) continue
-    if (!bySku.has(line.skuCode)) {
-      bySku.set(line.skuCode, { item: line.item, sizes: new Map(), received: 0 })
-    }
-    const group = bySku.get(line.skuCode)
-    group.received += received
-    group.sizes.set(line.size, (group.sizes.get(line.size) || 0) + received)
-  }
-
-  const items = []
-  const skuMeta = db.prepare(`
-    SELECT
-      MAX(product_name) AS product_name,
-      MAX(brand) AS brand,
-      MAX(category) AS category,
-      MAX(gender) AS gender,
-      MAX(season) AS season,
-      MAX(price_tag) AS price_tag
-    FROM skus
-    WHERE sku = ? AND deleted_at IS NULL
-  `)
-  for (const [skuCode, group] of bySku.entries()) {
-    const meta = skuMeta.get(skuCode) || {}
-    const priceTag = Number(meta.price_tag ?? group.item?.priceTag ?? 0) || 0
-    items.push({
-      skuCode,
-      productName: group.item?.productName || meta.product_name || '',
-      brand: group.item?.brand || meta.brand || '',
-      category: group.item?.category || meta.category || '',
-      gender: group.item?.gender || meta.gender || '',
-      season: group.item?.season || meta.season || '',
-      priceTag,
-      salePct: 20,
-      extraSalePct: 0,
-      salePrice: salePriceOf(priceTag, 20),
-      sizes: [...group.sizes.entries()].map(([size, qty]) => `${size} x${qty}`).join(', '),
-      quantity: group.received,
-    })
-  }
-
-  if (!items.length) return { list: null, created: false, items: [] }
-
-  const list = insertMarkdownList({
-    kind: 'ecommerce_sale',
-    title: outletSaleTitle(transfer.receivedAt || new Date().toISOString()),
-    items,
-    item_statuses: {},
-    shop: 'E-commerce',
-    createdBy: actorUserId || '',
-    assignedTo,
-    note: `Auto-created from outlet transfer ${transferId}`,
-    sourceTransferId: transferId,
-  })
-  applySaleToSkus(list.id, items)
   return { list, created: true, items }
 }
 
@@ -3850,8 +3750,12 @@ export function removeMarkdownListItemFromSale(listId, skuCode, actorUserId = ''
 }
 
 export function deleteMarkdownList(id) {
-  clearSaleForList(id)
-  return db.prepare('DELETE FROM markdown_lists WHERE id = ?').run(id).changes
+  return db.transaction(() => {
+    clearSaleForList(id)
+    db.prepare('DELETE FROM assignments WHERE skuCode = ?').run(id)
+    db.prepare('DELETE FROM notifications WHERE relatedId = ?').run(id)
+    return db.prepare('DELETE FROM markdown_lists WHERE id = ?').run(id).changes
+  })()
 }
 
 /** Mark all size rows of the listed SKUs as on sale with their per-product percent. */
@@ -6398,6 +6302,7 @@ export function repairOutletWebLocationLists() {
 
 const STARTUP_DATA_BACKFILL_STEPS = [
   ['capture_outlet_legacy_sources_for_review', captureLegacyOutletSourcesForReview],
+  ['remove_automatic_ecommerce_outlet_sale_lists', removeAutomaticEcommerceOutletSaleLists],
   ['repair_outlet_web_location_lists', repairOutletWebLocationLists],
   ['backfill_import_history_total_units', backfillImportHistoryTotalUnits],
   ['repair_skus_zero_cost_from_peers', repairSkusZeroCostFromSkuPeers],

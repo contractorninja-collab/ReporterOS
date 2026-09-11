@@ -14,7 +14,7 @@ after(() => {
   rmSync(dataDir, { recursive: true, force: true })
 })
 
-test('creates one Change Location Web item per received SKU and keeps the sale list separate', () => {
+test('creates one Change Location Web item per received SKU without creating sale work', () => {
   const transferId = 'outlet-web-location-transfer'
   db.insertOutletTransfer({
     id: transferId,
@@ -68,10 +68,30 @@ test('creates one Change Location Web item per received SKU and keeps the sale l
   assert.equal(retry.list.id, location.list.id)
   assert.equal(db.getAllMarkdownLists().filter((list) => list.kind === 'location_change').length, 1)
 
-  const sale = db.createEcommerceSaleListForOutletTransfer(transferId, 'outlet-1', 'exec-1,exec-2')
-  assert.equal(sale.created, true)
-  assert.equal(sale.list.kind, 'ecommerce_sale')
-  assert.deepEqual(sale.items.map((item) => item.skuCode).sort(), ['SKU-FULL', 'SKU-PARTIAL'])
+  assert.equal(db.getEcommerceSaleListBySourceTransfer(transferId), null)
+})
+
+test('removes obsolete automatic Outlet sale work and keeps the web-location checklist', () => {
+  const transferId = 'outlet-web-location-transfer'
+  db.insertSkus([{
+    sku: 'SKU-FULL', size: 'M', product_name: 'Fully received product', quantity: 6,
+    sold_quantity: 0, price_tag: 100, import_date: '2026-08-28T00:00:00.000Z',
+  }])
+  const sale = db.insertMarkdownList({
+    id: 'obsolete-outlet-sale', kind: 'ecommerce_sale', sourceTransferId: transferId,
+    title: 'E-commerce Outlet Sale - 28 Aug 2026', shop: 'E-commerce',
+    items: [{ skuCode: 'SKU-FULL', salePct: 20, priceTag: 100 }],
+  })
+  db.applySaleToSkus(sale.id, sale.items)
+  db.insertAssignment({ id: 'obsolete-sale-task', type: 'sale', skuCode: sale.id, assignedTo: 'exec-1' })
+  db.insertNotification({ type: 'ecommerce_sale_created', title: 'E-commerce Sale Created', relatedId: sale.id })
+
+  assert.equal(db.removeAutomaticEcommerceOutletSaleLists(), 1)
+  assert.equal(db.getMarkdownListById(sale.id), null)
+  assert.ok(db.getLocationChangeListBySourceTransfer(transferId))
+  assert.equal(db.getAllAssignments().some((assignment) => assignment.skuCode === sale.id), false)
+  assert.equal(db.getNotifications().some((notification) => notification.relatedId === sale.id), false)
+  assert.equal(db.getAllSkus().find((row) => row.sku === 'SKU-FULL').sale_active, 0)
 })
 
 test('final marking completes the checklist and unmarking reopens it', () => {
@@ -95,7 +115,7 @@ test('final marking completes the checklist and unmarking reopens it', () => {
   assert.equal(completedAgain.item_statuses['SKU-PARTIAL']['E-commerce'].markedBy, 'exec-2')
 })
 
-test('deleting the transfer removes both linked lists and web-location notifications', () => {
+test('deleting the transfer removes its web-location checklist and notifications', () => {
   const transferId = 'outlet-web-location-transfer'
   db.insertNotification({
     type: 'outlet_web_location_ready',

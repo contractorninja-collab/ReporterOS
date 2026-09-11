@@ -49,33 +49,11 @@ export function createTransfersSlice(set, get) {
       return api.putOutletTransfer(transferId, changes)
         .then((result) => {
           const updatedTransfer = result?.transfer || result
-          const ecommerceSale = result?.ecommerceSale
           const locationChange = result?.locationChange
           if (updatedTransfer?.id) {
             set((state) => ({
               outletTransfers: state.outletTransfers.map((t) => (t.id === transferId ? updatedTransfer : t)),
             }))
-          }
-          if (ecommerceSale?.list) {
-            set((state) => ({
-              markdownLists: [
-                ecommerceSale.list,
-                ...state.markdownLists.filter((l) => l.id !== ecommerceSale.list.id),
-              ],
-              skus: state.skus.map((row) => {
-                const item = (ecommerceSale.items || []).find((it) => it.skuCode === row.sku)
-                return item
-                  ? {
-                      ...row,
-                      sale_active: 1,
-                      sale_percent: item.salePct,
-                      sale_extra_percent: item.extraSalePct || null,
-                      sale_list_id: ecommerceSale.list.id,
-                    }
-                  : row
-              }),
-            }))
-            get().syncOperationalData?.().catch(() => {})
           }
           if (locationChange?.list) {
             set((state) => ({

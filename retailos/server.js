@@ -27,7 +27,6 @@ import {
   toggleMarkdownListItemTagged,
   changeMarkdownListItemSalePct,
   removeMarkdownListItemFromSale,
-  createEcommerceSaleListForOutletTransfer,
   createLocationChangeListForOutletTransfer,
   removeIncorrectOutletEntry,
   getAllSaleChangeReports, getSaleChangeReportById, saleChangeReportVisibleToUser,
@@ -1075,54 +1074,6 @@ function validateOutletTransferUpdate(row, user, changes) {
   }
 
   return null
-}
-
-function outletAutoSaleTargets() {
-  return getAllUsers()
-    .filter((u) => u.role === 'marketing' || u.role === 'executive')
-    .map((u) => u.id)
-    .filter(Boolean)
-}
-
-function createOutletEcommerceSaleIfNeeded(transferId, actor) {
-  const targets = outletAutoSaleTargets()
-  const result = createEcommerceSaleListForOutletTransfer(
-    transferId,
-    actor?.id || '',
-    targets.length ? targets.join(',') : null,
-  )
-  if (!result?.created || !result.list) return result
-
-  const totalUnits = (result.items || []).reduce((sum, item) => sum + (Number(item.quantity) || 0), 0)
-  const summary = `E-commerce 20% sale created from outlet transfer (${result.items.length} products, ${totalUnits} units)`
-  for (const uid of targets) {
-    insertAssignment({
-      type: 'sale',
-      skuCode: result.list.id,
-      productName: `Sale list: ${result.list.title}`,
-      assignedTo: uid,
-      assignedBy: actor?.id || '',
-      shop: 'E-commerce',
-      status: 'pending',
-      note: `${result.items.length} products - auto-created from Outlet confirmation`,
-    })
-    insertNotification({
-      type: 'ecommerce_sale_created',
-      title: 'E-commerce Sale Created',
-      message: `${actor?.name || 'Outlet'} confirmed an outlet transfer. ${summary}.`,
-      userId: uid,
-      relatedId: result.list.id,
-    })
-  }
-  act(actor, {
-    category: 'markdown',
-    action: 'ecommerce_sale_created',
-    entityType: 'markdown_list',
-    entityId: result.list.id,
-    summary,
-    meta: { sourceTransferId: transferId, products: result.items.length, units: totalUnits },
-  })
-  return result
 }
 
 function outletWebLocationTargets() {
@@ -2471,9 +2422,6 @@ app.put('/api/outlet-transfers/:id', (req, res) => {
     const updated = updateOutletTransfer(req.params.id, req.body)
     if (!updated) return res.status(404).json({ error: 'Not found' })
     const ensureReceiptArtifacts = req.body?.status === 'received' && (row.status === 'completed' || row.status === 'received')
-    const ecommerceSale = ensureReceiptArtifacts
-      ? createOutletEcommerceSaleIfNeeded(req.params.id, req.authUser)
-      : null
     const locationChange = ensureReceiptArtifacts
       ? createOutletWebLocationIfNeeded(req.params.id, req.authUser)
       : null
@@ -2486,8 +2434,8 @@ app.put('/api/outlet-transfers/:id', (req, res) => {
       meta: { patch: req.body, status: updated.status },
     })
     const visibleLocationChange = req.authUser.role === 'executive' ? locationChange : null
-    res.json(ecommerceSale || visibleLocationChange
-      ? { transfer: updated, ecommerceSale, ...(visibleLocationChange ? { locationChange: visibleLocationChange } : {}) }
+    res.json(visibleLocationChange
+      ? { transfer: updated, locationChange: visibleLocationChange }
       : updated)
   } catch (e) { safeError(res, e) }
 })

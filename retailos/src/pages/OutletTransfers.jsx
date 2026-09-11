@@ -485,7 +485,7 @@ export function OutletTransfers() {
   const handleDeleteTransfer = (batch) => {
     const isFinal = batch.status === 'completed' || batch.status === 'received'
     const ok = window.confirm(
-      `${isFinal ? 'Delete confirmed' : 'Discard'} outlet transfer?\nThis removes the transfer list for everyone${batch.status === 'received' ? ' and clears its linked E-commerce sale and Change Location Web lists.' : '.'}`,
+      `${isFinal ? 'Delete confirmed' : 'Discard'} outlet transfer?\nThis removes the transfer list for everyone${batch.status === 'received' ? ' and clears its linked Change Location Web list.' : '.'}`,
     )
     if (!ok) return
     deleteOutletTransfer(batch.id).catch(() => {})
