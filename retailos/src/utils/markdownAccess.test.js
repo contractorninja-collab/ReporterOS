@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { markdownListVisibleToUser } from './markdownAccess.js'
 
-test('Change Location Web lists are visible only to executives', () => {
+test('Change Location Web lists are visible to executives and assigned E-commerce users', () => {
   const list = {
     kind: 'location_change',
     shop: 'E-commerce',
@@ -12,7 +12,8 @@ test('Change Location Web lists are visible only to executives', () => {
 
   assert.equal(markdownListVisibleToUser(list, { id: 'exec-1', role: 'executive' }), true)
   assert.equal(markdownListVisibleToUser(list, { id: 'manager-1', role: 'manager', shop: 'Ring Mall' }), false)
-  assert.equal(markdownListVisibleToUser(list, { id: 'marketing-1', role: 'marketing', shop: 'E-commerce' }), false)
+  assert.equal(markdownListVisibleToUser(list, { id: 'marketing-1', role: 'marketing', shop: 'E-commerce' }), true)
+  assert.equal(markdownListVisibleToUser(list, { id: 'marketing-2', role: 'marketing', shop: 'E-commerce' }), false)
   assert.equal(markdownListVisibleToUser(list, { id: 'outlet-user', role: 'outlet', shop: 'Outlet' }), false)
 })
 

@@ -1,6 +1,7 @@
 import {
   classifyReportingMovement,
   reportingLineRevenueFromRow,
+  resolveReportingSize,
   skuSizeKey,
   validateReportingRow,
 } from './csvParser.js'
@@ -294,6 +295,7 @@ export function buildReportingArchiveReplay(sources, existingSkus, options = {})
           sku,
         })
       }
+      const resolvedSize = resolveReportingSize({ ...row, sku }, existingSkus)
       const eventDate = isoDateLocal(row.sale_date)
       const movement = classifyReportingMovement(row)
       if (!eventDate || movement === 'UNKNOWN') continue
@@ -303,7 +305,7 @@ export function buildReportingArchiveReplay(sources, existingSkus, options = {})
       const revenue = reportingLineRevenueFromRow(row)
       sourceRows.push({
         sku,
-        size: String(row.size ?? '').trim(),
+        size: resolvedSize,
         filename: source.filename || source.importId || 'reporting.csv',
         importId: source.importId || '',
         importedAt: source.importedAt || '',

@@ -3,6 +3,7 @@ import {
   validateRow,
   validateReportingRow,
   skuSizeKey,
+  resolveReportingSize,
   classifyReportingMovement,
   reportingLineRevenueFromRow,
 } from '../utils/csvParser.js'
@@ -100,7 +101,11 @@ function buildReportingPlan({ rows, existingSkus, reportingImportId }, id) {
   const eventGroups = new Map()
   const groupStride = Math.max(500, Math.floor((recognized.length || 1) / 20))
   for (let i = 0; i < recognized.length; i += 1) {
-    const row = recognized[i]
+    const sourceRow = recognized[i]
+    const resolvedSize = resolveReportingSize(sourceRow, existingSkus)
+    const row = resolvedSize === String(sourceRow.size ?? '').trim()
+      ? sourceRow
+      : { ...sourceRow, size: resolvedSize }
     const key = skuSizeKey(row.sku, row.size)
     const movement = classifyReportingMovement(row)
     const unitsAbs = Math.abs(Math.round(Number(row.sold_quantity) || 0))

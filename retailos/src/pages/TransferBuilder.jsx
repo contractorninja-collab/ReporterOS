@@ -137,7 +137,6 @@ export function TransferBuilder() {
   const [cart, setCart] = useState({})
   // staging: per-size picks before adding to cart
   const [staging, setStaging] = useState({})
-  const [stagingSourceShops, setStagingSourceShops] = useState({})
   const [expandedSku, setExpandedSku] = useState(null)
   const [submitError, setSubmitError] = useState('')
 
@@ -146,12 +145,9 @@ export function TransferBuilder() {
   const cartItems = Object.values(cart)
 
   const selectedOutletShops = useMemo(() => {
-    const shops = Object.values(cart)
-      .map((item) => String(item.fromShop || fromShop).trim())
-      .filter(Boolean)
-    if (!shops.length) shops.push(String(activeUser?.shop || fromShop).trim())
-    return [...new Set(shops)]
-  }, [cart, fromShop, activeUser?.shop])
+    if (isExec) return SHOPS
+    return [String(activeUser?.shop || fromShop).trim()].filter(Boolean)
+  }, [isExec, activeUser?.shop, fromShop])
 
   const outletManagersByShop = useMemo(() => {
     const onShiftIds = new Set(activeShifts.map((shift) => shift.user_id))
@@ -262,9 +258,6 @@ export function TransferBuilder() {
       for (const r of rows) init[r.size] = 0
       setStaging((prev) => ({ ...prev, [skuCode]: init }))
     }
-    if (!stagingSourceShops[skuCode]) {
-      setStagingSourceShops((prev) => ({ ...prev, [skuCode]: fromShop }))
-    }
   }
 
   function handleStagingChange(skuCode, size, qty) {
@@ -304,9 +297,6 @@ export function TransferBuilder() {
         productName: product.product_name,
         brand: product.brand || '',
         category: product.category || '',
-        fromShop: transferType === 'outlet'
-          ? (isExec ? (stagingSourceShops[product.sku] || fromShop) : (activeUser?.shop || fromShop))
-          : null,
         sizeBreakdown: breakdown,
         totalQty: breakdown.reduce((s, b) => s + b.qty, 0),
       },
@@ -346,26 +336,10 @@ export function TransferBuilder() {
     if (transferType === 'outlet') {
       if (isExec) {
         const groupId = generateId()
-        const itemsByShop = new Map()
-        for (const item of cartItems) {
-          const sourceShop = String(item.fromShop || fromShop).trim()
-          const current = itemsByShop.get(sourceShop) || []
-          current.push({
-            skuCode: item.skuCode,
-            productName: item.productName,
-            brand: item.brand,
-            category: item.category,
-            sizeBreakdown: item.sizeBreakdown,
-            totalQty: item.totalQty,
-            quantity: item.totalQty,
-            sizes: item.sizeBreakdown.map((b) => b.size).join(', '),
-          })
-          itemsByShop.set(sourceShop, current)
-        }
         try {
-          for (const [sourceShop, shopItems] of itemsByShop) {
+          for (const sourceShop of SHOPS) {
             createTransferBatch('outlet', {
-              items: shopItems,
+              items,
               note: payload.note,
               fromShop: sourceShop,
               groupId,
@@ -446,15 +420,17 @@ export function TransferBuilder() {
                 setAssignMenuOpen(false)
               }}
             />
-            <TypeToggle
-              label="To Outlet"
-              active={transferType === 'outlet'}
-              onClick={() => {
-                setTransferType('outlet')
-                setAssignedToIds([])
-                setAssignMenuOpen(false)
-              }}
-            />
+            {isExec && (
+              <TypeToggle
+                label="To Outlet"
+                active={transferType === 'outlet'}
+                onClick={() => {
+                  setTransferType('outlet')
+                  setAssignedToIds([])
+                  setAssignMenuOpen(false)
+                }}
+              />
+            )}
           </div>
         </div>
 
@@ -499,18 +475,18 @@ export function TransferBuilder() {
 
         <div className="tb-form-field-group tb-form-field-group--assign">
           <label className="tb-form-label">
-            {transferType === 'outlet' ? 'Assigned store managers' : `Assign ${fromShop} manager`}
+            {transferType === 'outlet' ? 'Store stock confirmation' : `Assign ${fromShop} manager`}
           </label>
           {transferType === 'outlet' ? (
             <>
               <div className="tb-outlet-assign-summary">
                 {assignableUsers.length === 0 ? (
                   <span className="tb-outlet-assign-summary__empty">
-                    No managers available for the selected sending {selectedOutletShops.length === 1 ? 'store' : 'stores'}{showAllUsers && isExec ? '' : ' on shift'}.
+                    No managers available for the required {selectedOutletShops.length === 1 ? 'store' : 'stores'}{showAllUsers && isExec ? '' : ' on shift'}.
                   </span>
                 ) : (
                   <>
-                    Each store&apos;s managers receive only that store&apos;s Outlet batch.
+                    Ring Mall and Village confirm what they can send. No sending store is selected upfront.
                     <div className="tb-outlet-assign-summary__names">
                       {selectedOutletShops.map((shop) => (
                         <div key={shop}><strong>{shop}:</strong> {(outletManagersByShop[shop] || []).map((user) => user.name).join(', ') || 'No manager available'}</div>
@@ -725,17 +701,6 @@ export function TransferBuilder() {
                           />
                         ))}
                       </div>
-                      {transferType === 'outlet' && isExec && (
-                        <label className="tb-source-shop-picker">
-                          <span>Sending store</span>
-                          <select
-                            value={stagingSourceShops[p.sku] || fromShop}
-                            onChange={(event) => setStagingSourceShops((prev) => ({ ...prev, [p.sku]: event.target.value }))}
-                          >
-                            {SHOPS.map((shop) => <option key={shop} value={shop}>{shop}</option>)}
-                          </select>
-                        </label>
-                      )}
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                         <span style={{ fontSize: 11, color: S.text2, fontFamily: DM }}>
                           Selected: <strong style={{ color: S.text }}>{stagingTotal(p.sku)}</strong> units
@@ -793,23 +758,7 @@ export function TransferBuilder() {
                       {item.productName}
                     </div>
                     <div style={{ fontSize: 10, color: S.muted, fontFamily: DM }}>{item.skuCode}</div>
-                    {transferType === 'outlet' && (
-                      isExec ? (
-                        <select
-                          className="tb-cart__source-select"
-                          aria-label={`Sending store for ${item.skuCode}`}
-                          value={item.fromShop || fromShop}
-                          onChange={(event) => setCart((previous) => ({
-                            ...previous,
-                            [item.skuCode]: { ...previous[item.skuCode], fromShop: event.target.value },
-                          }))}
-                        >
-                          {SHOPS.map((shop) => <option key={shop} value={shop}>{shop} → Outlet</option>)}
-                        </select>
-                      ) : (
-                        <div className="tb-cart__source-label">{item.fromShop || activeUser?.shop || fromShop} → Outlet</div>
-                      )
-                    )}
+                    {transferType === 'outlet' && <div className="tb-cart__source-label">Ring Mall &amp; Village will confirm stock</div>}
                   </div>
                   <button
                     type="button"

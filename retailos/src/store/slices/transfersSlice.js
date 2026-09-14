@@ -270,7 +270,7 @@ export function createTransfersSlice(set, get) {
      */
     createTransferBatch: (type, payload) => {
       const state = get()
-      const conflicts = unavailableOutletSkuCodes(payload.items, state.outletTransfers, state.markdownLists)
+      const conflicts = unavailableOutletSkuCodes(payload.items, state.outletTransfers, state.markdownLists, null, payload.groupId)
       if (conflicts.length) {
         const shown = conflicts.slice(0, 3).join(', ')
         const extra = conflicts.length > 3 ? ` and ${conflicts.length - 3} more` : ''

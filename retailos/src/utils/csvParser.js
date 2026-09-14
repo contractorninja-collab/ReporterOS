@@ -391,6 +391,31 @@ export function skuSizeKey(sku, size) {
 }
 
 /**
+ * Prefer the catalog size for a reporting row when its barcode identifies one
+ * SKU variation unambiguously. This repairs exports where the size column was
+ * accidentally populated with the SKU code without guessing between sizes.
+ */
+export function resolveReportingSize(row, existingSkus) {
+  const sku = String(row?.sku ?? '').trim()
+  const reportedSize = String(row?.size ?? '').trim()
+  const candidates = (Array.isArray(existingSkus) ? existingSkus : [])
+    .filter((item) => String(item?.sku ?? '').trim() === sku)
+
+  const exact = candidates.find((item) => (
+    String(item?.size ?? '').trim().toLowerCase() === reportedSize.toLowerCase()
+  ))
+  if (exact) return String(exact.size ?? '').trim()
+
+  const barcode = normalizeBarcodeValue(row?.barcode).trim()
+  if (!barcode) return reportedSize
+  const barcodeSizes = [...new Set(candidates
+    .filter((item) => normalizeBarcodeValue(item?.barcode).trim() === barcode)
+    .map((item) => String(item?.size ?? '').trim()))]
+
+  return barcodeSizes.length === 1 ? barcodeSizes[0] : reportedSize
+}
+
+/**
  * Map raw CSV row to clean SKU object.
  */
 function mapRow(row, headerMap, sourceRow = null) {

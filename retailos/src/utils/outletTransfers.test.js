@@ -170,6 +170,22 @@ test('can exclude the transfer being edited while still detecting other Outlet o
   )
 })
 
+test('allows sibling store claims in one executive Outlet group but blocks other groups', () => {
+  const transfers = [
+    { id: 'ring', groupId: 'claim-1', status: 'pending', items: [{ skuCode: 'SKU-1' }] },
+    { id: 'other', groupId: 'claim-2', status: 'pending', items: [{ skuCode: 'SKU-2' }] },
+  ]
+
+  assert.deepEqual(
+    unavailableOutletSkuCodes([{ skuCode: 'SKU-1' }], transfers, [], null, 'claim-1'),
+    [],
+  )
+  assert.deepEqual(
+    unavailableOutletSkuCodes([{ skuCode: 'SKU-2' }], transfers, [], null, 'claim-1'),
+    ['SKU-2'],
+  )
+})
+
 test('finds only today pending outlet transfer for the sending store', () => {
   const now = new Date(2026, 7, 22, 10, 0, 0)
   const today = new Date(2026, 7, 22, 8, 0, 0).toISOString()

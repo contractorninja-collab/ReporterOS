@@ -44,6 +44,30 @@ test('builds one replay across files and sums legitimate same-day sales', () => 
   assert.equal(result.salesEvents[0].revenue, 30)
 })
 
+test('repairs a reporting size copied from the SKU when barcode identifies the variation', () => {
+  const result = buildReportingArchiveReplay([
+    { filename: 'bad-size.csv', hash: 'bad-size', rows: csv('999,SKU-1,SKU-1,20,1,26.08.2026,SALE') },
+  ], [
+    { sku: 'SKU-1', size: '30', barcode: '888' },
+    { sku: 'SKU-1', size: '32', barcode: '999', product_name: 'Product' },
+  ])
+
+  assert.equal(result.salesEvents.length, 1)
+  assert.equal(result.salesEvents[0].size, '32')
+  assert.equal(result.sourceRows[0].size, '32')
+})
+
+test('does not guess a reporting size when one barcode belongs to multiple variations', () => {
+  const result = buildReportingArchiveReplay([
+    { filename: 'ambiguous-size.csv', hash: 'ambiguous-size', rows: csv('999,SKU-1,SKU-1,20,1,26.08.2026,SALE') },
+  ], [
+    { sku: 'SKU-1', size: 'M', barcode: '999' },
+    { sku: 'SKU-1', size: 'L', barcode: '999' },
+  ])
+
+  assert.equal(result.salesEvents[0].size, 'SKU-1')
+})
+
 test('skips exact duplicate files before replaying their rows', () => {
   const rows = csv('1,SKU-1,M,10,1,26.08.2026,SALE')
   const result = buildReportingArchiveReplay([

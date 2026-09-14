@@ -71,6 +71,41 @@ test('creates one Change Location Web item per received SKU without creating sal
   assert.equal(db.getEcommerceSaleListBySourceTransfer(transferId), null)
 })
 
+test('creates one combined E-commerce checklist after every store claim is received', () => {
+  const groupId = 'outlet-claim-group'
+  db.insertOutletTransfer({
+    id: 'claim-ring', groupId, fromShop: 'Ring Mall', status: 'received',
+    items: [
+      { skuCode: 'RING-ONLY', productName: 'Ring item', quantity: 2 },
+      { skuCode: 'VILLAGE-ONLY', productName: 'Village item', quantity: 2 },
+    ],
+    item_statuses: {
+      'RING-ONLY|One Size': { status: 'done', received: 2, missing: 0 },
+      'VILLAGE-ONLY|One Size': { status: 'missing', received: 0, missing: 2, comment: 'No stock' },
+    },
+  })
+  db.insertOutletTransfer({
+    id: 'claim-village', groupId, fromShop: 'Village', status: 'received',
+    items: [
+      { skuCode: 'RING-ONLY', productName: 'Ring item', quantity: 2 },
+      { skuCode: 'VILLAGE-ONLY', productName: 'Village item', quantity: 2 },
+    ],
+    item_statuses: {
+      'RING-ONLY|One Size': { status: 'missing', received: 0, missing: 2, comment: 'No stock' },
+      'VILLAGE-ONLY|One Size': { status: 'partial', received: 1, missing: 1, comment: 'One available' },
+    },
+  })
+
+  const location = db.createLocationChangeListForOutletGroup(groupId, 'outlet-1', 'marketing-1')
+  assert.equal(location.created, true)
+  assert.deepEqual(location.items.map((item) => item.skuCode).sort(), ['RING-ONLY', 'VILLAGE-ONLY'])
+  assert.equal(location.list.assignedTo, 'marketing-1')
+
+  const retry = db.createLocationChangeListForOutletGroup(groupId, 'outlet-1', 'marketing-1')
+  assert.equal(retry.created, false)
+  assert.equal(retry.list.id, location.list.id)
+})
+
 test('removes obsolete automatic Outlet sale work and keeps the web-location checklist', () => {
   const transferId = 'outlet-web-location-transfer'
   db.insertSkus([{

@@ -1,5 +1,9 @@
 export function markdownListVisibleToUser(list, user) {
-  if (list?.kind === 'location_change') return user?.role === 'executive'
+  if (list?.kind === 'location_change') {
+    return user?.role === 'executive' || (
+      user?.role === 'marketing' && String(list?.assignedTo || '').split(',').map((id) => id.trim()).includes(user?.id)
+    )
+  }
   if (user?.role === 'executive') return true
   if (user?.role === 'manager' || user?.role === 'marketing') return true
   if (!String(list?.assignedTo || '').trim()) return true

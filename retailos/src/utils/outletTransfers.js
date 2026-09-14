@@ -125,10 +125,13 @@ export function outletSkuConflictCodes(items, transfers, excludeTransferId = nul
     .filter((skuCode) => skuCode && ownership.has(skuCode)))]
 }
 
-export function unavailableOutletSkuCodes(items, transfers, markdownLists = [], excludeTransferId = null) {
+export function unavailableOutletSkuCodes(items, transfers, markdownLists = [], excludeTransferId = null, excludeGroupId = null) {
   void markdownLists // Retained for call compatibility; Markdown lists do not establish physical ownership.
-  const reserved = outletSkuOwnership(transfers, excludeTransferId)
-  const located = outletSkuLocationOwnership(transfers)
+  const comparableTransfers = excludeGroupId
+    ? (Array.isArray(transfers) ? transfers : []).filter((transfer) => String(transfer?.groupId || '') !== String(excludeGroupId))
+    : transfers
+  const reserved = outletSkuOwnership(comparableTransfers, excludeTransferId)
+  const located = outletSkuLocationOwnership(comparableTransfers)
   return [...new Set((Array.isArray(items) ? items : [])
     .map((item) => normalizedSku(item?.skuCode ?? item?.sku))
     .filter((skuCode) => skuCode && (reserved.has(skuCode) || located.has(skuCode))))]

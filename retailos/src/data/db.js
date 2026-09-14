@@ -3699,6 +3699,46 @@ export function createLocationChangeListForOutletTransfer(transferId, actorUserI
   return { list, created: true, items }
 }
 
+export function createLocationChangeListForOutletGroup(groupId, actorUserId = '', assignedTo = null) {
+  const groupKey = String(groupId || '').trim()
+  if (!groupKey) return { list: null, created: false, items: [] }
+  const transfers = getAllOutletTransfers().filter((transfer) => String(transfer.groupId || '') === groupKey)
+  if (!transfers.length || transfers.some((transfer) => transfer.status !== 'received')) {
+    return { list: null, created: false, items: [] }
+  }
+
+  const transferIds = new Set(transfers.map((transfer) => transfer.id))
+  const existing = getAllMarkdownLists().find((list) => (
+    list.kind === 'location_change' && transferIds.has(list.sourceTransferId)
+  ))
+  if (existing) return { list: existing, created: false, items: existing.items || [] }
+
+  const bySku = new Map()
+  for (const transfer of transfers) {
+    for (const item of Array.isArray(transfer.items) ? transfer.items : []) {
+      const skuCode = String(item?.skuCode || '').trim()
+      if (!skuCode || outletTransferItemReceivedQuantity(transfer, item) <= 0 || bySku.has(skuCode)) continue
+      bySku.set(skuCode, { skuCode, productName: item?.productName || '' })
+    }
+  }
+  const items = [...bySku.values()]
+  if (!items.length) return { list: null, created: false, items: [] }
+
+  const sourceTransferId = transfers[0].id
+  const list = insertMarkdownList({
+    kind: 'location_change',
+    title: 'Change Location Web',
+    items,
+    item_statuses: {},
+    shop: 'E-commerce',
+    createdBy: actorUserId || '',
+    assignedTo,
+    note: `Auto-created from grouped outlet transfer ${groupKey}`,
+    sourceTransferId,
+  })
+  return { list, created: true, items }
+}
+
 /** Remove one product from an active sale list, clear its SALE flag, and record the change. */
 export function removeMarkdownListItemFromSale(listId, skuCode, actorUserId = '') {
   const list = getMarkdownListById(listId)

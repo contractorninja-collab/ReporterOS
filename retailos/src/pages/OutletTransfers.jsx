@@ -129,7 +129,7 @@ function flattenItems(items) {
   return lines
 }
 
-function ShortageDialog({ line, entry, photoUrl, saving, onClose, onSave }) {
+function ShortageDialog({ line, entry, photoUrl, saving, claimMode = false, onClose, onSave }) {
   const [missing, setMissing] = useState(entry?.missing > 0 ? String(entry.missing) : '1')
   const [comment, setComment] = useState(entry?.missing > 0 ? String(entry.comment || '') : '')
   const [error, setError] = useState('')
@@ -165,8 +165,8 @@ function ShortageDialog({ line, entry, photoUrl, saving, onClose, onSave }) {
       <form className="ot-shortage-dialog" role="dialog" aria-modal="true" aria-labelledby="ot-shortage-title" onSubmit={submit} onMouseDown={(event) => event.stopPropagation()}>
         <div className="ot-shortage-dialog__head">
           <div>
-            <span className="ot-shortage-dialog__eyebrow">Report shortage</span>
-            <h2 id="ot-shortage-title">How many are missing?</h2>
+            <span className="ot-shortage-dialog__eyebrow">{claimMode ? 'Store stock response' : 'Report shortage'}</span>
+            <h2 id="ot-shortage-title">{claimMode ? 'How many units are not at this store?' : 'How many are missing?'}</h2>
           </div>
           <button type="button" className="ot-shortage-dialog__close" aria-label="Close" disabled={saving} onClick={onClose}><X size={17} /></button>
         </div>
@@ -180,13 +180,13 @@ function ShortageDialog({ line, entry, photoUrl, saving, onClose, onSave }) {
         </div>
 
         <label className="ot-shortage-field">
-          <span>Missing quantity</span>
+          <span>{claimMode ? 'Unavailable quantity' : 'Missing quantity'}</span>
           <input autoFocus type="number" min="1" max={line.qty} step="1" inputMode="numeric" value={missing} disabled={saving} onChange={(event) => { setMissing(event.target.value); setError('') }} />
         </label>
 
         <div className="ot-shortage-dialog__accounting" aria-live="polite">
-          <span><strong>{received}</strong> confirmed</span>
-          <span><strong>{missing || '—'}</strong> missing</span>
+          <span><strong>{received}</strong> {claimMode ? 'will be sent' : 'confirmed'}</span>
+          <span><strong>{missing || '—'}</strong> {claimMode ? 'not in store' : 'missing'}</span>
         </div>
 
         <label className="ot-shortage-field">
@@ -198,7 +198,7 @@ function ShortageDialog({ line, entry, photoUrl, saving, onClose, onSave }) {
 
         <div className="ot-shortage-dialog__actions">
           <button type="button" className="ot-shortage-dialog__cancel" disabled={saving} onClick={onClose}>Cancel</button>
-          <button type="submit" className="ot-shortage-dialog__save" disabled={saving}>{saving ? 'Saving…' : 'Save shortage'}</button>
+          <button type="submit" className="ot-shortage-dialog__save" disabled={saving}>{saving ? 'Saving…' : claimMode ? 'Save store quantity' : 'Save shortage'}</button>
         </div>
       </form>
     </div>
@@ -213,6 +213,7 @@ function OutletVerificationPanel({ batch, onUpdate, photoMap }) {
   const [savingKey, setSavingKey] = useState('')
   const [completing, setCompleting] = useState(false)
   const [panelError, setPanelError] = useState('')
+  const claimMode = Boolean(batch.groupId)
 
   const statusesRef = useRef(localStatuses)
   useEffect(() => { statusesRef.current = localStatuses }, [localStatuses])
@@ -266,6 +267,24 @@ function OutletVerificationPanel({ batch, onUpdate, photoMap }) {
     }
   }, [persist, shortageLine])
 
+  const confirmNoStock = useCallback(async (line) => {
+    const key = `${line.skuCode}|${line.size}`
+    const previous = statusesRef.current
+    const next = {
+      ...previous,
+      [key]: buildOutletVerificationEntry({ expected: line.qty, missing: line.qty, comment: `No stock at ${batch.fromShop || 'store'}` }),
+    }
+    setSavingKey(key)
+    setPanelError('')
+    try {
+      await persist(next, previous)
+    } catch (error) {
+      setPanelError(error?.message || 'Could not save this store response. Try again.')
+    } finally {
+      setSavingKey('')
+    }
+  }, [batch.fromShop, persist])
+
   const allVerified = lines.length > 0 && lines.every((line) => {
     const entry = localStatuses[`${line.skuCode}|${line.size}`]
     return !outletVerificationEntryError(entry, line.qty)
@@ -288,7 +307,10 @@ function OutletVerificationPanel({ batch, onUpdate, photoMap }) {
   return (
     <section className="ot-verification" aria-label="Outlet transfer verification">
       <div className="ot-verification__intro">
-        <div><strong>Verify transfer</strong><span>Confirm each size or report a shortage.</span></div>
+        <div>
+          <strong>{claimMode ? `Confirm ${batch.fromShop} stock` : 'Verify transfer'}</strong>
+          <span>{claimMode ? 'For every size, confirm all units, adjust the quantity, or explicitly mark no stock.' : 'Confirm each size or report a shortage.'}</span>
+        </div>
         <span>{lines.filter((line) => !outletVerificationEntryError(localStatuses[`${line.skuCode}|${line.size}`], line.qty)).length}/{lines.length} resolved</span>
       </div>
       {lines.map((line) => {
@@ -298,7 +320,9 @@ function OutletVerificationPanel({ batch, onUpdate, photoMap }) {
         const hasShortage = entry?.status === 'partial' || entry?.status === 'missing'
         const isSaving = savingKey === key
         const result = entry?.status
-          ? `${Number(entry.received) || 0} confirmed · ${Number(entry.missing) || 0} missing`
+          ? claimMode
+            ? `${Number(entry.received) || 0} sending · ${Number(entry.missing) || 0} not in store`
+            : `${Number(entry.received) || 0} confirmed · ${Number(entry.missing) || 0} missing`
           : 'Not verified'
         return (
           <div key={key} className={`ot-verification-line${isDone ? ' is-done' : ''}${hasShortage ? ' has-shortage' : ''}`}>
@@ -312,11 +336,16 @@ function OutletVerificationPanel({ batch, onUpdate, photoMap }) {
             <div className={`ot-verification-line__result${hasShortage ? ' has-shortage' : ''}`}>{result}</div>
             <div className="ot-verification-line__actions">
               <button type="button" className={`ot-line-action ot-line-action--done${isDone ? ' is-active' : ''}`} disabled={isSaving || completing} onClick={() => confirmLine(line)}>
-                <Check size={13} /> {isSaving && !hasShortage ? 'Saving…' : 'Done'}
+                <Check size={13} /> {isSaving && !hasShortage ? 'Saving…' : claimMode ? 'All' : 'Done'}
               </button>
               <button type="button" className={`ot-line-action ot-line-action--missing${hasShortage ? ' is-active' : ''}`} disabled={isSaving || completing} onClick={() => setShortageLine(line)}>
-                <AlertTriangle size={13} /> Missing
+                <AlertTriangle size={13} /> {claimMode ? 'Adjust' : 'Missing'}
               </button>
+              {claimMode && (
+                <button type="button" className={`ot-line-action ot-line-action--missing${entry?.status === 'missing' ? ' is-active' : ''}`} disabled={isSaving || completing} onClick={() => confirmNoStock(line)}>
+                  No stock
+                </button>
+              )}
             </div>
           </div>
         )
@@ -325,7 +354,7 @@ function OutletVerificationPanel({ batch, onUpdate, photoMap }) {
       <div className="ot-verification__finish">
         {!allVerified && <span>Resolve every size and explain each shortage.</span>}
         <button type="button" className="ot-mark-received-btn" disabled={!allVerified || completing} onClick={handleComplete}>
-          {completing ? 'Completing…' : 'Complete transfer verification'}
+          {completing ? 'Completing…' : claimMode ? 'Submit store response' : 'Complete transfer verification'}
         </button>
       </div>
       {shortageLine && (
@@ -335,6 +364,7 @@ function OutletVerificationPanel({ batch, onUpdate, photoMap }) {
           entry={localStatuses[`${shortageLine.skuCode}|${shortageLine.size}`]}
           photoUrl={photoMap?.[shortageLine.skuCode] || null}
           saving={savingKey === `${shortageLine.skuCode}|${shortageLine.size}`}
+          claimMode={claimMode}
           onClose={() => setShortageLine(null)}
           onSave={saveShortage}
         />
@@ -461,7 +491,7 @@ function OutletBatchDetails({
   const isCompleted = batch.status === 'completed'
   const isReceived = batch.status === 'received'
   const totalUnits = batch.items.reduce((sum, item) => sum + (item.totalQty ?? item.quantity ?? 0), 0)
-  const locationChange = activeUser?.role === 'executive' && isReceived
+  const locationChange = ['executive', 'marketing'].includes(activeUser?.role) && isReceived
     ? markdownLists.find((list) => list.kind === 'location_change' && list.sourceTransferId === batch.id)
     : null
   const locationItems = locationChange?.items || []
@@ -606,7 +636,7 @@ export function OutletTransfers() {
     handledDeepLink.current = requestKey
     const requested = transfers.find((transfer) => transfer.id === requestedTransferId)
     setExpanded(executiveView && requested?.groupId ? `group:${requested.groupId}` : requestedTransferId)
-    if (requestedWebLocation && activeUser?.role === 'executive') {
+    if (requestedWebLocation && ['executive', 'marketing'].includes(activeUser?.role)) {
       setWebLocationOpen(requestedTransferId)
     }
   }, [activeUser?.role, executiveView, requestedTransferId, requestedWebLocation, transfers])
@@ -639,7 +669,7 @@ export function OutletTransfers() {
   return (
     <div className="outlet-transfers-page store-transfers-page">
       <p className="ot-page-subtitle page-hero-mobile-hide">
-        Batches of products being moved to the outlet. Each day&apos;s moves are grouped into one batch.
+        Ring Mall and Village confirm available stock separately; Outlet receipt and the E-commerce update are tracked in one operation.
       </p>
 
       <button type="button" className="ot-new-transfer-btn" onClick={() => navigate('/new-transfer')}>
@@ -664,6 +694,21 @@ export function OutletTransfers() {
             sum + batch.items.reduce((batchSum, item) => batchSum + (item.totalQty ?? item.quantity ?? 0), 0)
           ), 0)
           const progress = outletTransferGroupProgress(entry.batches)
+          const entryTransferIds = new Set(entry.batches.map((batch) => batch.id))
+          const webLocation = entry.isGroup ? markdownLists.find((list) => (
+            list.kind === 'location_change' && entryTransferIds.has(list.sourceTransferId)
+          )) : null
+          const hasClaimedStock = entry.batches.some((batch) => Object.values(batch.item_statuses || {}).some(
+            (itemStatus) => Number(itemStatus?.received) > 0,
+          ))
+          const webRequired = entry.isGroup && hasClaimedStock
+          const webComplete = !webRequired || webLocation?.status === 'completed'
+          const totalProgressSteps = (progress.totalLines * 2) + (webRequired ? 1 : 0)
+          const completedProgressSteps = progress.verifiedLines + progress.receivedLines + (webRequired && webComplete ? 1 : 0)
+          const overallPercent = totalProgressSteps > 0 ? Math.round((completedProgressSteps / totalProgressSteps) * 100) : 0
+          const groupedStatusLabel = allReceived
+            ? (webComplete ? (hasClaimedStock ? 'Completed' : 'No stock found') : 'Website update')
+            : allVerified ? 'Awaiting Outlet' : 'In progress'
           return (
             <div key={entry.id} className={`ot-batch-card${entry.isGroup ? ' ot-batch-card--grouped' : ''}`}>
               <div
@@ -690,13 +735,13 @@ export function OutletTransfers() {
                   {entry.note && <div className="ot-batch-card__note">{entry.note}</div>}
                   {entry.isGroup && (
                     <div className="ot-group-progress">
-                      <div><span>Overall progress</span><strong>{progress.percent}%</strong></div>
-                      <div className="ot-group-progress__track" aria-label={`Overall progress ${progress.percent}%`}><span style={{ width: `${progress.percent}%` }} /></div>
+                      <div><span>Overall progress</span><strong>{overallPercent}%</strong></div>
+                      <div className="ot-group-progress__track" aria-label={`Overall progress ${overallPercent}%`}><span style={{ width: `${overallPercent}%` }} /></div>
                     </div>
                   )}
                 </div>
-                <span className={`ot-status-badge${allReceived ? ' ot-status-badge--received' : ' ot-status-badge--pending'}`}>
-                  {statusLabel}
+                <span className={`ot-status-badge${allReceived && webComplete ? ' ot-status-badge--received' : ' ot-status-badge--pending'}`}>
+                  {entry.isGroup ? groupedStatusLabel : statusLabel}
                 </span>
                 <span className={`ot-batch-card__chevron${isExpanded ? ' ot-batch-card__chevron--expanded' : ''}`} aria-hidden="true">
                   ▼

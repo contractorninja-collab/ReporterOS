@@ -182,7 +182,7 @@ export function Sidebar({ onNavigate }) {
             to="/outlet-hub"
             icon={<IconPackage size={16} strokeWidth={1.75} />}
             label="Outlet"
-            badge={execUser && pendingWebItems > 0 ? { type: 'green', text: String(pendingWebItems) } : undefined}
+            badge={(execUser || activeUser?.role === 'marketing') && pendingWebItems > 0 ? { type: 'green', text: String(pendingWebItems) } : undefined}
             onNavigate={onNavigate}
           />
         </SectionCard>

@@ -27,7 +27,7 @@ import {
   toggleMarkdownListItemTagged,
   changeMarkdownListItemSalePct,
   removeMarkdownListItemFromSale,
-  createLocationChangeListForOutletTransfer,
+  createLocationChangeListForOutletTransfer, createLocationChangeListForOutletGroup, getLocationChangeListBySourceTransfer,
   removeIncorrectOutletEntry,
   getAllSaleChangeReports, getSaleChangeReportById, saleChangeReportVisibleToUser,
   toggleSaleChangeItemMarked, discardSaleChangeReport, discardSaleChangeReportProduct,
@@ -61,6 +61,7 @@ import {
   parseCSVText,
   validateReportingRow,
   skuSizeKey,
+  resolveReportingSize,
   reportingLineRevenueFromRow,
   classifyReportingMovement,
 } from './src/utils/csvParser.js'
@@ -252,7 +253,11 @@ function buildReportingReplayEvents(rows, importId, existingSkus) {
     .filter(Boolean))]
 
   const eventGroups = new Map()
-  for (const row of recognized) {
+  for (const sourceRow of recognized) {
+    const resolvedSize = resolveReportingSize(sourceRow, existingSkus)
+    const row = resolvedSize === String(sourceRow.size ?? '').trim()
+      ? sourceRow
+      : { ...sourceRow, size: resolvedSize }
     const eventDate = toIsoDateLocal(row.sale_date)
     if (!eventDate) continue
     const movement = classifyReportingMovement(row)
@@ -446,7 +451,7 @@ function buildReportingArchiveAudit(options = {}) {
 function reportingArchiveAuditPayload(audit, applied = false) {
   const changedSkuSet = new Set(audit.changedSkus.map((row) => row.sku))
   return {
-    replayVersion: 9,
+    replayVersion: 10,
     applied,
     processed: audit.replay.processedSources.length,
     rowsParsed: audit.replay.rowsParsed,
@@ -845,6 +850,10 @@ function filterNotifications(rows, user) {
 function filterOutletTransfers(rows, user) {
   if (user.role === 'executive') return rows
   if (user.role === 'outlet') return rows
+  if (user.role === 'marketing') return rows.filter((transfer) => {
+    const list = getLocationChangeListBySourceTransfer(transfer.id)
+    return list && markdownListVisibleToUser(list, user)
+  })
   return rows.filter(
     (t) => t.createdBy === user.id ||
       splitIdList(t.assignedTo).includes(user.id) ||
@@ -852,12 +861,13 @@ function filterOutletTransfers(rows, user) {
   )
 }
 
-function assertSkusAvailableOutsideOutlet(items, excludeOutletTransferId = null) {
+function assertSkusAvailableOutsideOutlet(items, excludeOutletTransferId = null, excludeGroupId = null) {
   const conflicts = unavailableOutletSkuCodes(
     items,
     getAllOutletTransfers(),
     getAllMarkdownLists(),
     excludeOutletTransferId,
+    excludeGroupId,
   )
   if (conflicts.length === 0) return
   const shown = conflicts.slice(0, 5).join(', ')
@@ -1005,6 +1015,35 @@ function validateOutletTransferItemStatuses(row, statuses) {
   }
 }
 
+function outletClaimLineReceived(entry, expected) {
+  if (!entry || !['done', 'partial', 'missing'].includes(entry.status)) return 0
+  if (entry.status === 'missing') return 0
+  const received = entry.received == null ? expected : Number(entry.received)
+  return Number.isInteger(received) && received >= 0 && received <= expected ? received : 0
+}
+
+function validateOutletGroupClaimTotals(row, proposedStatuses) {
+  const groupId = String(row?.groupId || '').trim()
+  if (!groupId) return
+  const siblings = getAllOutletTransfers().filter((transfer) => String(transfer.groupId || '') === groupId)
+  const maximumByLine = new Map(flattenStoreTransferItems(row.items).map((line) => [line.key, line.qty]))
+  const claimedByLine = new Map()
+  for (const transfer of siblings) {
+    const statuses = transfer.id === row.id ? proposedStatuses : (transfer.item_statuses || {})
+    for (const line of flattenStoreTransferItems(transfer.items)) {
+      const claimed = outletClaimLineReceived(statuses[line.key], line.qty)
+      claimedByLine.set(line.key, (claimedByLine.get(line.key) || 0) + claimed)
+    }
+  }
+  for (const [key, claimed] of claimedByLine) {
+    const maximum = Number(maximumByLine.get(key)) || 0
+    if (claimed <= maximum) continue
+    const err = new Error(`Store claims exceed the requested quantity for ${key}`)
+    err.statusCode = 400
+    throw err
+  }
+}
+
 function validateOutletTransferUpdate(row, user, changes) {
   const roles = outletTransferUserRole(row, user)
   const has = (k) => Object.prototype.hasOwnProperty.call(changes || {}, k)
@@ -1036,6 +1075,7 @@ function validateOutletTransferUpdate(row, user, changes) {
       throw err
     }
     validateOutletTransferItemStatuses(row, changes.item_statuses)
+    validateOutletGroupClaimTotals(row, changes.item_statuses)
   }
 
   if (has('status') && !strEq(changes.status, row.status)) {
@@ -1078,7 +1118,7 @@ function validateOutletTransferUpdate(row, user, changes) {
 
 function outletWebLocationTargets() {
   return getAllUsers()
-    .filter((u) => u.role === 'executive')
+    .filter((u) => u.role === 'executive' || u.role === 'marketing' || u.shop === 'E-commerce')
     .map((u) => u.id)
     .filter(Boolean)
 }
@@ -1108,6 +1148,37 @@ function createOutletWebLocationIfNeeded(transferId, actor) {
     entityId: result.list.id,
     summary: `Change Location Web checklist created (${result.items.length} products)`,
     meta: { sourceTransferId: transferId, products: result.items.length },
+  })
+  return result
+}
+
+function createOutletGroupWebLocationIfNeeded(transfers, actor) {
+  const rows = Array.isArray(transfers) ? transfers : []
+  const targets = outletWebLocationTargets()
+  const result = createLocationChangeListForOutletGroup(
+    rows[0]?.groupId,
+    actor?.id || '',
+    targets.length ? targets.join(',') : null,
+  )
+  if (!result?.created || !result.list) return result
+  const { list, items } = result
+  const sourceTransferId = list.sourceTransferId
+  for (const userId of targets) {
+    insertNotification({
+      type: 'outlet_web_location_ready',
+      title: 'Change Location Web',
+      message: `${actor?.name || 'Outlet'} confirmed an Outlet operation. ${items.length} product${items.length === 1 ? '' : 's'} need a website location update.`,
+      userId,
+      relatedId: sourceTransferId,
+    })
+  }
+  act(actor, {
+    category: 'transfer_outlet',
+    action: 'web_location_checklist_created',
+    entityType: 'markdown_list',
+    entityId: list.id,
+    summary: `Change Location Web checklist created (${items.length} products)`,
+    meta: { sourceTransferId, groupId: rows[0]?.groupId || null, products: items.length },
   })
   return result
 }
@@ -2389,7 +2460,7 @@ app.post('/api/outlet-transfers', (req, res) => {
         return res.status(403).json({ error: 'Outlet transfers can only be assigned within the sending store' })
       }
     }
-    assertSkusAvailableOutsideOutlet(body.items)
+    assertSkusAvailableOutsideOutlet(body.items, null, body.groupId)
     const t = insertOutletTransfer(body)
     const n = Array.isArray(t.items) ? t.items.length : 0
     act(u, {
@@ -2420,13 +2491,18 @@ app.put('/api/outlet-transfers/:id', (req, res) => {
     }
     validateOutletTransferUpdate(row, req.authUser, req.body || {})
     if (Object.prototype.hasOwnProperty.call(req.body || {}, 'items')) {
-      assertSkusAvailableOutsideOutlet(req.body.items, row.id)
+      assertSkusAvailableOutsideOutlet(req.body.items, row.id, row.groupId)
     }
     const updated = updateOutletTransfer(req.params.id, req.body)
     if (!updated) return res.status(404).json({ error: 'Not found' })
     const ensureReceiptArtifacts = req.body?.status === 'received' && (row.status === 'completed' || row.status === 'received')
-    const locationChange = ensureReceiptArtifacts
-      ? createOutletWebLocationIfNeeded(req.params.id, req.authUser)
+    const groupTransfers = updated.groupId ? getAllOutletTransfers()
+      .filter((transfer) => String(transfer.groupId || '') === String(updated.groupId)) : []
+    const groupReceiptComplete = !updated.groupId || groupTransfers.every((transfer) => transfer.status === 'received')
+    const locationChange = ensureReceiptArtifacts && groupReceiptComplete
+      ? (updated.groupId
+          ? createOutletGroupWebLocationIfNeeded(groupTransfers, req.authUser)
+          : createOutletWebLocationIfNeeded(req.params.id, req.authUser))
       : null
     act(req.authUser, {
       category: 'transfer_outlet',
@@ -2900,8 +2976,8 @@ app.patch('/api/markdown-lists/:id/items/:skuCode/tagged', (req, res) => {
     if (!markdownListVisibleToUser(row, u)) {
       return res.status(403).json({ error: 'Forbidden' })
     }
-    if (row.kind === 'location_change' && u.role !== 'executive') {
-      return res.status(403).json({ error: 'Executive access required' })
+    if (row.kind === 'location_change' && !['executive', 'marketing'].includes(u.role)) {
+      return res.status(403).json({ error: 'E-commerce or executive access required' })
     }
     const lane = row.kind === 'location_change'
       ? 'E-commerce'
