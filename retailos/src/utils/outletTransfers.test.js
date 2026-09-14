@@ -4,6 +4,7 @@ import {
   buildOutletVerificationEntry,
   clearOutletItemStatuses,
   findTodayPendingOutletTransfer,
+  groupOutletTransfersForExecutive,
   localDateKey,
   outletShortageDraftError,
   outletSkuConflictCodes,
@@ -11,12 +12,45 @@ import {
   outletSkuOwnership,
   outletTransferItemExpectedQuantity,
   outletTransferItemReceivedQuantity,
+  outletTransferGroupProgress,
   receivedOutletTransferUnitsBySku,
   outletVerificationEntryError,
   upsertOutletTransferItem,
   upsertOutletTransferItems,
   unavailableOutletSkuCodes,
 } from './outletTransfers.js'
+
+test('groups executive-created Outlet batches while preserving store children', () => {
+  const transfers = [
+    { id: 'ring', groupId: 'group-1', fromShop: 'Ring Mall', createdAt: '2026-09-14T10:00:00.000Z' },
+    { id: 'village', groupId: 'group-1', fromShop: 'Village', createdAt: '2026-09-14T10:00:00.000Z' },
+    { id: 'legacy', fromShop: 'Ring Mall', createdAt: '2026-09-13T10:00:00.000Z' },
+  ]
+  const groups = groupOutletTransfersForExecutive(transfers)
+
+  assert.equal(groups.length, 2)
+  assert.deepEqual(groups[0].batches.map((batch) => batch.id), ['ring', 'village'])
+  assert.equal(groups[0].isGroup, true)
+  assert.equal(groups[1].isGroup, false)
+})
+
+test('calculates combined Outlet group progress across verification and receipt', () => {
+  const item = { skuCode: 'SKU-1', sizeBreakdown: [{ size: 'M', qty: 2 }] }
+  const transfers = [
+    {
+      id: 'ring', status: 'completed', items: [item],
+      item_statuses: { 'SKU-1|M': buildOutletVerificationEntry({ expected: 2 }) },
+    },
+    { id: 'village', status: 'received', items: [{ ...item, skuCode: 'SKU-2' }], item_statuses: {} },
+  ]
+
+  assert.deepEqual(outletTransferGroupProgress(transfers), {
+    totalLines: 2,
+    verifiedLines: 2,
+    receivedLines: 1,
+    percent: 75,
+  })
+})
 
 test('reserves every SKU in an Outlet transfer at every stage', () => {
   const transfers = [

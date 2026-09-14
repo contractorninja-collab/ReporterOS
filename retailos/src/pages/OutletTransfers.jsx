@@ -6,6 +6,8 @@ import { toTitleCase } from '../utils/textFormat.js'
 import { IconPlus, IconDownload, IconPrint } from '../utils/icons.js'
 import {
   buildOutletVerificationEntry,
+  groupOutletTransfersForExecutive,
+  outletTransferGroupProgress,
   outletShortageDraftError,
   outletVerificationEntryError,
 } from '../utils/outletTransfers.js'
@@ -434,6 +436,134 @@ function WebLocationChecklist({ list, photoMap, onToggle }) {
   )
 }
 
+function outletBatchStatusLabel(batch) {
+  if (batch.status === 'received') return 'Received'
+  if (batch.status === 'completed') return 'Awaiting Outlet'
+  return 'Pending verification'
+}
+
+function OutletBatchDetails({
+  batch,
+  grouped,
+  activeUser,
+  photoMap,
+  markdownLists,
+  webLocationOpen,
+  setWebLocationOpen,
+  toggleMarkdownListItemTagged,
+  updateOutletTransfer,
+  deleteOutletTransfer,
+  getUserName,
+  formatAssigneeList,
+  canVerifyOutletTransfer,
+  canConfirmOutletReceipt,
+}) {
+  const isCompleted = batch.status === 'completed'
+  const isReceived = batch.status === 'received'
+  const totalUnits = batch.items.reduce((sum, item) => sum + (item.totalQty ?? item.quantity ?? 0), 0)
+  const locationChange = activeUser?.role === 'executive' && isReceived
+    ? markdownLists.find((list) => list.kind === 'location_change' && list.sourceTransferId === batch.id)
+    : null
+  const locationItems = locationChange?.items || []
+  const locationMarked = locationItems.filter(
+    (item) => locationChange?.item_statuses?.[item.skuCode]?.['E-commerce']?.status === 'tagged',
+  ).length
+  const locationComplete = locationChange?.status === 'completed' && locationItems.length > 0 && locationMarked === locationItems.length
+  const isWebLocationOpen = webLocationOpen === batch.id
+
+  const handleDelete = () => {
+    const isFinal = isCompleted || isReceived
+    const ok = window.confirm(
+      `${isFinal ? 'Delete confirmed' : 'Discard'} outlet transfer?\nThis removes the ${batch.fromShop || 'store'} batch for everyone${isReceived ? ' and clears its linked Change Location Web list.' : '.'}`,
+    )
+    if (ok) deleteOutletTransfer(batch.id).catch(() => {})
+  }
+
+  return (
+    <section className={grouped ? 'ot-group-child' : undefined}>
+      {grouped && (
+        <div className="ot-group-child__head">
+          <div>
+            <strong>{batch.fromShop || 'Store'} → Outlet</strong>
+            <span>
+              {batch.items.length} products · {totalUnits} units
+              {batch.assignedTo && ` · assigned to ${formatAssigneeList(batch.assignedTo)}`}
+            </span>
+          </div>
+          <span className={`ot-status-badge${isReceived ? ' ot-status-badge--received' : ' ot-status-badge--pending'}`}>
+            {outletBatchStatusLabel(batch)}
+          </span>
+        </div>
+      )}
+
+      {locationChange && (
+        <button
+          type="button"
+          className={`ot-web-location-chip${locationComplete ? ' is-complete' : ''}`}
+          onClick={() => setWebLocationOpen(isWebLocationOpen ? null : batch.id)}
+        >
+          <Globe2 size={13} strokeWidth={1.8} />
+          Change Location Web · {locationComplete ? 'Completed' : `${locationMarked}/${locationItems.length}`}
+        </button>
+      )}
+
+      <div className="transfer-batch-table-wrap ot-batch-table-wrap">
+        <table className="ot-batch-table">
+          <thead>
+            <tr>
+              <th aria-label="Product image" />
+              <th>SKU</th>
+              <th>Product</th>
+              <th>Qty</th>
+              <th>Sizes</th>
+            </tr>
+          </thead>
+          <tbody>
+            {batch.items.map((item, index) => renderItemRow(item, index, photoMap))}
+          </tbody>
+        </table>
+      </div>
+
+      {canVerifyOutletTransfer(batch) && (
+        <OutletVerificationPanel batch={batch} onUpdate={updateOutletTransfer} photoMap={photoMap} />
+      )}
+
+      {locationChange && isWebLocationOpen && (
+        <WebLocationChecklist
+          list={locationChange}
+          photoMap={photoMap}
+          onToggle={toggleMarkdownListItemTagged}
+        />
+      )}
+
+      <div className="ot-batch-card__footer">
+        {canConfirmOutletReceipt(batch) && (
+          <button type="button" className="ot-mark-received-btn" onClick={() => updateOutletTransfer(batch.id, { status: 'received', receivedAt: new Date().toISOString() }).catch(() => {})}>
+            Confirm Outlet received
+          </button>
+        )}
+        {activeUser?.role === 'executive' && (
+          <button type="button" className="ot-delete-transfer-btn" onClick={handleDelete}>
+            {isCompleted || isReceived ? 'Delete' : 'Discard'}
+          </button>
+        )}
+        <button type="button" className="ot-export-btn" onClick={() => downloadCSV(batch)}>
+          <IconDownload size={12} strokeWidth={1.75} className="ot-export-btn__icon" /> CSV
+        </button>
+        <button type="button" className="ot-export-btn" onClick={() => printBatch(batch, getUserName(batch.createdBy))}>
+          <IconPrint size={12} strokeWidth={1.75} className="ot-export-btn__icon" /> PDF / Print
+        </button>
+        {batch.receivedAt && (
+          <span className="ot-batch-card__received">
+            <span className="ot-batch-card__received-dot" aria-hidden="true">●</span>
+            Received {formatDate(batch.receivedAt)}
+          </span>
+        )}
+      </div>
+    </section>
+  )
+}
+
 export function OutletTransfers() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
@@ -450,6 +580,20 @@ export function OutletTransfers() {
   const [expanded, setExpanded] = useState(null)
   const [webLocationOpen, setWebLocationOpen] = useState(null)
   const handledDeepLink = useRef('')
+  const executiveView = activeUser?.role === 'executive'
+  const displayEntries = useMemo(() => (
+    executiveView
+      ? groupOutletTransfersForExecutive(transfers)
+      : transfers.map((batch) => ({
+          id: batch.id,
+          groupId: null,
+          isGroup: false,
+          batches: [batch],
+          createdAt: batch.createdAt,
+          createdBy: batch.createdBy,
+          note: batch.note,
+        }))
+  ), [executiveView, transfers])
 
   useEffect(() => {
     if (!requestedTransferId) {
@@ -460,11 +604,12 @@ export function OutletTransfers() {
     if (handledDeepLink.current === requestKey) return
     if (!transfers.some((transfer) => transfer.id === requestedTransferId)) return
     handledDeepLink.current = requestKey
-    setExpanded(requestedTransferId)
+    const requested = transfers.find((transfer) => transfer.id === requestedTransferId)
+    setExpanded(executiveView && requested?.groupId ? `group:${requested.groupId}` : requestedTransferId)
     if (requestedWebLocation && activeUser?.role === 'executive') {
       setWebLocationOpen(requestedTransferId)
     }
-  }, [activeUser?.role, requestedTransferId, requestedWebLocation, transfers])
+  }, [activeUser?.role, executiveView, requestedTransferId, requestedWebLocation, transfers])
 
   const getUserName = (id) => users.find((u) => u.id === id)?.name || id
 
@@ -476,19 +621,6 @@ export function OutletTransfers() {
       .filter(Boolean)
       .map((id) => getUserName(id))
       .join(', ')
-  }
-
-  const handleReceive = (id) => {
-    updateOutletTransfer(id, { status: 'received', receivedAt: new Date().toISOString() }).catch(() => {})
-  }
-
-  const handleDeleteTransfer = (batch) => {
-    const isFinal = batch.status === 'completed' || batch.status === 'received'
-    const ok = window.confirm(
-      `${isFinal ? 'Delete confirmed' : 'Discard'} outlet transfer?\nThis removes the transfer list for everyone${batch.status === 'received' ? ' and clears its linked Change Location Web list.' : '.'}`,
-    )
-    if (!ok) return
-    deleteOutletTransfer(batch.id).catch(() => {})
   }
 
   const canVerifyOutletTransfer = (batch) => {
@@ -503,8 +635,6 @@ export function OutletTransfers() {
   const canConfirmOutletReceipt = (batch) => {
     return batch.status === 'completed' && (activeUser?.role === 'outlet' || activeUser?.role === 'executive')
   }
-
-  const canDeleteOutletTransfer = () => activeUser?.role === 'executive'
 
   return (
     <div className="outlet-transfers-page store-transfers-page">
@@ -524,62 +654,48 @@ export function OutletTransfers() {
       )}
 
       <div className="ot-batch-list">
-        {transfers.map((batch) => {
-          const isExpanded = expanded === batch.id
-          const isPending = batch.status === 'pending'
-          const isCompleted = batch.status === 'completed'
-          const isReceived = batch.status === 'received'
-          const totalUnits = batch.items.reduce((s, i) => s + (i.totalQty ?? i.quantity ?? 0), 0)
-          const statusLabel = isPending ? 'Pending verification' : isCompleted ? 'Awaiting Outlet' : 'Received'
-          const locationChange = activeUser?.role === 'executive' && isReceived
-            ? markdownLists.find((list) => list.kind === 'location_change' && list.sourceTransferId === batch.id)
-            : null
-          const locationItems = locationChange?.items || []
-          const locationMarked = locationItems.filter(
-            (item) => locationChange?.item_statuses?.[item.skuCode]?.['E-commerce']?.status === 'tagged',
-          ).length
-          const locationComplete = locationChange?.status === 'completed' && locationItems.length > 0 && locationMarked === locationItems.length
-          const isWebLocationOpen = webLocationOpen === batch.id
+        {displayEntries.map((entry) => {
+          const isExpanded = expanded === entry.id
+          const allReceived = entry.batches.every((batch) => batch.status === 'received')
+          const allVerified = entry.batches.every((batch) => batch.status === 'completed' || batch.status === 'received')
+          const statusLabel = allReceived ? 'Received' : allVerified ? 'Awaiting Outlet' : entry.isGroup ? 'In progress' : 'Pending verification'
+          const totalProducts = entry.batches.reduce((sum, batch) => sum + batch.items.length, 0)
+          const totalUnits = entry.batches.reduce((sum, batch) => (
+            sum + batch.items.reduce((batchSum, item) => batchSum + (item.totalQty ?? item.quantity ?? 0), 0)
+          ), 0)
+          const progress = outletTransferGroupProgress(entry.batches)
           return (
-            <div key={batch.id} className="ot-batch-card">
+            <div key={entry.id} className={`ot-batch-card${entry.isGroup ? ' ot-batch-card--grouped' : ''}`}>
               <div
                 className="ot-batch-card__head"
-                onClick={() => setExpanded(isExpanded ? null : batch.id)}
+                onClick={() => setExpanded(isExpanded ? null : entry.id)}
                 onKeyDown={(e) => {
                   if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
                     e.preventDefault()
-                    setExpanded(isExpanded ? null : batch.id)
+                    setExpanded(isExpanded ? null : entry.id)
                   }
                 }}
                 role="button"
                 tabIndex={0}
               >
                 <div className="ot-batch-card__info">
-                  <div className="ot-batch-card__title">Transfer — {formatDate(batch.createdAt)}</div>
+                  <div className="ot-batch-card__title">{entry.isGroup ? 'Outlet operation' : 'Transfer'} — {formatDate(entry.createdAt)}</div>
                   <div className="ot-batch-card__meta">
-                    {batch.items.length} products · {totalUnits} units · by {getUserName(batch.createdBy)}
-                    {batch.fromShop && <span> · from {batch.fromShop}</span>}
-                    {batch.assignedTo && (
-                      <span> · assigned to {formatAssigneeList(batch.assignedTo)}</span>
-                    )}
+                    {totalProducts} products · {totalUnits} units · by {getUserName(entry.createdBy)}
+                    {entry.isGroup
+                      ? <span> · {entry.batches.length} store batches</span>
+                      : entry.batches[0]?.fromShop && <span> · from {entry.batches[0].fromShop}</span>}
+                    {!entry.isGroup && entry.batches[0]?.assignedTo && <span> · assigned to {formatAssigneeList(entry.batches[0].assignedTo)}</span>}
                   </div>
-                  {batch.note && <div className="ot-batch-card__note">{batch.note}</div>}
-                  {locationChange && (
-                    <button
-                      type="button"
-                      className={`ot-web-location-chip${locationComplete ? ' is-complete' : ''}`}
-                      onClick={(event) => {
-                        event.stopPropagation()
-                        setExpanded(batch.id)
-                        setWebLocationOpen(isWebLocationOpen ? null : batch.id)
-                      }}
-                    >
-                      <Globe2 size={13} strokeWidth={1.8} />
-                      Change Location Web · {locationComplete ? 'Completed' : `${locationMarked}/${locationItems.length}`}
-                    </button>
+                  {entry.note && <div className="ot-batch-card__note">{entry.note}</div>}
+                  {entry.isGroup && (
+                    <div className="ot-group-progress">
+                      <div><span>Overall progress</span><strong>{progress.percent}%</strong></div>
+                      <div className="ot-group-progress__track" aria-label={`Overall progress ${progress.percent}%`}><span style={{ width: `${progress.percent}%` }} /></div>
+                    </div>
                   )}
                 </div>
-                <span className={`ot-status-badge${isReceived ? ' ot-status-badge--received' : ' ot-status-badge--pending'}`}>
+                <span className={`ot-status-badge${allReceived ? ' ot-status-badge--received' : ' ot-status-badge--pending'}`}>
                   {statusLabel}
                 </span>
                 <span className={`ot-batch-card__chevron${isExpanded ? ' ot-batch-card__chevron--expanded' : ''}`} aria-hidden="true">
@@ -589,65 +705,25 @@ export function OutletTransfers() {
 
               {isExpanded && (
                 <div className="ot-batch-card__body">
-                  <div className="transfer-batch-table-wrap ot-batch-table-wrap">
-                    <table className="ot-batch-table">
-                      <thead>
-                        <tr>
-                          <th aria-label="Product image" />
-                          <th>SKU</th>
-                          <th>Product</th>
-                          <th>Qty</th>
-                          <th>Sizes</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {batch.items.map((it, idx) => renderItemRow(it, idx, photoMap))}
-                      </tbody>
-                    </table>
-                  </div>
-
-                  {canVerifyOutletTransfer(batch) && (
-                    <OutletVerificationPanel batch={batch} onUpdate={updateOutletTransfer} photoMap={photoMap} />
-                  )}
-
-                  {locationChange && isWebLocationOpen && (
-                    <WebLocationChecklist
-                      list={locationChange}
+                  {entry.batches.map((batch) => (
+                    <OutletBatchDetails
+                      key={batch.id}
+                      batch={batch}
+                      grouped={entry.isGroup}
+                      activeUser={activeUser}
                       photoMap={photoMap}
-                      onToggle={toggleMarkdownListItemTagged}
+                      markdownLists={markdownLists}
+                      webLocationOpen={webLocationOpen}
+                      setWebLocationOpen={setWebLocationOpen}
+                      toggleMarkdownListItemTagged={toggleMarkdownListItemTagged}
+                      updateOutletTransfer={updateOutletTransfer}
+                      deleteOutletTransfer={deleteOutletTransfer}
+                      getUserName={getUserName}
+                      formatAssigneeList={formatAssigneeList}
+                      canVerifyOutletTransfer={canVerifyOutletTransfer}
+                      canConfirmOutletReceipt={canConfirmOutletReceipt}
                     />
-                  )}
-
-                  <div className="ot-batch-card__footer">
-                    {canConfirmOutletReceipt(batch) && (
-                      <button type="button" className="ot-mark-received-btn" onClick={() => handleReceive(batch.id)}>
-                        Confirm Outlet received
-                      </button>
-                    )}
-                    {canDeleteOutletTransfer(batch) && (
-                      <button
-                        type="button"
-                        className="ot-delete-transfer-btn"
-                        onClick={() => handleDeleteTransfer(batch)}
-                      >
-                        {isCompleted || isReceived ? 'Delete' : 'Discard'}
-                      </button>
-                    )}
-                    <button type="button" className="ot-export-btn" onClick={() => downloadCSV(batch)}>
-                      <IconDownload size={12} strokeWidth={1.75} className="ot-export-btn__icon" />
-                      CSV
-                    </button>
-                    <button type="button" className="ot-export-btn" onClick={() => printBatch(batch, getUserName(batch.createdBy))}>
-                      <IconPrint size={12} strokeWidth={1.75} className="ot-export-btn__icon" />
-                      PDF / Print
-                    </button>
-                    {batch.receivedAt && (
-                      <span className="ot-batch-card__received">
-                        <span className="ot-batch-card__received-dot" aria-hidden="true">●</span>
-                        Received {formatDate(batch.receivedAt)}
-                      </span>
-                    )}
-                  </div>
+                  ))}
                 </div>
               )}
             </div>

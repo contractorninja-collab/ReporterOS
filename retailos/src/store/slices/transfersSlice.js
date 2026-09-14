@@ -265,7 +265,7 @@ export function createTransfersSlice(set, get) {
     /**
      * Create a complete transfer batch (used by the Transfer Builder page).
      * @param {'store'|'outlet'} type
-     * @param {{ items, fromShop?, toShop?, assignedTo?, assignedToIds?, note? }} payload
+     * @param {{ items, fromShop?, toShop?, assignedTo?, assignedToIds?, note?, groupId? }} payload
      * Use `assignedToIds` for one or more managers; each gets an assignment. `assignedTo` on the batch is stored as comma-separated ids.
      */
     createTransferBatch: (type, payload) => {
@@ -278,7 +278,7 @@ export function createTransfersSlice(set, get) {
       }
       const createdAt = new Date().toISOString()
       const sourceShop = String(payload.fromShop ?? state.activeUser?.shop ?? '').trim()
-      const existingOutletTransfer = type === 'outlet'
+      const existingOutletTransfer = type === 'outlet' && !payload.groupId
         ? findTodayPendingOutletTransfer(state.outletTransfers, sourceShop, new Date(createdAt))
         : null
       const id = existingOutletTransfer?.id || generateId()
@@ -311,6 +311,7 @@ export function createTransfersSlice(set, get) {
         assignedTo: assignedToStored,
         note: payload.note ?? null,
         item_statuses: {},
+        groupId: type === 'outlet' ? (payload.groupId ?? null) : null,
       }
       let outletSavePromise = null
       if (type === 'outlet') {

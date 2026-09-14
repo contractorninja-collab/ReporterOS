@@ -310,6 +310,7 @@ safeAddColumn('outlet_transfers', 'assignedTo', 'TEXT')
 safeAddColumn('outlet_transfers', 'note', 'TEXT')
 safeAddColumn('outlet_transfers', 'fromShop', 'TEXT')
 safeAddColumn('outlet_transfers', 'item_statuses', 'TEXT')
+safeAddColumn('outlet_transfers', 'groupId', 'TEXT')
 safeAddColumn('store_transfers', 'assignedTo', 'TEXT')
 safeAddColumn('store_transfers', 'note', 'TEXT')
 safeAddColumn('skus', 'cost_price', 'REAL')
@@ -975,6 +976,7 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_outlet_transfers_status_created ON outlet_transfers (status, createdAt DESC);
   CREATE INDEX IF NOT EXISTS idx_outlet_transfers_assigned ON outlet_transfers (assignedTo, status);
   CREATE INDEX IF NOT EXISTS idx_outlet_transfers_created_by ON outlet_transfers (createdBy, createdAt DESC);
+  CREATE INDEX IF NOT EXISTS idx_outlet_transfers_group ON outlet_transfers (groupId, createdAt DESC);
 
   CREATE INDEX IF NOT EXISTS idx_store_transfers_created ON store_transfers (createdAt DESC);
   CREATE INDEX IF NOT EXISTS idx_store_transfers_from_status ON store_transfers (fromShop, status);
@@ -2733,12 +2735,12 @@ export function getOutletTransferById(id) {
 export function insertOutletTransfer(t) {
   const id = t.id || uid()
   const createdAt = t.createdAt || new Date().toISOString()
-  db.prepare(`INSERT INTO outlet_transfers (id, items, createdBy, createdAt, status, receivedAt, assignedTo, note, fromShop, item_statuses)
-    VALUES (@id, @items, @createdBy, @createdAt, @status, @receivedAt, @assignedTo, @note, @fromShop, @item_statuses)`)
+  db.prepare(`INSERT INTO outlet_transfers (id, items, createdBy, createdAt, status, receivedAt, assignedTo, note, fromShop, item_statuses, groupId)
+    VALUES (@id, @items, @createdBy, @createdAt, @status, @receivedAt, @assignedTo, @note, @fromShop, @item_statuses, @groupId)`)
     .run({ id, items: JSON.stringify(t.items || []), createdBy: t.createdBy ?? '',
       createdAt, status: t.status ?? 'pending', receivedAt: t.receivedAt ?? null,
       assignedTo: t.assignedTo ?? null, note: t.note ?? null, fromShop: t.fromShop ?? '',
-      item_statuses: JSON.stringify(t.item_statuses || {}) })
+      item_statuses: JSON.stringify(t.item_statuses || {}), groupId: t.groupId ?? null })
   return { ...t, id, createdAt, receivedAt: t.receivedAt ?? null, items: t.items || [], item_statuses: t.item_statuses || {} }
 }
 

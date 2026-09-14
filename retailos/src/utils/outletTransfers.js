@@ -178,6 +178,55 @@ export function clearOutletItemStatuses(statuses, skuCode) {
   )
 }
 
+/** Group store-specific children into the single Outlet operation an executive created. */
+export function groupOutletTransfersForExecutive(transfers) {
+  const groups = new Map()
+  for (const transfer of Array.isArray(transfers) ? transfers : []) {
+    const groupId = String(transfer?.groupId || '').trim()
+    const key = groupId ? `group:${groupId}` : String(transfer?.id || '')
+    if (!groups.has(key)) {
+      groups.set(key, {
+        id: key,
+        groupId: groupId || null,
+        isGroup: Boolean(groupId),
+        batches: [],
+        createdAt: transfer?.createdAt || '',
+        createdBy: transfer?.createdBy || '',
+        note: transfer?.note || null,
+      })
+    }
+    groups.get(key).batches.push(transfer)
+  }
+  return [...groups.values()]
+}
+
+/** Progress counts verification as the first half and Outlet receipt as the second half. */
+export function outletTransferGroupProgress(transfers) {
+  let totalLines = 0
+  let verifiedLines = 0
+  let receivedLines = 0
+  for (const transfer of Array.isArray(transfers) ? transfers : []) {
+    const lines = flattenTransferLines(transfer?.items || [])
+    totalLines += lines.length
+    if (transfer?.status === 'completed' || transfer?.status === 'received') {
+      verifiedLines += lines.length
+    } else {
+      verifiedLines += lines.filter((line) => (
+        !outletVerificationEntryError(transfer?.item_statuses?.[line.key], line.qty)
+      )).length
+    }
+    if (transfer?.status === 'received') receivedLines += lines.length
+  }
+  const totalSteps = totalLines * 2
+  const completedSteps = verifiedLines + receivedLines
+  return {
+    totalLines,
+    verifiedLines,
+    receivedLines,
+    percent: totalSteps > 0 ? Math.round((completedSteps / totalSteps) * 100) : 0,
+  }
+}
+
 export function outletShortageDraftError({ expected, missing, comment }) {
   const expectedQty = Number(expected)
   if (!Number.isInteger(expectedQty) || expectedQty < 1) return 'This transfer quantity is invalid.'

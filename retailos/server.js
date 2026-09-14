@@ -2379,7 +2379,10 @@ app.post('/api/outlet-transfers', (req, res) => {
   try {
     const u = req.authUser
     const body = { ...req.body, createdBy: u.id, status: 'pending', receivedAt: null, item_statuses: {} }
-    if (u.role !== 'executive' && u.shop) body.fromShop = u.shop
+    if (u.role !== 'executive') {
+      body.groupId = null
+      if (u.shop) body.fromShop = u.shop
+    }
     if (u.role !== 'executive') {
       const at = body.assignedTo
       if (!outletTransferAssignedToUpdateAllowed(u, at, body.fromShop)) {
