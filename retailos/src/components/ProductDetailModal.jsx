@@ -1122,7 +1122,7 @@ export default function ProductDetailModal({ sku, status, statusData, onClose, s
                 Transfer to Shop
               </button>
             )}
-            {!isOutletUnavailable && (status === 'Clearance' || status === 'Outlet') && (
+            {!isOutletUnavailable && (
               <button type="button" onClick={openOutletMove} disabled={outletMoveSaving} style={{ ...ACTION_BTN, background: '#fbbf24', color: '#09090e', opacity: outletMoveSaving ? 0.6 : 1 }}>
                 {outletMoveSaving ? 'Adding…' : 'Move to Outlet'}
               </button>
